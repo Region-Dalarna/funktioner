@@ -256,8 +256,7 @@ sla_upp_varde_klartext_kod <- function(api_url, fran_varde, klartext = TRUE, fra
       
       # tilldela index för själva klartext-/kodvärdet
       ind_kod <- which(str_detect(tolower(metadata$variables[[ind_var]][[fran_kol]]), tolower(paste0(sok_varde))))
-      
-      
+      if (length(ind_kod) < 1) stop(paste0('Värdet "', sok_varde, '" finns inte i tabellen. Korrigera värdet och försök igen.'))      
       # om söksträngen finns två gånger, kolla om söksträngen är precis likadan som de variabler som hittats, annars ta den första variabeln
       if (length(ind_kod) > 1) {
         # bläddra igenom alla dubletter som söksträngen finns i
@@ -290,6 +289,7 @@ sla_upp_varde_klartext_kod <- function(api_url, fran_varde, klartext = TRUE, fra
       # test, raden ovan var från början men vad gör \\b egentligen
       sok_varde <- fran_varde[var_nr] %>% str_replace("\\(", "\\\\(") %>% str_replace("\\)", "\\\\)")
       ind_kod <- which(str_detect(tolower(metadata$variables[[ind]][[fran_kol]]), tolower(paste0(sok_varde))))
+      if (length(ind_kod) < 1) stop(paste0('Värdet "', sok_varde, '" finns inte i tabellen. Korrigera värdet och försök igen.'))
       
       # om söksträngen finns två gånger, kolla om söksträngen är precis likadan som de variabler som hittats, annars ta den första variabeln
       if (length(ind_kod) > 1) {
