@@ -33,7 +33,21 @@ list_komma_eller <- function(skickad_vektor){
   return(nystrang)
 }
 
-
+# en funktion för att sätta ett komma mellan varje element i en vektor
+# samt ett eller mellan näst sista och sista elementet
+list_komma_samt <- function(skickad_vektor){
+  if (length(skickad_vektor)>1){
+    nystrang <- skickad_vektor[1]
+    for (elem in 2:length(skickad_vektor)){
+      if (elem == length(skickad_vektor)){
+        nystrang <- paste0(nystrang, " samt ", skickad_vektor[elem])
+      } else {
+        nystrang <- paste0(nystrang, ", ", skickad_vektor[elem])
+      }
+    }
+  } else nystrang <- skickad_vektor[1]
+  return(nystrang)
+}
 
 # funktion för att dela upp en sträng i flera rader. Kan användas för att exempelvis
 # få en vettig rubrik i ett diagram i ggplot. Man skickar in en sträng, anger en 
