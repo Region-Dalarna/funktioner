@@ -412,5 +412,7 @@ diagramfarger <- function(farg = "gron_sex"){
   
   konsbalans_fem <- c("#E2A855", "#FFD378", "#969696", "#459079", "#54B798")
   
+  kon_bakgrund <- c("#e2a855", "#459079", "#00B4E4", "#0074A2")
+  
   return(get(farg))
 }
