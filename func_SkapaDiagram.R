@@ -19,7 +19,7 @@ hamta_logga_path <- function(){
   
   td = tempdir()
   tf = tempfile(tmpdir=td, fileext=".png")
-  download.file("https://github.com/Region-Dalarna/depot/blob/fb20257db5927e3e9a8315edcfddf47f3a38d014/rd_logo_liggande_fri_svart.png", tf)
+  download.file("https://github.com/Region-Dalarna/depot/blob/fb20257db5927e3e9a8315edcfddf47f3a38d014/rd_logo_liggande_fri_svart.png", tf, mode = "wb")
   return(tf)
   
 }           # sökväg till logga för att kunna lägga in den i diagrammen
