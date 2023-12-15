@@ -15,7 +15,14 @@ source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_di
 
 # ================================== funktion för att hämta sökväg till logga som läggs in i diagram =============================
 #hamta_logga_path <- function(){return("G:/Samhällsanalys/MallarLoggor/logo_liggande_fri_svart.png")}           # sökväg till logga för att kunna lägga in den i diagrammen
-hamta_logga_path <- function(){return("https://github.com/Region-Dalarna/depot/blob/fb20257db5927e3e9a8315edcfddf47f3a38d014/rd_logo_liggande_fri_svart.png")}           # sökväg till logga för att kunna lägga in den i diagrammen
+hamta_logga_path <- function(){
+  
+  td = tempdir()
+  tf = tempfile(tmpdir=td, fileext=".png")
+  download.file("https://github.com/Region-Dalarna/depot/blob/fb20257db5927e3e9a8315edcfddf47f3a38d014/rd_logo_liggande_fri_svart.png", tf)
+  return(tf)
+  
+}           # sökväg till logga för att kunna lägga in den i diagrammen
 
 # ================================== Inställningar för alla diagram som skapas ===========================================================
 
