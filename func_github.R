@@ -1,27 +1,31 @@
-# =======================================================================================================================
-#
-# Funktioner för att skripta mot Github. Ett sätt att slippa göra commits, pull och push etc. manuellt med klick i 
-# R-studio. Använder man credentials, vilket vi gör nedan, kan man köra dessa skript utan R-studio och därmed schema-
-# lägga dessa skript om man vill. 
-#
-# För att detta ska fungera behöver man använda följande keyring-konton:
-#         1. Service: "git2r", anv: <github användarnamn>, pwd: <mailadress kopplat till github-kontot>
-#         2. Service: "github", anv: <github användarnamn>, pwd: <lösenord på github>
-#         3. Service: "github_token", anv: <github användarnamn>, pwd: <personal access token som man skapar på github>
-# 
-# Man skapar ett personal access token på sin Github-användare på github.com genom att välja:
-#                                            Settings - Developer settings - Personal access tokens - Tokens (classic)
-# och där skapar man ett personal token som lägger in i sin keyring enligt ovan.
-#
-# =======================================================================================================================
-library(git2r)
-library(keyring)
+
+if (!require("pacman")) install.packages("pacman")
+p_load(git2r,
+       keyring)
 
 skicka_filer_till_github <- function(lokalt_repo_sokvag,        # sökväg till en mapp som utgör ett lokalt Github-repository
                                      filnamn_gh_push,           # filnamn utan sökväg, utöver undermappar i den lokala repository-mappen
                                      commit_message = NA,       # commit-meddelande, NA om man  vill köra det automatiska "Uppdaterat av r-skript automatiskt: <datum> <tid>
                                      pull_forst = TRUE) {       # gör en pull() innan man gör en push() till github
 
+  # =======================================================================================================================
+  #
+  # Funktioner för att skripta mot Github. Ett sätt att slippa göra commits, pull och push etc. manuellt med klick i 
+  # R-studio. Använder man credentials, vilket vi gör nedan, kan man köra dessa skript utan R-studio och därmed schema-
+  # lägga dessa skript om man vill. 
+  #
+  # För att detta ska fungera behöver man använda följande keyring-konton:
+  #         1. Service: "git2r", anv: <github användarnamn>, pwd: <mailadress kopplat till github-kontot>
+  #         2. Service: "github", anv: <github användarnamn>, pwd: <lösenord på github>
+  #         3. Service: "github_token", anv: <github användarnamn>, pwd: <personal access token som man skapar på github>
+  # 
+  # Man skapar ett personal access token på sin Github-användare på github.com genom att välja:
+  #                                            Settings - Developer settings - Personal access tokens - Tokens (classic)
+  # och där skapar man ett personal token som lägger in i sin keyring enligt ovan.
+  #
+  # =======================================================================================================================
+  
+  
   # filerna ska redan vara skrivna till mappen som tillhör repositoriet för att detta ska fungera
   if (in_repository(lokalt_repo_sokvag)) {
     

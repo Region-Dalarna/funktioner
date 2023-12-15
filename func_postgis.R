@@ -1,13 +1,13 @@
-library(openxlsx)
-library(tidyverse)
-library(sf)
-library(mapview)
-library(purrr)
-#library(rpostgis)               # funkar inte längre from sep 2023
-library(RPostgres)
-library(keyring)
 
-source("G:/skript/func/func_GIS.R", encoding = "utf-8", echo = FALSE)
+if (!require("pacman")) install.packages("pacman")
+p_load(openxlsx,
+       tidyverse,
+       sf, 
+       mapview,
+       RPostgres,
+       keyring)
+
+source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R", encoding = "utf-8", echo = FALSE)
 
 las_in_rutor_xlsx_till_postgis_skapa_pgr_graf <- 
   function(inlas_mapp = "G:/Samhällsanalys/GIS/rutor/",

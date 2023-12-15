@@ -1,21 +1,21 @@
-library(ggplot2)
-library(RColorBrewer)
-library(magick)
-library(scales)       # för att använda format_format-funktionen och fixa till format på etiketter
-library(httr)
-library(openxlsx)
-library(tidytext)     # för att sortera facet-diagram med funktionen reorder_within() och scale_x_reordered()
+if (!require("pacman")) install.packages("pacman")
+p_load(tidyverse,
+       RColorBrewer,
+       magick,
+       scales,        # för att använda format_format-funktionen och fixa till format på etiketter
+       httr,
+       openxlsx,
+       tidytext)     # för att sortera facet-diagram med funktionen reorder_within() och scale_x_reordered()
 #library(png)
 
-source("G:/skript/func/func_logga_i_diagram.R", encoding = "utf-8", echo = FALSE)
-source("G:/skript/func/func_diagramfunktioner.R", encoding = "utf-8", echo = FALSE)
+source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_logga_i_diagram.R", encoding = "utf-8", echo = FALSE)
+source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_diagramfunktioner.R", encoding = "utf-8", echo = FALSE)
 
-# # För att komma förbi brandvägg - om man har en sådan, annars kan man ta bort dessa två rader
-# set_config(use_proxy(url = "http://mwg.ltdalarna.se", port = 9090))
-# set_config(config(ssl_verifypeer = 0L))
+
 
 # ================================== funktion för att hämta sökväg till logga som läggs in i diagram =============================
-hamta_logga_path <- function(){return("G:/Samhällsanalys/MallarLoggor/logo_liggande_fri_svart.png")}           # sökväg till logga för att kunna lägga in den i diagrammen
+#hamta_logga_path <- function(){return("G:/Samhällsanalys/MallarLoggor/logo_liggande_fri_svart.png")}           # sökväg till logga för att kunna lägga in den i diagrammen
+hamta_logga_path <- function(){return("https://github.com/Region-Dalarna/depot/blob/main/rd_logo_liggande_fri_svart.png")}           # sökväg till logga för att kunna lägga in den i diagrammen
 
 # ================================== Inställningar för alla diagram som skapas ===========================================================
 

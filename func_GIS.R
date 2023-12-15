@@ -1,5 +1,8 @@
-library(sf)
-library(rio)
+
+if (!require("pacman")) install.packages("pacman")
+p_load(tidyverse,
+       sf,
+       rio)
 
 # =================== här ställer vi in mappar och filer som vi hämtar GIS-lager från =======================
 mapp_scbadmgranser <- "G:/Samhällsanalys/GIS/Grundkartor/Adm gränser med kustgränser/"

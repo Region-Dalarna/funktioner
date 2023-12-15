@@ -1,4 +1,4 @@
-library(RColorBrewer)
+if (!require("RColorBrewer")) install.packages("RColorBrewer")
 
 nDigits <- function(x) nchar( trunc( abs(x) ) )    # funktion för att räkna antal siffror i heltal
 

@@ -1,4 +1,4 @@
-library(stringr)
+if (!require("stringr")) install.packages("stringr")
 # funktioner för att hantera text i olika former, strängar, vecktorer etc.
 
 # en funktion för att sätta ett komma mellan varje element i en vektor
