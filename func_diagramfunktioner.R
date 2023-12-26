@@ -4,7 +4,7 @@ if (!require("RColorBrewer")) install.packages("RColorBrewer")
 # ================================== funktion för att hämta sökväg till logga som läggs in i diagram =============================
 hamta_logga_path <- function(){
   # sökväg till logga för att kunna lägga in den i diagrammen
-  tf <- "https://raw.githubusercontent.com/Region-Dalarna/depot/fb20257db5927e3e9a8315edcfddf47f3a38d014/rd_logo_liggande_fri_svart.png"
+  tf <- "https://raw.githubusercontent.com/Region-Dalarna/depot/main/rd_logo_liggande_fri_svart.png"
   return(tf)
 }           
 
