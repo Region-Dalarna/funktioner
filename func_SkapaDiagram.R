@@ -11,21 +11,6 @@ p_load(tidyverse,
 source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_logga_i_diagram.R", encoding = "utf-8", echo = FALSE)
 source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_diagramfunktioner.R", encoding = "utf-8", echo = FALSE)
 
-
-
-# ================================== funktion för att hämta sökväg till logga som läggs in i diagram =============================
-#hamta_logga_path <- function(){return("G:/Samhällsanalys/MallarLoggor/logo_liggande_fri_svart.png")}           # sökväg till logga för att kunna lägga in den i diagrammen
-hamta_logga_path <- function(){
-  
-  # td = tempdir()
-  # tf = tempfile(tmpdir=td, fileext=".png")
-  # GET("https://github.com/Region-Dalarna/depot/blob/fb20257db5927e3e9a8315edcfddf47f3a38d014/rd_logo_liggande_fri_svart.png", write_disk(tf, overwrite = TRUE))
-  #download.file("https://github.com/Region-Dalarna/depot/blob/fb20257db5927e3e9a8315edcfddf47f3a38d014/rd_logo_liggande_fri_svart.png", tf, mode = "wb")
-  tf <- "https://raw.githubusercontent.com/Region-Dalarna/depot/fb20257db5927e3e9a8315edcfddf47f3a38d014/rd_logo_liggande_fri_svart.png"
-  return(tf)
-  
-}           # sökväg till logga för att kunna lägga in den i diagrammen
-
 # ================================== Inställningar för alla diagram som skapas ===========================================================
 
 SkapaStapelDiagram <- function(skickad_df, 
