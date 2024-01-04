@@ -458,3 +458,15 @@ hamta_kolada_df <- function(kpi_id, valda_kommuner, valda_ar = NA, konsuppdelat 
   return(retur_df)
 }
 
+ladda_funk_parametrar <- function(funktion) {
+  
+  # funktion för att ladda in alla parametrars standardvärden i global environment
+  # OBS! Den skriver över variabler som heter likadant i global environment
+  
+  st_var <- formals({{funktion}})
+  
+  for (varname in names(st_var)) {
+    assign(varname, st_var[[varname]], envir = .GlobalEnv)
+  }
+  
+} # slut funktion
