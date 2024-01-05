@@ -479,7 +479,9 @@ ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_
   retur_varde <- TRUE 
   
   if (length(unique(str_sub(reg_koder[reg_koder != "00"], 1, 2))) > 1) retur_varde <- FALSE else {
-    if (any(nchar(reg_koder) < 4 & !reg_koder %in% c("00", unique(str_sub(reg_koder, 1, 2))))) retur_varde <- FALSE     # finns kod som inte är kommunkod och inte heller läns- eller rikskod
+    if (any(nchar(reg_koder) < 4 & !reg_koder %in% unique(c("00", str_sub(reg_koder, 1, 2))))) retur_varde <- FALSE     # finns kod som inte är kommunkod och inte heller läns- eller rikskod
+    kommuner_akt_lan <- hamtakommuner(unique(str_sub(reg_koder[reg_koder != "00"], 1, 2)), F, F)
+    if (all(reg_koder[!reg_koder %in% unique(c("00", str_sub(reg_koder, 1, 2)))] %in% kommuner_akt_lan))    # alla regionkoder minus länskod och rikskod är lika med det aktuella länets samtliga kommunkoder
     if (any(reg_koder == str_sub(reg_koder, 1, 2)) & !tillat_lanskod) retur_varde <- FALSE
     if (any(reg_koder == "00") & !tillat_rikskod) retur_varde <- FALSE
   }
