@@ -487,3 +487,4 @@ ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_
   return(retur_varde)
   
 }
+
