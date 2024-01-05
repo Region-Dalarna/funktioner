@@ -458,6 +458,8 @@ hamta_kolada_df <- function(kpi_id, valda_kommuner, valda_ar = NA, konsuppdelat 
   return(retur_df)
 }
 
+# ====================================================================================================
+
 ladda_funk_parametrar <- function(funktion) {
   
   # funktion för att ladda in alla parametrars standardvärden i global environment
@@ -470,3 +472,17 @@ ladda_funk_parametrar <- function(funktion) {
   }
   
 } # slut funktion
+
+
+ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_rikskod = TRUE) {
+  retur_varde <- TRUE 
+  
+  if (length(unique(str_sub(reg_koder, 1, 2))) > 1) retur_varde <- FALSE else {
+    if (any(nchar(reg_koder) < 4 & !reg_koder %in% c("00", unique(str_sub(reg_koder, 1, 2))))) retur_varde <- FALSE     # finns kod som inte är kommunkod och inte heller läns- eller rikskod
+    if (any(reg_koder == str_sub(reg_koder, 1, 2)) & !tillat_lanskod) retur_varde <- FALSE
+    if (any(reg_koder == "00") & !tillat_rikskod) retur_varde <- FALSE
+  }
+  
+  return(retur_varde)
+  
+}
