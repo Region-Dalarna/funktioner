@@ -476,6 +476,10 @@ ladda_funk_parametrar <- function(funktion) {
 
 ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_rikskod = TRUE) {
   
+  # kontrollerar om kommunkoderna som skickas till funktionen utgör alla kommuner i ett län
+  # Man kan tillåta att länets länskod och att rikskoden ("00") ligger med också men inte kommuner
+  # från andra län
+  
   retur_varde <- TRUE 
   
   if (length(unique(str_sub(reg_koder[reg_koder != "00"], 1, 2))) > 1) retur_varde <- FALSE else {
@@ -492,3 +496,37 @@ ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_
   
 }
 
+skapa_aldersgrupper <- function(alder, aldergrupp_vekt) {
+  
+  # funktion för att enkelt skapa åldersgrupper från ålder som kan användas i en mutate-funktion:
+  # mutate(aldersgrupp = skapa_aldersgrupper(alder_var, c(19, 35, 50, 65, 80)))
+  #
+  # aldergrupp_vekt är en vektor där varje siffra är början på nästa åldersgrupp. 
+  # så c(19, 35, 50, 65, 80) ovan blir till åldersgrupperna 0-18 år, 19-34 år, 35-49 år, 50-64 år, 65-79 år samt 80+ år
+  
+  # Kontrollera och hantera öppna åldersgrupper
+  if (!is.infinite(aldergrupp_vekt[[1]])) {
+    aldergrupp_vekt <- c(-Inf, aldergrupp_vekt)
+  }
+  if (!is.infinite(tail(aldergrupp_vekt, n = 1))) {
+    aldergrupp_vekt <- c(aldergrupp_vekt, Inf)
+  }
+  
+  # Skapa etiketter för grupperna
+  labels <- vector("character", length = length(aldergrupp_vekt) - 1)
+  for (i in 1:length(labels)) {
+    lower <- aldergrupp_vekt[i]
+    upper <- aldergrupp_vekt[i + 1] - 1
+    
+    if (is.infinite(lower)) {
+      labels[i] <- str_c("-", upper, " år")
+    } else if (is.infinite(upper + 1)) {
+      labels[i] <- str_c(lower, "+ år")
+    } else {
+      labels[i] <- str_c(lower, "-", upper, " år")
+    }
+  }
+  
+  # Dela in åldrarna i grupper
+  cut(alder, breaks = aldergrupp_vekt, labels = labels, right = FALSE, include.lowest = TRUE)
+}
