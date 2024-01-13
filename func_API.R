@@ -474,17 +474,28 @@ ladda_funk_parametrar <- function(funktion) {
 } # slut funktion
 
 
-ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_rikskod = TRUE, returnera_text = FALSE) {
+ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_rikskod = TRUE, returnera_text = FALSE, originaltext = NA) {
   
   # kontrollerar om kommunkoderna som skickas till funktionen utgör alla kommuner i ett län
   # Man kan tillåta att länets länskod och att rikskoden ("00") ligger med också men inte kommuner
   # från andra län
+  #
+  # reg_koder         - är de regionkoder vi testar. Om alla kommer från samma län och utgör samtliga kommuner i 
+  #                     länet så blir värdet TRUE (eller "<lans> kommuner" om vi valt att returnera_text)
+  # tillat_lanskod    - här tillåter vi att vektorn reg_koder innehåller länskoden, om inte blir det FALSE om den är med
+  # tillat_rikskod    - här tillåter vi även att vektorn innehåller rikskoden ("00"), om inte blir det FALSE om den är med
+  # returnera_text    - istället för att returnera TRUE eller FALSE huruvida reg_koder innehåller alla kommuner i ett län
+  #                     så kan vi returnera textsträngen "Dalarnas kommuner" (om det är Dalarna som är länet)
+  # originaltext      - om man kör TRUE på returnera_text och inte alla reg_koder är från alla kommuner i ett län
+  #                     så returneras NA, alternativt returneras originaltext om det skickas med. På så sätt kan man
+  #                     testa om reg_koder är alla kommuner i ett län och få tillbaka den textsträng man hade från 
+  #                     början om det inte är det.
   
-  retur_varde <- TRUE 
+  retur_varde <- TRUE                      # vi sätter värdet till TRUE från början, testar nedan och ändrar till FALSE om inte alla kriterier nedan uppfylls
   
-  if (length(unique(str_sub(reg_koder[reg_koder != "00"], 1, 2))) > 1) retur_varde <- FALSE else {
-    if (any(nchar(reg_koder) < 4 & !reg_koder %in% unique(c("00", str_sub(reg_koder, 1, 2))))) retur_varde <- FALSE     # finns kod som inte är kommunkod och inte heller läns- eller rikskod
-    kommuner_akt_lan <- hamtakommuner(unique(str_sub(reg_koder[reg_koder != "00"], 1, 2)), F, F)
+  if (length(unique(str_sub(reg_koder[reg_koder != "00"], 1, 2))) > 1) retur_varde <- FALSE else {                      # om det finns flera län eller kommuner från flera län med i reg_koder så blir det FALSE                      
+    if (any(nchar(reg_koder) < 4 & !reg_koder %in% unique(c("00", str_sub(reg_koder, 1, 2))))) retur_varde <- FALSE     # finns kod som inte är kommunkod och inte heller läns- eller rikskod så blir det FALSE
+    kommuner_akt_lan <- hamtakommuner(unique(str_sub(reg_koder[reg_koder != "00"], 1, 2)), F, F)         # här hämtar vi alla kommuner i aktuellt län
     reg_koder_bara_komm <- reg_koder[!reg_koder %in% unique(c("00", str_sub(reg_koder, 1, 2)))]
     if (length(reg_koder_bara_komm) < 1) retur_varde <- FALSE               # om det inte finns några kommuner i skickade regionkoder
     if (!all(reg_koder[!reg_koder %in% unique(c("00", str_sub(reg_koder, 1, 2)))] %in% kommuner_akt_lan)) retur_varde <- FALSE   # alla regionkoder minus länskod och rikskod är lika med det aktuella länets samtliga kommunkoder
@@ -497,7 +508,7 @@ ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_
       lanskod <- str_sub(reg_koder[reg_koder != "00"], 1, 2) %>% unique()
       retur_text <- hamtaregion_kod_namn(lanskod)$region %>% skapa_kortnamn_lan() %>% paste0(., "s kommuner")
     } else {
-      retur_text <- NA
+      retur_text <- originaltext
     }
     
     return(retur_text)         # här returneras text, nytt värde om alla kommuner kommer från ett län, annars NA
