@@ -474,7 +474,7 @@ ladda_funk_parametrar <- function(funktion) {
 } # slut funktion
 
 
-ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_rikskod = TRUE) {
+ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_rikskod = TRUE, returnera_text = FALSE) {
   
   # kontrollerar om kommunkoderna som skickas till funktionen utgör alla kommuner i ett län
   # Man kan tillåta att länets länskod och att rikskoden ("00") ligger med också men inte kommuner
@@ -492,9 +492,22 @@ ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_
     if (any(reg_koder == "00") & !tillat_rikskod) retur_varde <- FALSE
   }
   
-  return(retur_varde)
+  if (returnera_text) {        # om användaren valt att man ska returnera text (och inte TRUE/FALSE)
+    if (retur_varde) {         # om alla kommuner tillhör samma län så skapas texten som ska returneras nedan
+      lanskod <- str_sub(reg_koder[reg_koder != "00"], 1, 2) %>% unique()
+      retur_text <- hamtaregion_kod_namn(lanskod)$region %>% skapa_kortnamn_lan() %>% paste0(., "s kommuner")
+    } else {
+      retur_text <- NA
+    }
+    
+    return(retur_text)         # här returneras text, nytt värde om alla kommuner kommer från ett län, annars NA
+    
+  } else {                     # om användaren INTE valt att returnera text returneras TRUE/FALSE
+    return(retur_varde)  
+  }
   
 }
+
 
 skapa_aldersgrupper <- function(alder, aldergrupp_vekt) {
   
