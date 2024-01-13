@@ -474,7 +474,7 @@ ladda_funk_parametrar <- function(funktion) {
 } # slut funktion
 
 
-ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_rikskod = TRUE, returnera_text = FALSE, originaltext = NA) {
+ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_rikskod = TRUE, returnera_text = FALSE, returtext = NA) {
   
   # kontrollerar om kommunkoderna som skickas till funktionen utgör alla kommuner i ett län
   # Man kan tillåta att länets länskod och att rikskoden ("00") ligger med också men inte kommuner
@@ -486,8 +486,8 @@ ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_
   # tillat_rikskod    - här tillåter vi även att vektorn innehåller rikskoden ("00"), om inte blir det FALSE om den är med
   # returnera_text    - istället för att returnera TRUE eller FALSE huruvida reg_koder innehåller alla kommuner i ett län
   #                     så kan vi returnera textsträngen "Dalarnas kommuner" (om det är Dalarna som är länet)
-  # originaltext      - om man kör TRUE på returnera_text och inte alla reg_koder är från alla kommuner i ett län
-  #                     så returneras NA, alternativt returneras originaltext om det skickas med. På så sätt kan man
+  # returtext      - om man kör TRUE på returnera_text och inte alla reg_koder är från alla kommuner i ett län
+  #                     så returneras NA, alternativt returneras returtext om det skickas med. På så sätt kan man
   #                     testa om reg_koder är alla kommuner i ett län och få tillbaka den textsträng man hade från 
   #                     början om det inte är det.
   
@@ -508,7 +508,7 @@ ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_
       lanskod <- str_sub(reg_koder[reg_koder != "00"], 1, 2) %>% unique()
       retur_text <- hamtaregion_kod_namn(lanskod)$region %>% skapa_kortnamn_lan() %>% paste0(., "s kommuner")
     } else {
-      retur_text <- originaltext
+      retur_text <- returtext
     }
     
     return(retur_text)         # här returneras text, nytt värde om alla kommuner kommer från ett län, annars NA
