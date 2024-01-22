@@ -237,6 +237,7 @@ sla_upp_varde_klartext_kod <- function(api_url, fran_varde, klartext = TRUE, fra
       # ta reda på var i listan som klartext-variabeln alternativt koden finns och hämta variabelns kod alternativt klartext
       #ind_var <- which(str_detect(tolower(metadata$variables), tolower(paste0("\\b", fran_varde[var_nr], "\\b"))))
       sok_varde <- fran_varde[var_nr] %>% str_replace("\\(", "\\\\(") %>% str_replace("\\)", "\\\\)")
+      sok_varde_utan_escape <- fran_varde[var_nr]
       ind_var <- which(str_detect(tolower(metadata$variables), tolower(paste0(sok_varde))))
       
       # om söksträngen finns i två variabler, kolla om söksträngen är precis likadan som de värdena i de variabler som hittats, annars ta den första variabeln
@@ -246,7 +247,8 @@ sla_upp_varde_klartext_kod <- function(api_url, fran_varde, klartext = TRUE, fra
         hittat_identisk <- FALSE              # variabel som anger om vi hittat någon sökträff-dublett som är identisk med skickat värde
         for (dublett in ind_var){
           # om fran_varde är exakt lika med söksträngen som kontrolleras så blir det 
-          sok_traffar <- str_which(fran_varde[var_nr], metadata$variables[[dublett]][[fran_kol]])
+          sok_traffar <- str_which(sok_varde, metadata$variables[[dublett]][[fran_kol]])
+          if (length(sok_traffar) == 0) sok_traffar <- str_which(sok_varde_utan_escape, metadata$variables[[dublett]][[fran_kol]])
           if (length(sok_traffar) > 0) { 
             vald_dublett <- dublett            # tilldela index för variablen där vi får exakt sökträff 
             hittat_identisk <- TRUE
@@ -266,7 +268,8 @@ sla_upp_varde_klartext_kod <- function(api_url, fran_varde, klartext = TRUE, fra
         hittat_identisk <- FALSE              # variabel som anger om vi hittat någon sökträff-dublett som är identisk med skickat värde
         for (dublett in 1:length(ind_kod)){
           # om fran_varde är exakt lika med söksträngen som kontrolleras så blir det 
-          if (fran_varde[var_nr] == metadata$variables[[ind_var]][[fran_kol]][[ind_kod[dublett]]]) {
+          if (sok_varde == metadata$variables[[ind_var]][[fran_kol]][[ind_kod[dublett]]] |
+              sok_varde_utan_escape == metadata$variables[[ind_var]][[fran_kol]][[ind_kod[dublett]]]) {
             vald_dublett <- ind_kod[dublett]
             hittat_identisk <- TRUE
           }
@@ -290,6 +293,7 @@ sla_upp_varde_klartext_kod <- function(api_url, fran_varde, klartext = TRUE, fra
       #ind_kod <- which(str_detect(tolower(metadata$variables[[ind]][[fran_kol]]), tolower(paste0("\\b", fran_varde[var_nr], "\\b"))))
       # test, raden ovan var från början men vad gör \\b egentligen
       sok_varde <- fran_varde[var_nr] %>% str_replace("\\(", "\\\\(") %>% str_replace("\\)", "\\\\)")
+      sok_varde_utan_escape <- fran_varde[var_nr]
       ind_kod <- which(str_detect(tolower(metadata$variables[[ind]][[fran_kol]]), tolower(paste0(sok_varde))))
       if (length(ind_kod) < 1) stop(paste0('Värdet "', sok_varde, '" finns inte i tabellen. Korrigera värdet och försök igen.'))
       
@@ -300,7 +304,8 @@ sla_upp_varde_klartext_kod <- function(api_url, fran_varde, klartext = TRUE, fra
         hittat_identisk <- FALSE              # variabel som anger om vi hittat någon sökträff-dublett som är identisk med skickat värde
         for (dublett in ind_kod){
           # om fran_varde är exakt lika med söksträngen som kontrolleras så blir det 
-          if (sok_varde == metadata$variables[[ind]][[fran_kol]][[dublett]]) {
+          if (sok_varde == metadata$variables[[ind]][[fran_kol]][[dublett]] |
+              sok_varde_utan_escape == metadata$variables[[ind]][[fran_kol]][[dublett]]) {
             vald_dublett <- dublett
             hittat_identisk <- TRUE
           }
