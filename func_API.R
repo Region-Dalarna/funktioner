@@ -395,6 +395,23 @@ korrigera_kolnamn_supercross <- function(skickad_fil, teckenkodstabell = "latin1
 }
 
 
+ar_alla_kommuner_i_ett_lan <- function(regionkoder, acceptera_lanets_kod = TRUE, acceptera_riket_kod = TRUE) {
+  retur_resp <- TRUE
+  
+  lanskoder <- regionkoder %>% str_sub(1,2) %>% unique() %>% .[!str_detect(., "00")]
+  if (length(unique(lanskoder)) > 1) retur_resp <- FALSE else {                  # testa om det finns fler län i skickade regionkoder
+  
+    kommuner_i_lan <- hamtakommuner(lanskoder, F, F)                             # hämta alla kommuner i aktuellt län
+    if (!all(kommuner_i_lan %in% regionkoder)) retur_resp <- FALSE               # testa om alla kommuner i länet finns i regionkoder
+    if (lanskoder %in% regionkoder & !acceptera_lanets_kod) retur_resp <- FALSE  # om man inte accepterar länets kod och den finns i regionkoder så returneras FALSE
+    if ("00" %in% regionkoder & !acceptera_riket_kod) retur_resp <- FALSE        # om man inte accepterar riket-kod och den finns i regionkoder så returneras FALSE
+  
+  } # slut if-sats som testar om det finns flera län = returnerar FALSE
+  
+  return(retur_resp)
+  
+} # slut funktion
+
 # ================================================= kolada-funktioner ========================================================
 
 hamta_kolada_giltiga_ar <- function(kpi_id, vald_region = "2080"){
