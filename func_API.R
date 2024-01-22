@@ -475,3 +475,99 @@ hamta_kolada_df <- function(kpi_id, valda_kommuner, valda_ar = NA, konsuppdelat 
   return(retur_df)
 }
 
+# ====================================================================================================
+
+ladda_funk_parametrar <- function(funktion) {
+  
+  # funktion för att ladda in alla parametrars standardvärden i global environment
+  # OBS! Den skriver över variabler som heter likadant i global environment
+  
+  st_var <- formals({{funktion}})
+  
+  for (varname in names(st_var)) {
+    assign(varname, st_var[[varname]], envir = .GlobalEnv)
+  }
+  
+} # slut funktion
+
+
+ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_rikskod = TRUE, returnera_text = FALSE, returtext = NA) {
+  
+  # kontrollerar om kommunkoderna som skickas till funktionen utgör alla kommuner i ett län
+  # Man kan tillåta att länets länskod och att rikskoden ("00") ligger med också men inte kommuner
+  # från andra län
+  #
+  # reg_koder         - är de regionkoder vi testar. Om alla kommer från samma län och utgör samtliga kommuner i 
+  #                     länet så blir värdet TRUE (eller "<lans> kommuner" om vi valt att returnera_text)
+  # tillat_lanskod    - här tillåter vi att vektorn reg_koder innehåller länskoden, om inte blir det FALSE om den är med
+  # tillat_rikskod    - här tillåter vi även att vektorn innehåller rikskoden ("00"), om inte blir det FALSE om den är med
+  # returnera_text    - istället för att returnera TRUE eller FALSE huruvida reg_koder innehåller alla kommuner i ett län
+  #                     så kan vi returnera textsträngen "Dalarnas kommuner" (om det är Dalarna som är länet)
+  # returtext      - om man kör TRUE på returnera_text och inte alla reg_koder är från alla kommuner i ett län
+  #                     så returneras NA, alternativt returneras returtext om det skickas med. På så sätt kan man
+  #                     testa om reg_koder är alla kommuner i ett län och få tillbaka den textsträng man hade från 
+  #                     början om det inte är det.
+  
+  retur_varde <- TRUE                      # vi sätter värdet till TRUE från början, testar nedan och ändrar till FALSE om inte alla kriterier nedan uppfylls
+  
+  if (length(unique(str_sub(reg_koder[reg_koder != "00"], 1, 2))) > 1) retur_varde <- FALSE else {                      # om det finns flera län eller kommuner från flera län med i reg_koder så blir det FALSE                      
+    if (any(nchar(reg_koder) < 4 & !reg_koder %in% unique(c("00", str_sub(reg_koder, 1, 2))))) retur_varde <- FALSE     # finns kod som inte är kommunkod och inte heller läns- eller rikskod så blir det FALSE
+    kommuner_akt_lan <- hamtakommuner(unique(str_sub(reg_koder[reg_koder != "00"], 1, 2)), F, F)         # här hämtar vi alla kommuner i aktuellt län
+    reg_koder_bara_komm <- reg_koder[!reg_koder %in% unique(c("00", str_sub(reg_koder, 1, 2)))]
+    if (length(reg_koder_bara_komm) < 1) retur_varde <- FALSE               # om det inte finns några kommuner i skickade regionkoder
+    if (!all(reg_koder[!reg_koder %in% unique(c("00", str_sub(reg_koder, 1, 2)))] == kommuner_akt_lan)) retur_varde <- FALSE   # alla regionkoder minus länskod och rikskod är lika med det aktuella länets samtliga kommunkoder
+    if (any(reg_koder == str_sub(reg_koder, 1, 2)) & !tillat_lanskod) retur_varde <- FALSE
+    if (any(reg_koder == "00") & !tillat_rikskod) retur_varde <- FALSE
+  }
+  
+  if (returnera_text) {        # om användaren valt att man ska returnera text (och inte TRUE/FALSE)
+    if (retur_varde) {         # om alla kommuner tillhör samma län så skapas texten som ska returneras nedan
+      lanskod <- str_sub(reg_koder[reg_koder != "00"], 1, 2) %>% unique()
+      retur_text <- hamtaregion_kod_namn(lanskod)$region %>% skapa_kortnamn_lan() %>% paste0(., "s kommuner")
+    } else {
+      retur_text <- returtext
+    }
+    
+    return(retur_text)         # här returneras text, nytt värde om alla kommuner kommer från ett län, annars NA
+    
+  } else {                     # om användaren INTE valt att returnera text returneras TRUE/FALSE
+    return(retur_varde)  
+  }
+  
+}
+
+
+skapa_aldersgrupper <- function(alder, aldergrupp_vekt) {
+  
+  # funktion för att enkelt skapa åldersgrupper från ålder som kan användas i en mutate-funktion:
+  # mutate(aldersgrupp = skapa_aldersgrupper(alder_var, c(19, 35, 50, 65, 80)))
+  #
+  # aldergrupp_vekt är en vektor där varje siffra är början på nästa åldersgrupp. 
+  # så c(19, 35, 50, 65, 80) ovan blir till åldersgrupperna 0-18 år, 19-34 år, 35-49 år, 50-64 år, 65-79 år samt 80+ år
+  
+  # Kontrollera och hantera öppna åldersgrupper
+  if (!is.infinite(aldergrupp_vekt[[1]])) {
+    aldergrupp_vekt <- c(-Inf, aldergrupp_vekt)
+  }
+  if (!is.infinite(tail(aldergrupp_vekt, n = 1))) {
+    aldergrupp_vekt <- c(aldergrupp_vekt, Inf)
+  }
+  
+  # Skapa etiketter för grupperna
+  labels <- vector("character", length = length(aldergrupp_vekt) - 1)
+  for (i in 1:length(labels)) {
+    lower <- aldergrupp_vekt[i]
+    upper <- aldergrupp_vekt[i + 1] - 1
+    
+    if (is.infinite(lower)) {
+      labels[i] <- str_c("-", upper, " år")
+    } else if (is.infinite(upper + 1)) {
+      labels[i] <- str_c(lower, "+ år")
+    } else {
+      labels[i] <- str_c(lower, "-", upper, " år")
+    }
+  }
+  
+  # Dela in åldrarna i grupper
+  cut(alder, breaks = aldergrupp_vekt, labels = labels, right = FALSE, include.lowest = TRUE)
+}

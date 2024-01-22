@@ -811,9 +811,9 @@ hamta_karta <- function(karttyp = "kommuner", regionkoder = NA, tabellnamn = NA)
     # skriv query utifrån medskickade regionkoder, om ingen är medskickad görs en query för att hämta allt
     if (all(!is.na(regionkoder)) & all(regionkoder != "00")) {
       kommunkoder <- regionkoder[nchar(regionkoder) == 4]
-      kommunkoder <- regionkoder[nchar(regionkoder) == 2 & karttyp == "nuts2"]
+      if (karttyp == "nuts2") kommunkoder <- regionkoder[nchar(regionkoder) == 2]
       lanskoder <- regionkoder[nchar(regionkoder) == 2 & regionkoder != "00"]
-      lanskoder <- regionkoder[nchar(regionkoder) == 4 & karttyp == "nuts2"]
+      if (karttyp == "nuts2") lanskoder <- regionkoder[nchar(regionkoder) == 4]
     } else {
       kommunkoder <- NULL
       lanskoder <- NULL

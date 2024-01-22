@@ -31,25 +31,25 @@ skicka_filer_till_github <- function(lokalt_repo_sokvag,        # sökväg till 
     
     repo_lokalt <- repository(lokalt_repo_sokvag)                          # initiera repositoriet
     
-    config(repo_lokalt, user.name = key_list(service = "git2r")$username, user.email = key_get("git2r", key_list(service = "git2r")$username))
+    git2r::config(repo_lokalt, user.name = key_list(service = "git2r")$username, user.email = key_get("git2r", key_list(service = "git2r")$username))
     
-    add( repo = repo_lokalt,            # först gör vi en stage av filen/filerna
+    git2r::add( repo = repo_lokalt,            # först gör vi en stage av filen/filerna
          path = filnamn_gh_push)
     
     if (is.na(commit_message)) commit_message <- paste0("Updaterat av r-skript automatiskt: ", Sys.time())
     
-    commit( repo = repo_lokalt,
+    git2r::commit( repo = repo_lokalt,
             message = commit_message)    # sen gör vi en commit på de filer som har stage:ats
     
     # först en pull
     if (pull_forst){
-      pull( repo = repo_lokalt,                 
+      git2r::pull( repo = repo_lokalt,                 
             credentials = cred_user_pass( username = key_list(service = "github")$username, 
                                           password = key_get("github", key_list(service = "github")$username)))
     } # slut if-sats där man kan stänga av att man kör en pull först (inte att rekommendera)
     
     # och sedan en push
-    push( object = repo_lokalt,               
+    git2r::push( object = repo_lokalt,               
           credentials = cred_user_pass( username = key_list(service = "github_token")$username, 
                                         password = key_get("github_token", key_list(service = "github_token")$username)))
     

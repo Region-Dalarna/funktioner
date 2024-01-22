@@ -2,6 +2,7 @@
 if (!require("pacman")) install.packages("pacman")
 p_load(tidyverse,
        sf,
+       data.table,
        rio)
 
 # =================== här ställer vi in mappar och filer som vi hämtar GIS-lager från =======================
@@ -209,7 +210,6 @@ skapa_sf_fran_csv_eller_excel_supercross <- function(fil_med_sokvag,            
 } # slut funktion
 
 
-
 spatial_join_med_ovrkat <- function(gislager_grunddata, 
                                     gislager_omr,
                                     omrade_kol = "omrade",
@@ -305,3 +305,99 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
   #writeLines(recodefil_vekt, paste0(outputmapp, outputfilnamn))
   
 } # slut funktion
+
+
+
+# Kod hämtad från: https://github.com/r-spatial/sf/issues/1302#issuecomment-606473789
+# Används av funktionen .st_centroid_within_geo nedan
+#
+#' Find largest ring of a multipolygon
+#'
+#' Assumes dealing with polygons
+#'
+#' @param x (sf object of polygons)
+#'
+#' @return (sf object) replaced with centroids
+#'
+#' @seealso sf:::largest_ring()
+#'
+ st_largest_ring <- function(x) {
+  if (nrow(x) < 1)
+    return(x)
+  
+  seq(1, nrow(x)) %>%
+    lapply(function(i){
+      x[i, ] %>%
+        sf::st_set_agr("identity") %>%
+        sf::st_cast("POLYGON") %>%
+        mutate(st_area = sf::st_area(st_geometry(.))) %>%
+        top_n(1, st_area) %>%
+        select(-st_area)
+    }) %>%
+    data.table::rbindlist() %>%
+    sf::st_as_sf()
+}
+
+
+
+ st_centroid_within_geo <- function(
+    x
+    , ensure_within = TRUE                   # tvingar centroiden att vara innanför polygonen
+    , of_largest_polygon = TRUE              # säkerställer att centroiden är i den största polygonen om det finns fler (om det är en multipolygon)
+) {
+  
+  # Kod hämtad från: https://github.com/r-spatial/sf/issues/1302#issuecomment-606473789
+  #' tar ut centroider i polygoner
+  #'
+  #' reference:
+  #' https://stackoverflow.com/questions/52522872/r-sf-package-centroid-within-polygon
+  #' https://stackoverflow.com/questions/44327994/calculate-centroid-within-inside-a-spatialpolygon
+  #'
+  #' @param x (sf) spatial polygon
+  #' @param ensure_within (logical) TRUE to ensure point within polygon.
+  #' @param of_largest_polygon (logical) TRUE to use largest polygon when
+  #'   determining centroid.
+  #'
+  #' Will return the usual geometric centroid when \code{ensure_within} is FALSE.
+  #'
+  #' Otherwise the point returned will be the geometric centroid if it lies within
+  #' the polygon else a point determined by st_point_on_surface.
+  #'
+  #' In all cases an attempt is made to observe \code{of_largest_polygon} (see
+  #' sf::st_centroid()).
+  #'
+  #' \code{of_largest_polygon} used when determining geometric centroid.  An
+  #' effort to apply this idea to sf::st_point_on_surface() routine.
+  #'
+  #' @return (sf) spatial object with centroids within spatial feature.
+  #'
+  
+  cx <- sf::st_centroid(
+    sf::st_set_agr(x, "identity")
+    , of_largest_polygon = of_largest_polygon
+  )
+  
+  if (ensure_within) {
+    
+    i_within <- sf::st_within(cx, x, sparse = TRUE) %>%
+      as.data.frame() %>%
+      filter(row.id == col.id) %>%
+      pull(row.id)
+    
+    i_nwithin <- setdiff(seq(1, nrow(x)), i_within)
+    
+    sf::st_geometry(cx[i_nwithin, ]) <- (
+      x[i_nwithin, ] %>% {
+        if (of_largest_polygon == TRUE)
+           st_largest_ring(.)
+        else
+          .
+      } %>%
+        sf::st_geometry() %>%
+        sf::st_point_on_surface()
+    )
+  }
+  
+  return(cx)
+}
+
