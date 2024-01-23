@@ -325,11 +325,45 @@ sla_upp_varde_klartext_kod <- function(api_url, fran_varde, klartext = TRUE, fra
   return(varde)       # returnera koder eller klartext-värden
 } # slut funktion
 
+# används för att kunna skicka en pxweb-metadatalista, ett klartext
+hamta_kod_eller_klartext_fran_lista <- function(lista, klartext_eller_kod_varde, skickad_fran_variabel, hamta_kod = TRUE) {
+  
+  if (hamta_kod) {
+    retur_val <- "values"
+    hamta_val <- "valueTexts"
+  } else {
+    retur_val <- "valueTexts"
+    hamta_val <- "values"
+  }
+  
+  # Kontrollera om listan har två element och de heter "title" och "variables", om så extraheras bara "variables"-listan och används
+  if(length(lista) == 2 && all(c("title", "variables") %in% names(lista))) {
+    lista <- lista$variables
+  }
+  
+  # Hitta det element i listan som har den angivna koden
+  list_element <- lista %>% 
+    keep(~ tolower(.x$code) == tolower(skickad_fran_variabel)) %>% 
+    first()
+  
+  # Matcha 'valueTexts' med det angivna klartextvärdet och hämta motsvarande 'values'
+  if (!is.null(list_element)) {
+    if (all(klartext_eller_kod_varde == "*")) {
+      return(list_element[[retur_val]])
+    } else {
+      matchande_index <- which(tolower(list_element[[hamta_val]]) == tolower(klartext_eller_kod_varde))
+      return(list_element[[retur_val]][matchande_index])
+    } # slut if-sats om klartext_eller_kod_varde == *
+  } else {       # nedan är om ingen matchning hittas
+    warning("skickad_fran_variabel hittades inte som variabel i aktuell tabell.")
+    return(NULL) # Ingen matchning hittades
+  }
+} # slut funktion hamta_kod_eller_klartext_fran_lista
+
 
 # används för att konvertera dataset som returneras i pxweb där innehållsvariabler ligger i 
 # wideformat, vilket sker om man laddar hem fler än en innehållsvariabel. Denna funktion kör en
 # pivot_longer på alla innehållsvariabler
-
 konvertera_till_long_for_contentscode_variabler <- function(skickad_df, api_url, content_var = "variabel", 
                                                             varde_var = "varde") {
   pivot_kol <- hamta_giltiga_varden_fran_tabell(api_url, "contentscode", klartext = TRUE)
