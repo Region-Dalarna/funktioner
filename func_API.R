@@ -169,8 +169,15 @@ skapa_intervaller <- function(skickad_kolumn, antal_intervaller = 5){
 }
 
 pxvarlist <- function(api_url){
-  metadata <- pxweb_get(api_url)
-  retur_df <- data.frame(klartext = sapply(metadata$variables, "[[", 2), koder = sapply(metadata$variables, "[[", 1))
+
+  # om vi skickar med en metadata-lista (som vi får genom att köra "px_meta <- pxweb_get(api_url)") så använder vi den direkt
+  # om det är en url så hämtar vi data med den
+  metadata <- if(is.list(api_url)) api_url else pxweb_get(api_url)
+  # skapa en dataframe med både koder och klartext som vi returnerar
+  retur_df <- data.frame(
+    klartext = map_chr(metadata$variables, 2),
+    koder = map_chr(metadata$variables, 1)
+  )
   return(retur_df)
 }
 
@@ -187,7 +194,10 @@ pxvardelist <- function(api_url, variabel, skriv_vektlista_till_clipboard = FALS
 }
   
 hamta_giltiga_varden_fran_tabell <- function(api_url, variabel, klartext = FALSE, kod_OCH_klartext = FALSE){
-  metadata <- pxweb_get(api_url)
+  
+  # om vi skickar med en metadata-lista (som vi får genom att köra "px_meta <- pxweb_get(api_url)") så använder vi den direkt
+  # om det är en url så hämtar vi data med den
+  metadata <- if(is.list(api_url)) api_url else pxweb_get(api_url)
   
   ind <- which(tolower(sapply(metadata$variables, "[[", 1)) == tolower(variabel))  # vi kollar om skickad variabel finns som kod
   if (length(ind) < 1) ind <- which(tolower(sapply(metadata$variables, "[[", 2)) == tolower(variabel)) # om inte variabeln finns som kod så kollar vi om den finns som text
@@ -221,108 +231,120 @@ hamta_klartext_med_kod <- function(api_url, kod_varde, skickad_fran_variabel = N
 
 sla_upp_varde_klartext_kod <- function(api_url, fran_varde, klartext = TRUE, fran_variabel = NA) {
   
-  metadata <- pxweb_get(api_url)          # hämta metadata för aktuell tabell
+  if (is.list(api_url)) {                   # om vi vill hämta värde från en medskickad lista och inte en url
+    if (is.na(fran_variabel)) stop("fran_variabel måste anges när klartext eller kod ska hämtas i en lista.")
+    
+    varde <- hamta_kod_eller_klartext_fran_lista(lista = api_url, 
+                                                      klartext_eller_kod_varde = fran_varde,
+                                                      skickad_fran_variabel = fran_variabel,
+                                                      hamta_kod = klartext)
+    return(varde)
   
-  if (klartext) {                        # tilldela variabler fran_kol och till_kol beroende
-    fran_kol <- "valueTexts"             # på om vi ska översätta från klartext till kod eller
-    till_kol <- "values"                 # eller tvärtom
-  } else {
-    fran_kol <- "values"
-    till_kol <- "valueTexts"
-  }
-  varde <- NULL
+  } else {                                 # om värde ska hämtas via API från SCB-pxweb, dvs. en url
   
-  if (is.na(fran_variabel)){         # om man inte skickat med vilken variabel som värdet tillhör
-    for (var_nr in 1:length(fran_varde)) {
-      # ta reda på var i listan som klartext-variabeln alternativt koden finns och hämta variabelns kod alternativt klartext
-      #ind_var <- which(str_detect(tolower(metadata$variables), tolower(paste0("\\b", fran_varde[var_nr], "\\b"))))
-      sok_varde <- fran_varde[var_nr] %>% str_replace("\\(", "\\\\(") %>% str_replace("\\)", "\\\\)")
-      sok_varde_utan_escape <- fran_varde[var_nr]
-      ind_var <- which(str_detect(tolower(metadata$variables), tolower(paste0(sok_varde))))
-      
-      # om söksträngen finns i två variabler, kolla om söksträngen är precis likadan som de värdena i de variabler som hittats, annars ta den första variabeln
-      if (length(ind_var) > 1) {
-        # bläddra igenom alla dubletter som söksträngen finns i
-        vald_dublett <- ind_var[1]            # vi väljer det första värdet i dublett-vektorn, det kommer att gälla om ingen dublett är identisk med söksträngen 
-        hittat_identisk <- FALSE              # variabel som anger om vi hittat någon sökträff-dublett som är identisk med skickat värde
-        for (dublett in ind_var){
-          # om fran_varde är exakt lika med söksträngen som kontrolleras så blir det 
-          sok_traffar <- str_which(sok_varde, metadata$variables[[dublett]][[fran_kol]])
-          if (length(sok_traffar) == 0) sok_traffar <- str_which(sok_varde_utan_escape, metadata$variables[[dublett]][[fran_kol]])
-          if (length(sok_traffar) > 0) { 
-            vald_dublett <- dublett            # tilldela index för variablen där vi får exakt sökträff 
-            hittat_identisk <- TRUE
-          }
-        } # slut for-loop där vi loopar igenom sökträffarna för att kontrollera om någon av dem är identiskt med det skickade värdet
-        if (!hittat_identisk) print(paste0("Flera värden matchar det skickade värdet men ingen av träffarna är identisk så första träffen returneras. Om det inte är den som önskas, kontrollera att det skickade värdet är korrekt."))
-        ind_var <- vald_dublett          # vi väljer index för första variabeln
-      } # slut if-sats som kontrollerar om vi har fler variabler med träff på skickat klartext-/kod-värde
-      
-      # tilldela index för själva klartext-/kodvärdet
-      ind_kod <- which(str_detect(tolower(metadata$variables[[ind_var]][[fran_kol]]), tolower(paste0(sok_varde))))
-      if (length(ind_kod) < 1) stop(paste0('Värdet "', sok_varde, '" finns inte i tabellen. Korrigera värdet och försök igen.'))      
-      # om söksträngen finns två gånger, kolla om söksträngen är precis likadan som de variabler som hittats, annars ta den första variabeln
-      if (length(ind_kod) > 1) {
-        # bläddra igenom alla dubletter som söksträngen finns i
-        vald_dublett <- ind_kod[1]            # vi väljer det första värdet i dublett-vektorn, det kommer att gälla om ingen dublett är identisk med söksträngen 
-        hittat_identisk <- FALSE              # variabel som anger om vi hittat någon sökträff-dublett som är identisk med skickat värde
-        for (dublett in 1:length(ind_kod)){
-          # om fran_varde är exakt lika med söksträngen som kontrolleras så blir det 
-          if (sok_varde == metadata$variables[[ind_var]][[fran_kol]][[ind_kod[dublett]]] |
-              sok_varde_utan_escape == metadata$variables[[ind_var]][[fran_kol]][[ind_kod[dublett]]]) {
-            vald_dublett <- ind_kod[dublett]
-            hittat_identisk <- TRUE
-          }
-        } # slut for-loop där vi loopar igenom sökträffarna för att kontrollera om någon av dem är identiskt med det skickade värdet
-        if (!hittat_identisk) print(paste0("Flera värden matchar det skickade värdet men ingen av träffarna är identisk så första träffen returneras. Om det inte är den som önskas, kontrollera att det skickade värdet är korrekt."))
-        ind_kod <- vald_dublett
-      } # slut if-sats som kontrollerar om vi har flera sökträffar
-      
-      varde <- c(varde, metadata$variables[[ind_var]][[till_kol]][[ind_kod]])
+    metadata <- pxweb_get(api_url)          # hämta metadata för aktuell tabell
+    
+    if (klartext) {                        # tilldela variabler fran_kol och till_kol beroende
+      fran_kol <- "valueTexts"             # på om vi ska översätta från klartext till kod eller
+      till_kol <- "values"                 # eller tvärtom
+    } else {
+      fran_kol <- "values"
+      till_kol <- "valueTexts"
     }
-  } else  {
-    for (var_nr in 1:length(fran_varde)) {
-      
-      # vi kollar vilket element i metadata-variabellistan fran-variablen finns, dvs. vilken variabel det är
-      ind <- which(tolower(sapply(metadata$variables, "[[", 1)) == tolower(fran_variabel))
-      
-      # om inte variabeln finns som kod så kollar vi om den finns som text
-      if (length(ind) < 1) ind <- which(tolower(sapply(metadata$variables, "[[", 2)) == tolower(fran_variabel))
-      
-      # ta reda på var i listan över variabelns värden som klartext- alternativt kod-värdet finns                 # gammal kod, används ej längre: ind_var <- which(str_detect(tolower(metadata$variables[ind]), tolower(paste0("\\b", fran_varde[var_nr], "\\b"))))
-      #ind_kod <- which(str_detect(tolower(metadata$variables[[ind]][[fran_kol]]), tolower(paste0("\\b", fran_varde[var_nr], "\\b"))))
-      # test, raden ovan var från början men vad gör \\b egentligen
-      sok_varde <- fran_varde[var_nr] %>% str_replace("\\(", "\\\\(") %>% str_replace("\\)", "\\\\)")
-      sok_varde_utan_escape <- fran_varde[var_nr]
-      ind_kod <- which(str_detect(tolower(metadata$variables[[ind]][[fran_kol]]), tolower(paste0(sok_varde))))
-      if (length(ind_kod) < 1) stop(paste0('Värdet "', sok_varde, '" finns inte i tabellen. Korrigera värdet och försök igen.'))
-      
-      # om söksträngen finns två gånger, kolla om söksträngen är precis likadan som de variabler som hittats, annars ta den första variabeln
-      if (length(ind_kod) > 1) {
-        # bläddra igenom alla dubletter som söksträngen finns i
-        vald_dublett <- ind_kod[1]            # vi väljer det första värdet i dublett-vektorn, det kommer att gälla om ingen dublett är identisk med söksträngen 
-        hittat_identisk <- FALSE              # variabel som anger om vi hittat någon sökträff-dublett som är identisk med skickat värde
-        for (dublett in ind_kod){
-          # om fran_varde är exakt lika med söksträngen som kontrolleras så blir det 
-          if (sok_varde == metadata$variables[[ind]][[fran_kol]][[dublett]] |
-              sok_varde_utan_escape == metadata$variables[[ind]][[fran_kol]][[dublett]]) {
-            vald_dublett <- dublett
-            hittat_identisk <- TRUE
-          }
-        } # slut for-loop där vi loopar igenom sökträffarna för att kontrollera om någon av dem är identiskt med det skickade värdet
-        if (!hittat_identisk) print(paste0("Flera värden matchar det skickade värdet men ingen av träffarna är identisk så första träffen returneras. Om det inte är den som önskas, kontrollera att det skickade värdet är korrekt."))
-        ind_kod <- vald_dublett
-      } # slut if-sats som kontrollerar om vi har flera sökträffar
-      
-      # När vi har variabelns plats i metadatalistan över variabler (ind), och även värdets plats
-      # i variablens lista över värden (ind_kod) så kan vi hämta variabelns kod alternativt 
-      # klartext (vilket det blir styrs av till_kol)
-      varde <- c(varde, metadata$variables[[ind]][[till_kol]][[ind_kod]])
-      
-    } # slut for-loop för att gå igenom alla medskickad koder eller klartext-värden
-  } # slut if-sats för att avgöra om man skickat med vilken variabel det gäller, eller inte (fran_variabel)
-
-  return(varde)       # returnera koder eller klartext-värden
+    varde <- NULL
+    
+    if (is.na(fran_variabel)){         # om man inte skickat med vilken variabel som värdet tillhör
+      for (var_nr in 1:length(fran_varde)) {
+        # ta reda på var i listan som klartext-variabeln alternativt koden finns och hämta variabelns kod alternativt klartext
+        #ind_var <- which(str_detect(tolower(metadata$variables), tolower(paste0("\\b", fran_varde[var_nr], "\\b"))))
+        sok_varde <- fran_varde[var_nr] %>% str_replace("\\(", "\\\\(") %>% str_replace("\\)", "\\\\)")
+        sok_varde_utan_escape <- fran_varde[var_nr]
+        ind_var <- which(str_detect(tolower(metadata$variables), tolower(paste0(sok_varde))))
+        
+        # om söksträngen finns i två variabler, kolla om söksträngen är precis likadan som de värdena i de variabler som hittats, annars ta den första variabeln
+        if (length(ind_var) > 1) {
+          # bläddra igenom alla dubletter som söksträngen finns i
+          vald_dublett <- ind_var[1]            # vi väljer det första värdet i dublett-vektorn, det kommer att gälla om ingen dublett är identisk med söksträngen 
+          hittat_identisk <- FALSE              # variabel som anger om vi hittat någon sökträff-dublett som är identisk med skickat värde
+          for (dublett in ind_var){
+            # om fran_varde är exakt lika med söksträngen som kontrolleras så blir det 
+            sok_traffar <- str_which(sok_varde, metadata$variables[[dublett]][[fran_kol]])
+            if (length(sok_traffar) == 0) sok_traffar <- str_which(sok_varde_utan_escape, metadata$variables[[dublett]][[fran_kol]])
+            if (length(sok_traffar) > 0) { 
+              vald_dublett <- dublett            # tilldela index för variablen där vi får exakt sökträff 
+              hittat_identisk <- TRUE
+            }
+          } # slut for-loop där vi loopar igenom sökträffarna för att kontrollera om någon av dem är identiskt med det skickade värdet
+          if (!hittat_identisk) print(paste0("Flera värden matchar det skickade värdet men ingen av träffarna är identisk så första träffen returneras. Om det inte är den som önskas, kontrollera att det skickade värdet är korrekt."))
+          ind_var <- vald_dublett          # vi väljer index för första variabeln
+        } # slut if-sats som kontrollerar om vi har fler variabler med träff på skickat klartext-/kod-värde
+        
+        # tilldela index för själva klartext-/kodvärdet
+        ind_kod <- which(str_detect(tolower(metadata$variables[[ind_var]][[fran_kol]]), tolower(paste0(sok_varde))))
+        if (length(ind_kod) < 1) stop(paste0('Värdet "', sok_varde, '" finns inte i tabellen. Korrigera värdet och försök igen.'))      
+        # om söksträngen finns två gånger, kolla om söksträngen är precis likadan som de variabler som hittats, annars ta den första variabeln
+        if (length(ind_kod) > 1) {
+          # bläddra igenom alla dubletter som söksträngen finns i
+          vald_dublett <- ind_kod[1]            # vi väljer det första värdet i dublett-vektorn, det kommer att gälla om ingen dublett är identisk med söksträngen 
+          hittat_identisk <- FALSE              # variabel som anger om vi hittat någon sökträff-dublett som är identisk med skickat värde
+          for (dublett in 1:length(ind_kod)){
+            # om fran_varde är exakt lika med söksträngen som kontrolleras så blir det 
+            if (sok_varde == metadata$variables[[ind_var]][[fran_kol]][[ind_kod[dublett]]] |
+                sok_varde_utan_escape == metadata$variables[[ind_var]][[fran_kol]][[ind_kod[dublett]]]) {
+              vald_dublett <- ind_kod[dublett]
+              hittat_identisk <- TRUE
+            }
+          } # slut for-loop där vi loopar igenom sökträffarna för att kontrollera om någon av dem är identiskt med det skickade värdet
+          if (!hittat_identisk) print(paste0("Flera värden matchar det skickade värdet men ingen av träffarna är identisk så första träffen returneras. Om det inte är den som önskas, kontrollera att det skickade värdet är korrekt."))
+          ind_kod <- vald_dublett
+        } # slut if-sats som kontrollerar om vi har flera sökträffar
+        
+        varde <- c(varde, metadata$variables[[ind_var]][[till_kol]][[ind_kod]])
+      }
+    } else  {
+      for (var_nr in 1:length(fran_varde)) {
+        
+        # vi kollar vilket element i metadata-variabellistan fran-variablen finns, dvs. vilken variabel det är
+        ind <- which(tolower(sapply(metadata$variables, "[[", 1)) == tolower(fran_variabel))
+        
+        # om inte variabeln finns som kod så kollar vi om den finns som text
+        if (length(ind) < 1) ind <- which(tolower(sapply(metadata$variables, "[[", 2)) == tolower(fran_variabel))
+        
+        # ta reda på var i listan över variabelns värden som klartext- alternativt kod-värdet finns                 # gammal kod, används ej längre: ind_var <- which(str_detect(tolower(metadata$variables[ind]), tolower(paste0("\\b", fran_varde[var_nr], "\\b"))))
+        #ind_kod <- which(str_detect(tolower(metadata$variables[[ind]][[fran_kol]]), tolower(paste0("\\b", fran_varde[var_nr], "\\b"))))
+        # test, raden ovan var från början men vad gör \\b egentligen
+        sok_varde <- fran_varde[var_nr] %>% str_replace("\\(", "\\\\(") %>% str_replace("\\)", "\\\\)")
+        sok_varde_utan_escape <- fran_varde[var_nr]
+        ind_kod <- which(str_detect(tolower(metadata$variables[[ind]][[fran_kol]]), tolower(paste0(sok_varde))))
+        if (length(ind_kod) < 1) stop(paste0('Värdet "', sok_varde, '" finns inte i tabellen. Korrigera värdet och försök igen.'))
+        
+        # om söksträngen finns två gånger, kolla om söksträngen är precis likadan som de variabler som hittats, annars ta den första variabeln
+        if (length(ind_kod) > 1) {
+          # bläddra igenom alla dubletter som söksträngen finns i
+          vald_dublett <- ind_kod[1]            # vi väljer det första värdet i dublett-vektorn, det kommer att gälla om ingen dublett är identisk med söksträngen 
+          hittat_identisk <- FALSE              # variabel som anger om vi hittat någon sökträff-dublett som är identisk med skickat värde
+          for (dublett in ind_kod){
+            # om fran_varde är exakt lika med söksträngen som kontrolleras så blir det 
+            if (sok_varde == metadata$variables[[ind]][[fran_kol]][[dublett]] |
+                sok_varde_utan_escape == metadata$variables[[ind]][[fran_kol]][[dublett]]) {
+              vald_dublett <- dublett
+              hittat_identisk <- TRUE
+            }
+          } # slut for-loop där vi loopar igenom sökträffarna för att kontrollera om någon av dem är identiskt med det skickade värdet
+          if (!hittat_identisk) print(paste0("Flera värden matchar det skickade värdet men ingen av träffarna är identisk så första träffen returneras. Om det inte är den som önskas, kontrollera att det skickade värdet är korrekt."))
+          ind_kod <- vald_dublett
+        } # slut if-sats som kontrollerar om vi har flera sökträffar
+        
+        # När vi har variabelns plats i metadatalistan över variabler (ind), och även värdets plats
+        # i variablens lista över värden (ind_kod) så kan vi hämta variabelns kod alternativt 
+        # klartext (vilket det blir styrs av till_kol)
+        varde <- c(varde, metadata$variables[[ind]][[till_kol]][[ind_kod]])
+        
+      } # slut for-loop för att gå igenom alla medskickad koder eller klartext-värden
+    } # slut if-sats för att avgöra om man skickat med vilken variabel det gäller, eller inte (fran_variabel)
+  
+    return(varde)       # returnera koder eller klartext-värden
+  } # slut if-sats där det testas om vi skickat en lista eller en url i en vektor
 } # slut funktion
 
 # används för att kunna skicka en pxweb-metadatalista, ett klartext
@@ -372,7 +394,7 @@ konvertera_till_long_for_contentscode_variabler <- function(skickad_df, api_url,
   return(retur_df)
 }
 
-kontrollera_pxweb_variabelvarden <- function(api_url,                                  # url till aktuell tabell
+kontrollera_pxweb_variabelvarden <- function(api_url,                                  # url till aktuell tabell - alternativt en metadata-lista
                                             var_lista,                                # skicka med lista med variabelnamn och värden som ska göras uttag för (query_list)
                                             visa_alla_ogiltiga_varden = TRUE,        # visa alla ogilitiga värden även om det finns giltiga värden för variabeln
                                             stoppa_om_ogiltiga_varden_finns = FALSE) { # TRUE om körningen ska stoppas om det är någon variabel som saknar giltiga värden
