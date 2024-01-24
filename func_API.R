@@ -343,7 +343,7 @@ hamta_kod_eller_klartext_fran_lista <- function(lista, klartext_eller_kod_varde,
   
   # Hitta det element i listan som har den angivna koden
   list_element <- lista %>% 
-    keep(~ tolower(.x$code) == tolower(skickad_fran_variabel)) %>% 
+    keep(~ tolower(.x$code) %in% tolower(skickad_fran_variabel)) %>% 
     first()
   
   # Matcha 'valueTexts' med det angivna klartextvärdet och hämta motsvarande 'values'
@@ -351,7 +351,7 @@ hamta_kod_eller_klartext_fran_lista <- function(lista, klartext_eller_kod_varde,
     if (all(klartext_eller_kod_varde == "*")) {
       return(list_element[[retur_val]])
     } else {
-      matchande_index <- which(tolower(list_element[[hamta_val]]) == tolower(klartext_eller_kod_varde))
+      matchande_index <- which(tolower(list_element[[hamta_val]]) %in% tolower(klartext_eller_kod_varde))
       return(list_element[[retur_val]][matchande_index])
     } # slut if-sats om klartext_eller_kod_varde == *
   } else {       # nedan är om ingen matchning hittas
