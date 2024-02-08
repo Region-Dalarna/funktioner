@@ -598,7 +598,7 @@ ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_
 }
 
 
-skapa_aldersgrupper <- function(alder, aldergrupp_vekt) {
+skapa_aldersgrupper <- function(alder, aldergrupp_vekt, konv_fran_txt = TRUE) {
   
   # funktion för att enkelt skapa åldersgrupper från ålder som kan användas i en mutate-funktion:
   # mutate(aldersgrupp = skapa_aldersgrupper(alder_var, c(19, 35, 50, 65, 80)))
@@ -628,7 +628,7 @@ skapa_aldersgrupper <- function(alder, aldergrupp_vekt) {
       labels[i] <- str_c(lower, "-", upper, " år")
     }
   }
-  
+  if (konv_fran_txt & is.character(alder)) alder <- alder %>% readr::parse_number()
   # Dela in åldrarna i grupper
   cut(alder, breaks = aldergrupp_vekt, labels = labels, right = FALSE, include.lowest = TRUE)
 }
