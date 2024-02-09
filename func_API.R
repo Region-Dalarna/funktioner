@@ -650,7 +650,8 @@ github_lista_repos <- function(owner = "Region-Dalarna") {
   
   tibble::tibble(
     namn = map_chr(content, "name"),
-    url = map_chr(content, "html_url")
+    url = map_chr(content, "html_url"),
+    url_clone = paste0(url, ".git")
   )
 }
 
