@@ -675,4 +675,35 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna", repo = "hamta_data
   ) %>% .[.$namn != ".gitignore",]
 }
 
+# returnera rätt sökväg till vår utskriftsmapp där vi sparar diagram- och kartfiler som inte har någon särskild
+# målmapp
 utskriftsmapp <- function(){ return("G:/Samhällsanalys/API/Fran_R/Utskrift/")}
+
+manader_bearbeta_scbtabeller <- function(skickad_df) {
+  # funktion för att skapa kolumnerna år, månad, månad_år samt år_månad av kolumnen månad som 
+  # ligger i flera scb-tabeller och är strukturerad som år, bokstaven "M" och sedan månads-
+  # nummer med två tecken (nolla framför på årets första 9 månader), alltså "2023M11" för 
+  # november 2023.
+  
+  retur_df <- skickad_df %>% 
+    rename(tid = månad) %>% 
+    mutate(år = str_sub(tid, 1, 4) %>% as.integer(),
+           månad_nr = parse_integer(str_sub(tid, 6,7)),
+           månad = format(as.Date(paste(år, str_sub(tid, 6,7), "1", sep = "-")), "%B"),
+           år_månad = paste0(år, " - ", månad),
+           månad_år = paste0(månad, " ", år)) 
+  
+  manad_sort <- retur_df %>% group_by(månad_nr) %>% summarise(antal = n(), månad_sort = max(månad)) %>% select(månad_sort) %>% pull()
+  
+  retur_df <- retur_df %>% 
+    mutate(månad_år = factor(månad_år, levels = unique(månad_år[order(år, månad_nr)])),
+           år_månad = factor(år_månad, levels = unique(år_månad[order(år, månad_nr)])),
+           år = factor(år),
+           månad = factor(månad, levels = manad_sort)) %>%
+    select(-månad_nr) %>%                                                           # ta bort sort-kolumnen när vi använt den för att sortera tids-kolumnerna
+    relocate(år, .after = tid) %>%                                              # vi sorterar om kolumnerna så att innehållsvariabeler alltid ligger sist
+    relocate(månad, .after = år) %>% 
+    relocate(år_månad, .after = månad) %>% 
+    relocate(månad_år, .after = år_månad)
+  return(retur_df)
+}
