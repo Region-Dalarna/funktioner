@@ -673,3 +673,5 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna", repo = "hamta_data
     url = map_chr(content, "download_url")
   ) %>% .[.$namn != ".gitignore",]
 }
+
+utskriftsmapp <- function(){ return("G:/Samhällsanalys/API/Fran_R/Utskrift/")}
