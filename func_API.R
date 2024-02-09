@@ -4,7 +4,8 @@
 if (!require("pacman")) install.packages("pacman")
 p_load(pxweb,
        tidyverse,
-       rKolada)
+       rKolada,
+       httr)
 
 
 hamtaregtab <- function(){
@@ -609,4 +610,44 @@ skapa_aldersgrupper <- function(alder, aldergrupp_vekt) {
   
   # Dela in åldrarna i grupper
   cut(alder, breaks = aldergrupp_vekt, labels = labels, right = FALSE, include.lowest = TRUE)
+}
+
+
+github_lista_repos <- function(owner = "Region-Dalarna") {
+  # En funktion för att lista alla repositories som finns hos en github-användare
+  # Användaren "Region-Dalarna" är standardinställing så körs funktionen utan 
+  # parametrar så listas alla repos för Region-Dalarna
+  
+  url <- paste0("https://api.github.com/users/", owner, "/repos")
+  response <- httr::GET(url)
+  content <- httr::content(response, "parsed")
+  
+  if (!http_type(response) %in% "application/json") {
+    stop("API-förfrågan misslyckades")
+  }
+  
+  tibble::tibble(
+    namn = map_chr(content, "name"),
+    url = map_chr(content, "html_url")
+  )
+}
+
+github_lista_repo_filer <- function(owner = "Region-Dalarna", repo = "hamta_data") {
+  # En funktion för att lista filer i ett repository som finns hos en github-användare
+  # Användaren "Region-Dalarna" är standardinställing och standardinställning för repo
+  # är "hamta_data" så körs funktionen utan parametrar så listas alla filer i repot
+  # "hamta_data" för github-användaren Region-Dalarna
+  
+  url <- paste0("https://api.github.com/repos/", owner, "/", repo, "/contents")
+  response <- httr::GET(url)
+  content <- httr::content(response, "parsed")
+  
+  if (!http_type(response) %in% "application/json") {
+    stop("API-förfrågan misslyckades")
+  }
+  
+  tibble::tibble(
+    namn = map_chr(content, "name"),
+    url = map_chr(content, "download_url")
+  ) %>% .[.$namn != ".gitignore",]
 }
