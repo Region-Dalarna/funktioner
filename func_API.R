@@ -655,7 +655,7 @@ github_lista_repos <- function(owner = "Region-Dalarna") {
   )
 }
 
-github_lista_repo_filer <- function(owner = "Region-Dalarna", repo = "hamta_data") {
+github_lista_repo_filer <- function(owner = "Region-Dalarna", repo = "hamta_data", url_vekt_enbart = TRUE) {
   # En funktion för att lista filer i ett repository som finns hos en github-användare
   # Användaren "Region-Dalarna" är standardinställing och standardinställning för repo
   # är "hamta_data" så körs funktionen utan parametrar så listas alla filer i repot
@@ -669,10 +669,12 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna", repo = "hamta_data
     stop("API-förfrågan misslyckades")
   }
   
-  tibble::tibble(
+  retur_df <- tibble::tibble(
     namn = map_chr(content, "name"),
     url = map_chr(content, "download_url")
   ) %>% .[.$namn != ".gitignore",]
+  
+  if (url_vekt_enbart) return(retur_df$url) else return(retur_df)
 }
 
 # returnera rätt sökväg till vår utskriftsmapp där vi sparar diagram- och kartfiler som inte har någon särskild
