@@ -7,6 +7,7 @@ p_load(tidyverse,
        openxlsx,
        tidytext)     # för att sortera facet-diagram med funktionen reorder_within() och scale_x_reordered()
 #library(png)
+options(dplyr.summarise.inform = FALSE)
 
 source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_logga_i_diagram.R", encoding = "utf-8", echo = FALSE)
 source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_diagramfunktioner.R", encoding = "utf-8", echo = FALSE)
