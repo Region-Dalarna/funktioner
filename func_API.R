@@ -607,7 +607,7 @@ ar_alla_lan_i_sverige <- function(reg_koder, tillat_rikskod = TRUE, returnera_te
   returtext_na <- if (is.na(returtext)) TRUE else FALSE                 # om man skickat med returtext så returneras den om inte regionkoderna är alla län i Sverige , annars om man inte skickat med någon returtext  returneras FALSE
   
   if (any(nchar(reg_koder) > 2)) retur_varde <- FALSE
-  if (!all(unique(flytt_facet_df$regionkod) %in% hamtaAllaLan(T)) & all(hamtaAllaLan(T) %in% unique(flytt_facet_df$regionkod))) retur_varde <- FALSE
+  if (!all(unique(reg_koder) %in% hamtaAllaLan(T)) & all(hamtaAllaLan(T) %in% unique(reg_koder))) retur_varde <- FALSE
   if (any(reg_koder == "00") & !tillat_rikskod) retur_varde <- FALSE              # sätt FALSE om man inte tillåter rikskode 
   
   if (returnera_text) {        # om användaren valt att man ska returnera text (och inte TRUE/FALSE)
