@@ -571,6 +571,7 @@ ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_
   #                     början om det inte är det.
   
   retur_varde <- TRUE                      # vi sätter värdet till TRUE från början, testar nedan och ändrar till FALSE om inte alla kriterier nedan uppfylls
+  returtext_na <- if (is.na(returtext)) TRUE else FALSE       # om man skickat med returtext så returneras den om inte regionkoderna är alla kommuner i ett län, annars om man inte skickat med någon returtext  returneras FALSE
   
   if (length(unique(str_sub(reg_koder[reg_koder != "00"], 1, 2))) > 1) retur_varde <- FALSE else {                      # om det finns flera län eller kommuner från flera län med i reg_koder så blir det FALSE                      
     if (any(nchar(reg_koder) < 4 & !reg_koder %in% unique(c("00", str_sub(reg_koder, 1, 2))))) retur_varde <- FALSE     # finns kod som inte är kommunkod och inte heller läns- eller rikskod så blir det FALSE
@@ -587,7 +588,7 @@ ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_
       lanskod <- str_sub(reg_koder[reg_koder != "00"], 1, 2) %>% unique()
       retur_text <- hamtaregion_kod_namn(lanskod)$region %>% skapa_kortnamn_lan() %>% paste0(., "s kommuner")
     } else {
-      retur_text <- returtext
+      retur_text <- if (returtext_na) FALSE else returtext
     }
     
     return(retur_text)         # här returneras text, nytt värde om alla kommuner kommer från ett län, annars NA
@@ -598,6 +599,31 @@ ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_
   
 }
 
+ar_alla_lan_i_sverige <- function(reg_koder, tillat_rikskod = TRUE, returnera_text = FALSE, returtext = NA) {
+  
+  # kontrollerar om reg_koder innehåller alla län i Sverige
+ 
+  retur_varde <- TRUE                      # vi sätter värdet till TRUE från början, testar nedan och ändrar till FALSE om inte alla kriterier nedan uppfylls
+  returtext_na <- if (is.na(returtext)) TRUE else FALSE                 # om man skickat med returtext så returneras den om inte regionkoderna är alla län i Sverige , annars om man inte skickat med någon returtext  returneras FALSE
+  
+  if (any(nchar(reg_koder) > 2)) retur_varde <- FALSE
+  if (!all(unique(flytt_facet_df$regionkod) %in% hamtaAllaLan(T)) & all(hamtaAllaLan(T) %in% unique(flytt_facet_df$regionkod))) retur_varde <- FALSE
+  if (any(reg_koder == "00") & !tillat_rikskod) retur_varde <- FALSE              # sätt FALSE om man inte tillåter rikskode 
+  
+  if (returnera_text) {        # om användaren valt att man ska returnera text (och inte TRUE/FALSE)
+    if (retur_varde) {         # om alla kommuner tillhör samma län så skapas texten som ska returneras nedan
+      retur_text <- "Sveriges län"
+    } else {
+      retur_text <- if (returtext_na) FALSE else returtext
+    }
+    
+    return(retur_text)         # här returneras text, nytt värde om alla kommuner kommer från ett län, annars NA
+    
+  } else {                     # om användaren INTE valt att returnera text returneras TRUE/FALSE
+    return(retur_varde)  
+  } 
+   
+}
 
 skapa_aldersgrupper <- function(alder, aldergrupp_vekt, konv_fran_txt = TRUE) {
   
