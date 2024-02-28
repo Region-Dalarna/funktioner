@@ -736,3 +736,194 @@ manader_bearbeta_scbtabeller <- function(skickad_df) {
     relocate(månad_år, .after = år_månad)
   return(retur_df)
 }
+
+
+skapa_hamta_data_skript_pxweb_scb <- function(url, tabell_namn, output_mapp) {
+  
+  # funktion för att skapa ett skript för att hämta data från SCB:s pxweb-api
+  
+  # url = url till api hos scb, t.ex.: "https://api.scb.se/OV0104/v1/doris/sv/ssd/START/AM/AM0208/AM0208D/YREG56N", 
+  #       men det går bra att skicka med en webb-url också, t.ex.:
+  #                                    "https://www.statistikdatabasen.scb.se/pxweb/sv/ssd/START__BE__BE0101__BE0101F/UtlmedbTotNK/"
+  # tabell_namn = namn på tabellen, t.ex. "yrke", kommer att ligga först i filnamnet
+  # output_mapp = mapp där skriptet ska sparas när det är klart
+  
+  url <- kontrollera_scb_pxweb_url(url)
+  
+  if (!require("pacman")) install.packages("pacman")
+  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R")
+  
+  
+  px_meta <- pxweb_get(url)
+  
+  # Använd en befintlig funktion för att hämta variabellistan från SCB
+  variables <- pxvarlist(px_meta)
+  
+  # Skapa en liststruktur för varlistan
+  
+  # hämta vektor med variabelkoder
+  varlist_koder <- variables$koder
+  
+  # hämta lista med giltiga värden som vektorer för varje variabel
+  varlist_giltiga_varden <- map(varlist_koder, ~ pxvardelist(url, .x)$klartext) %>% set_names(tolower(varlist_koder))
+  varlist_giltiga_varden_koder <- map(varlist_koder, ~ pxvardelist(url, .x)$kod) %>% set_names(tolower(varlist_koder))
+  
+  funktion_parametrar <- map2_chr(varlist_koder, varlist_giltiga_varden, ~ {
+    retur_txt <- case_when(tolower(.x) %in% c("region") ~ paste0(.x, '_vekt = "20",\t# Val av region.'),
+                           tolower(.x) %in% c("tid") ~ paste0(.x, '_koder = "*",\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', .y, '"', collapse = ", ")),
+                           tolower(.x) %in% c("alder") ~ if (length(.y) < 90) paste0(.x, '_klartext = "*",\t # Finns: ', paste0('"', .y, '"', collapse = ", ")) else paste0(.x, '_koder = "*",\t # Finns: ', min(.y), " - ", max(.y)),
+                           TRUE ~ paste0(tolower(.x), '_klartext = "*",\t # Finns: ', paste0('"', .y, '"', collapse = ", ")) %>% str_replace("contentscode", "cont")) %>% 
+      tolower()
+  }) %>% 
+    c(., 'output_mapp = NA,', paste0('excel_filnamn = "', tabell_namn, '.xlsx",'), 'returnera_df = TRUE') %>%                     # lägg på output-mapp och excel-filnamn som kommer sist i funktionsparametrarna
+    c(., 'output_mapp = NA,', paste0('excel_filnamn = "', tabell_namn, '.xlsx",'), 'returnera_df = TRUE') %>%
+    str_c('\t\t\t', ., collapse = "\n")
+  
+  # om inte inte län finns som region, byt ut "20" mot "00" eller "*" i funktion_parametrar
+  if ("region" %in% tolower(varlist_koder)){
+    if (!"20" %in% varlist_giltiga_varden_koder$region) {
+      funktion_parametrar <- str_replace(funktion_parametrar, "region_vekt = \"20\"", "region_vekt = \"00\"")
+      if (!"00" %in% varlist_giltiga_varden_koder$region) {
+        funktion_parametrar <- str_replace(funktion_parametrar, "region_vekt = \"00\"", "region_vekt = \"*\"")
+      }
+    }
+  } # slut test om Dalarna finns med i tabellen, annars byt ut till riket (00), om inte finns så byt till "*"
+  
+  # skapa variabel-lista för queryn
+  varlist_skriptrader <- paste0("list(\n", 
+                                paste(map_chr(varlist_koder, ~paste0("  \"", .x, "\" = ", str_c(tolower(.x), "_vekt"))), collapse = ",\n"), 
+                                ")") %>% 
+    str_replace("contentscode_vekt", "cont_vekt") %>% 
+    str_replace("tid_vekt", "tid_koder")
+  
+  # skapa skriptrader för klartext-variabler som måste omvandlas till koder till query-listan
+  var_klartext_skriptrader <- map(varlist_koder, function(var_kod) {
+    if (px_meta$variables %>%
+        keep(~ .x$code == var_kod) %>% 
+        map_lgl(~ .x$elimination) %>%
+        first()) {
+      if (!tolower(var_kod) %in% c("region", "alder")) {  
+        paste0("  ", tolower(var_kod), '_vekt <- if (!all(is.na(', tolower(var_kod), '_klartext))) hamta_kod_med_klartext(px_meta, ', tolower(var_kod), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '") else NA\n')
+      } else NA
+    }  else NA 
+  }) %>% 
+    list_c() %>% 
+    .[!is.na(.)] %>% 
+    str_c(collapse = "")
+  
+  # om vi har 1-årsgrupper för åldrar så ändrar vi från alder_klartext till alder_koder
+  # i skriptraderna som gör om klartextvariabler till koder
+  if ("alder" %in% names(varlist_giltiga_varden)) {
+    if (length(varlist_giltiga_varden$alder) > 90) {
+      var_klartext_alder_skriptrader <- '  alder_vekt <- if (all(!is.na(alder_koder))) alder_koder %>% as.character() %>% ifelse(. == "100", "-100+", .) %>% ifelse(. == "tot", "totalt ålder", .) else NA'
+    } else {
+      var_klartext_alder_skriptrader <- '  alder_vekt <- if (!all(is.na(alder_klartext))) hamta_kod_med_klartext(px_meta, alder_klartext, skickad_fran_variabel = "alder") else NA'
+    } 
+  } else var_klartext_alder_skriptrader <- ""            # om inte ålder är med i tabellen
+  
+  # skapa skriptrader för klartext-variabler som kan elimineras om de är NA
+  var_klartext_tabort_NA_skriptrader <- map(varlist_koder, function(var_kod) {
+    if (px_meta$variables %>%
+        keep(~ .x$code == var_kod) %>% 
+        map_lgl(~ .x$elimination) %>%
+        first()) {
+      if (tolower(var_kod) != "region") {  
+        paste0('  if (all(is.na(', tolower(var_kod), '_klartext))) varlista <- varlista[names(varlista) != "', var_kod, '"]')
+      } else NA
+    }  else NA 
+  }) %>% 
+    list_c() %>% 
+    .[!is.na(.)] %>% 
+    str_c(collapse = "\n")
+  
+  # om vi har 1-årsgrupper för åldrar så ändrar vi från alder_klartext till alder_koder i elimineringsraderna
+  if ("alder" %in% names(varlist_giltiga_varden)) {
+    if (length(varlist_giltiga_varden$alder) > 90) {
+      var_klartext_tabort_NA_skriptrader <- str_replace_all(var_klartext_tabort_NA_skriptrader, "alder_klartext", "alder_koder")
+    }
+  }
+  
+  filnamn_suffix <- map_chr(varlist_koder, ~ tolower(.x)) %>% .[. != "contentscode"] %>% c(tabell_namn, ., "scb") %>% str_c(collapse = "_")
+  
+  tid_skriptrader <- paste0('  giltiga_ar <- hamta_giltiga_varden_fran_tabell(px_meta, "tid")\n',
+                            '  if (all(tid_koder != "*")) tid_koder <- tid_koder %>% as.character() %>% str_replace("9999", max(giltiga_ar)) %>% .[. %in% giltiga_ar] %>% unique()\n')
+  
+  cont_skriptrader <- paste0('  cont_vekt <-  hamta_kod_med_klartext(px_meta, cont_klartext, "contentscode")\n')
+  
+  # Skapa en sträng som innehåller koden för att hämta data med pxweb
+  query_code <- paste0(
+    'hamta_', filnamn_suffix, ' <- function(\n',
+    funktion_parametrar, '\n',
+    '){\n\n',
+    paste0(c("  # ", rep("=", times = 100)), collapse = ""),
+    "\n",
+    "  #\n",
+    "  # Funktion för att hämta data från SCB:s API med hjälp av pxweb-paketet\n",
+    "  # Automatgenererat av en funktion i R som skrivits av Peter Möller, Region Dalarna\n",
+    "  #\n",
+    "  # Skapad av: ", Sys.info()["user"], " den ", format(Sys.Date(), "%d %B %Y"), "\n",
+    "  # Senast uppdaterad: ", format(Sys.Date(), "%d %B %Y"), "\n",
+    "  #\n",
+    "  # url till tabellens API: ", url, "\n",
+    "  #\n",
+    paste0(c("  # ", rep("=", times = 100)), collapse = ""),
+    '\n\n',
+    'if (!require("pacman")) install.packages("pacman")\n',
+    '  p_load(pxweb,\n',
+    '  \ttidyverse,\n',
+    '  \twritexl)\n\n',
+    '  # Behändiga funktioner som används i skriptet\n',
+    '  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R")\n\n',
+    '  # Url till SCB:s databas\n',
+    '  url_uttag <- "', url, '"\n',
+    '  px_meta <- pxweb_get(url_uttag)\n\n',
+    '  # Gör om från klartext till kod som databasen förstår\n',
+    var_klartext_skriptrader, '\n',
+    var_klartext_alder_skriptrader, '\n',
+    cont_skriptrader, '\n',
+    '  # Hantera tid-koder\n',
+    tid_skriptrader, '\n',
+    '# query-lista till pxweb-uttag\n',
+    '  varlista <- ', varlist_skriptrader, '\n\n',
+    var_klartext_tabort_NA_skriptrader, '\n\n',
+    '  px_uttag <- pxweb_get(url = url_uttag, query = varlista)\n\n',
+    '  px_df <- as.data.frame(px_uttag) %>%\n',
+    '    cbind(as.data.frame(px_uttag, column.name.type = "code", variable.value.type = "code") %>%\n',
+    '            select(any_of(c(regionkod = "Region"))))\n\n',
+    '  if ("regionkod" %in% names(px_df)) px_df <- px_df %>% relocate(regionkod, .before = 1)\n\n',
+    '  # Om användaren vill spara data till en Excel-fil\n',
+    '  if (!is.na(output_mapp) & !is.na(excel_filnamn)){\n',
+    '    write.xlsx(px_df, paste0(output_mapp, excel_filnamn))\n',
+    '  }\n\n',
+    '  # Returnera data som en dataframe om användern valt det\n',
+    '  if (returnera_df) return(px_df)\n\n',
+    '}'
+  )
+  
+  # Skriv ut den genererade koden - om man vill kolla att skriptet verkar stämma
+  #cat(query_code)
+  
+  # Alternativt, om du vill skapa en skriptfil istället:
+  writeLines(query_code, paste0(output_mapp, "hamta_", filnamn_suffix, ".R"))
+}
+
+kontrollera_scb_pxweb_url <- function(url) {
+  # Kontrollera att url:en är en giltig pxweb-url - om det är en webb-url från SCB:s öppna statstikdatabas på webben 
+  # så konverterar vi den till en API-url, annars returnerar vi den som den är
+  if (str_detect(url, "https://www.statistikdatabasen.scb.se/")) {
+    
+    start_url <- "https://api.scb.se/OV0104/v1/doris/sv/ssd/START/"
+    # här extraherar vi den del av url:en som är unik för varje tabell och som ska byggas ihop med start_url:en
+    retur_url <- url %>% 
+      str_remove("https://www.statistikdatabasen.scb.se/pxweb/sv/ssd/START") %>%
+      str_split("__") %>% unlist() %>% .[. != ""] %>% 
+      str_split("/") %>% unlist() %>% .[. != ""] %>% 
+      str_c(., collapse = "/") %>% 
+      str_c(start_url, .) #%>% str_sub(., 1, nchar(.)-1)
+    
+    return(retur_url)
+  } else {
+    return(url)
+  }
+}
+
