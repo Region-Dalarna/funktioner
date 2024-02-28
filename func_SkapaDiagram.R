@@ -524,6 +524,7 @@ SkapaLinjeDiagram <- function(skickad_df,
                               output_mapp, 
                               diagram_capt = NULL,             # skicka med en textsträng som hamnar i nedre vänstra hörnet på diagram, som kan beskriva källa, vem som gjort diagrammet etc.
                               berakna_index = FALSE,
+                              lagga_till_punkter = FALSE,     # Om man vill kombinera ett linjediagram med ett punktdiagran, dvs, med punkter vid varje observation
                               diagram_facet = FALSE,
                               facet_grp = NA,
                               facet_scale = "free",
@@ -690,6 +691,11 @@ SkapaLinjeDiagram <- function(skickad_df,
   }
   if(legend_tabort) legend_pos <- "none"
   # fortsätt att fylla på objektet p som är diagrammet
+  
+  if(lagga_till_punkter){
+    p <- p + geom_point(size = 2.5)
+  }
+  
   p <- p +
     theme(axis.text.x = element_text(size = x_axis_storlek, angle = x_axis_lutning, hjust = 1),
           axis.text.y = element_text(size = 12),
