@@ -693,7 +693,7 @@ SkapaLinjeDiagram <- function(skickad_df,
   # fortsätt att fylla på objektet p som är diagrammet
   
   if(lagga_till_punkter){
-    p <- p + geom_point(size = 2.5)
+    p <- p + geom_point(aes(color = !!x_grupp), size = 2.5)
   }
   
   p <- p +
