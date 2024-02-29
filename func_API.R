@@ -708,6 +708,8 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna", repo = "hamta_data
 # målmapp
 utskriftsmapp <- function(){ return("G:/Samhällsanalys/API/Fran_R/Utskrift/")}
 
+mapp_hamtadata_peter <- function(){ return("C:/gh/hamta_data/")}
+
 manader_bearbeta_scbtabeller <- function(skickad_df) {
   # funktion för att skapa kolumnerna år, månad, månad_år samt år_månad av kolumnen månad som 
   # ligger i flera scb-tabeller och är strukturerad som år, bokstaven "M" och sedan månads-
@@ -937,7 +939,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb, tabell_namn, output_mapp,
     '  px_df <- as.data.frame(px_uttag) %>%\n',
     '    cbind(as.data.frame(px_uttag, column.name.type = "code", variable.value.type = "code") %>%\n',
     '            select(any_of(var_vektor)))\n\n',
-    '  if (length(var_vektor) > 0) px_df <- map2(names(var_vektor), var_vektor_klartext, ~ px_df %>% relocate(.x, .before = all_of(.y))) %>% list_rbind()\n\n',
+    '  if (length(var_vektor) > 0) px_df <- map2(names(var_vektor), var_vektor_klartext, ~ px_df %>% relocate(all_of(.x), .before = all_of(.y))) %>% list_rbind()\n\n',
     long_format_skriptrader, '\n',
     '  # Om användaren vill spara data till en Excel-fil\n',
     '  if (!is.na(output_mapp) & !is.na(excel_filnamn)){\n',
