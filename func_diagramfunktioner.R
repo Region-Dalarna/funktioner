@@ -295,7 +295,7 @@ diagramfarger <- function(farg = "gron_sex"){
   #rus_sex <- c("#0074A2", "#00B4E4", "#E2A855", "#FFD378", "#459079", "#54B798")
   
   # ny version baserad på utvecklingsarbete för Power BI
-  rus_sex <- c("#3086EB", "#409D53", "#A26BC0", "#facf36", "#FA5346", "#424242")
+  rus_sex <- c("#178571", "#93cec1", "#0e5a4c", "#8edded", "#158daf", "#00577b")
   
   # ===================================== orange färgskalor ===========================================
   
