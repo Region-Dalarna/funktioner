@@ -781,7 +781,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb, tabell_namn, output_mapp,
                            TRUE ~ paste0(tolower(.x), '_klartext = "*",\t # Finns: ', paste0('"', .y, '"', collapse = ", ")) %>% str_replace("contentscode", "cont")) %>% 
       tolower()
   }) %>% 
-    c(., if (antal_contvar > 1) 'long_format = TRUE,\n\t\t\twide_om_en_contvar = TRUE' else "") %>%
+    c(., if (antal_contvar > 1) 'long_format = TRUE,\n\t\t\twide_om_en_contvar = TRUE,' else "") %>%
     c(., 'output_mapp = NA,', paste0('excel_filnamn = "', tabell_namn, '.xlsx",'), 'returnera_df = TRUE') %>%                     # lägg på output-mapp och excel-filnamn som kommer sist i funktionsparametrarna
     str_c('\t\t\t', ., collapse = "\n") %>% 
     str_remove("\t\t\t\n")
