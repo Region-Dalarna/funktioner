@@ -740,7 +740,7 @@ manader_bearbeta_scbtabeller <- function(skickad_df) {
 }
 
 
-skapa_hamta_data_skript_pxweb_scb <- function(url_scb, tabell_namn, output_mapp, var_med_koder = NA) {
+skapa_hamta_data_skript_pxweb_scb <- function(url_scb, tabell_namn, output_mapp, var_med_koder = NA, oppna_nya_skriptfilen = TRUE) {
   
   # funktion för att skapa ett skript för att hämta data från SCB:s pxweb-api
   
@@ -955,6 +955,9 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb, tabell_namn, output_mapp,
   
   # Alternativt, om du vill skapa en skriptfil istället:
   writeLines(query_code, paste0(output_mapp, "hamta_", filnamn_suffix, ".R"))
+  
+  # Öppna filen i RStudio om användaren inte valt bort det
+  if (oppna_nya_skriptfilen) file.edit(paste0(output_mapp, "hamta_", filnamn_suffix, ".R"))
 }
 
 kontrollera_scb_pxweb_url <- function(url_scb) {
