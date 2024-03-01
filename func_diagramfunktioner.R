@@ -282,15 +282,15 @@ diagramfarger <- function(farg = "gron_sex"){
   #rus_gradient <- c("#459079", "#4C957F", "#539B86", "#5AA08C", "#61A693", "#68AC99", "#6FB1A0", "#76B7A6", "#7DBDAD", "#84C2B3", "#8BC8BA", "#93CEC1")
   
   # blå variant av gradient-skalan
-  rus_gradient <- c("#3086EB", "#3080EB", "#307BEB", "#3076EB", "#3070EB", "#306BEB", "#3066EB", "#3061EB", "#305BEB", "#3056EB", "#3051EB", "#304CEB")
+  rus_gradient <- c("#93CEC1", "#87C7B9", "#7CC0B2", "#71BAAB", "#65B3A3", "#5AAC9C", "#4FA695", "#449F8E", "#389886", "#2D927F", "#228B78", "#178571")
   
   #rus_tva_fokus <- c("#54B798", "#459079")
   # blå variant av rus_tva_fokus
-  rus_tva_fokus <- c("#3086EB", "#304CEB")
+  rus_tva_fokus <- c("#93cec1", "#178571")
   
   #rus_tre_fokus <- c("#54B798", "#459079", "#000000")
   # blå variant av rus_tre_fokus
-  rus_tre_fokus <- c("#3086EB", "#304CEB", "#000000")
+  rus_tre_fokus <- c("#93cec1", "#178571", "#000000")
   
   #rus_sex <- c("#0074A2", "#00B4E4", "#E2A855", "#FFD378", "#459079", "#54B798")
   
