@@ -751,6 +751,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb, tabell_namn, output_mapp,
   # output_mapp = mapp där skriptet ska sparas när det är klart
   # var_med_koder = man kan skicka med variabler som ska få med sin kod i uttaget. Variabeln skrivs med sin kod, t.ex. "yrke2012" för att få ssyk-koder till yrkesvariabeln 
   
+  webb_url <- url_scb
   url_scb <- kontrollera_scb_pxweb_url(url_scb)
   
   if (!require("pacman")) install.packages("pacman")
@@ -770,6 +771,8 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb, tabell_namn, output_mapp,
   varlist_giltiga_varden <- map(varlist_koder, ~ pxvardelist(px_meta, .x)$klartext) %>% set_names(tolower(varlist_koder))
   varlist_giltiga_varden_koder <- map(varlist_koder, ~ pxvardelist(px_meta, .x)$kod) %>% set_names(tolower(varlist_koder))
   
+  # kolla om det finns åldrar i tabellen och hur många det är i så fall
+  if ("alder" %in% names(varlist_giltiga_varden)) alder_txt <- if (length(varlist_giltiga_varden$alder) > 90) "_koder" else "_klartext" else alder_txt <- ""
   
   # Kombinera allt till en dataframe
   varlista_info <- tibble(kod = map_chr(px_meta$variables, ~ .x$code), 
@@ -786,9 +789,9 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb, tabell_namn, output_mapp,
     
     retur_txt <- case_when(str_detect(tolower(.x), "fodel") ~ paste0(tolower(.x), '_klartext = "*",\t\t\t# ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")),
                            str_detect(tolower(.x), "region") ~ paste0(tolower(.x), '_vekt = "20",\t\t\t# Val av region.'),
-                           tolower(.x) %in% c("tid") ~ paste0(.x, '_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', .y, '"', collapse = ", ")),
+                           tolower(.x) %in% c("tid") ~ paste0(tolower(.x), '_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', .y, '"', collapse = ", ")),
                            # Funktion för att ta lägsta och högsta värde i ålder är borttagen genom att jag satt length(.y) > 0, ska vara typ kanske 90. Större än 0 = alla så därför är den i praktiken avstängd. 
-                           tolower(.x) %in% c("alder") ~ if (length(.y) < 0) paste0(tolower(.x), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")) else paste0(.x, '_koder = "*",\t\t\t # Finns: ', min(.y), " - ", max(.y)),
+                           tolower(.x) %in% c("alder") ~ paste0(tolower(.x), alder_txt,' = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")),                                                 # gammalt: if (length(.y) < 0) paste0(tolower(.x), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")) else paste0(tolower(.x), '_koder = "*",\t\t\t # Finns: ', min(.y), " - ", max(.y)),
                            TRUE ~ paste0(tolower(.x), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")) %>% str_replace("contentscode", "cont")) 
     
   }) %>% 
@@ -822,10 +825,12 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb, tabell_namn, output_mapp,
           keep(~ .x$code == var_kod) %>% 
           map_lgl(~ .x$elimination) %>%
           first()) {
-            # variabler som går att eliminera (dvs. inte ha med i uttaget)
-            paste0("  ", tolower(var_kod), '_vekt <- if (!all(is.na(', tolower(var_kod), '_klartext))) hamta_kod_med_klartext(px_meta, ', tolower(var_kod), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '") else NA\n')
+        
+          # variabler som går att eliminera (dvs. inte ha med i uttaget)
+          paste0("  ", tolower(var_kod), '_vekt <- if (!all(is.na(', tolower(var_kod), '_klartext))) hamta_kod_med_klartext(px_meta, ', tolower(var_kod), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '") else NA\n')
+          
       } else {    # variabler som inte går att eliminera (göra uttag utan) men som är klartext till kod
-        paste0("  ", tolower(var_kod), '_vekt <- hamta_kod_med_klartext(px_meta, ', tolower(var_kod), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '")\n')
+        if (!str_detect(tolower(var_kod), "alder")) paste0("  ", tolower(var_kod), '_vekt <- hamta_kod_med_klartext(px_meta, ', tolower(var_kod), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '")\n')
       }
     } else NA           # om det är koder för region eller ålder så ska de inte med på dessa rader
        
@@ -841,8 +846,9 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb, tabell_namn, output_mapp,
       var_klartext_alder_skriptrader <- '  alder_vekt <- if (all(!is.na(alder_koder))) alder_koder %>% as.character() %>% ifelse(. == "100", "-100+", .) %>% ifelse(. == "tot", "totalt ålder", .) else NA'
     } else {
       var_klartext_alder_skriptrader <- '  alder_vekt <- if (!all(is.na(alder_klartext))) hamta_kod_med_klartext(px_meta, alder_klartext, skickad_fran_variabel = "alder") else NA'
-    } 
+    }
   } else var_klartext_alder_skriptrader <- ""            # om inte ålder är med i tabellen
+
   
   # skapa skriptrader för klartext-variabler som kan elimineras om de är NA
   var_klartext_tabort_NA_skriptrader <- map(varlist_koder, function(var_kod) {
@@ -916,7 +922,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb, tabell_namn, output_mapp,
     "  # Skapad av: ", Sys.info()["user"], " den ", format(Sys.Date(), "%d %B %Y"), "\n",
     "  # Senast uppdaterad: ", format(Sys.Date(), "%d %B %Y"), "\n",
     "  #\n",
-    "  # url till tabellens API: ", url_scb, "\n",
+    "  # url till tabellens API: ", webb_url, "\n",
     "  #\n",
     paste0(c("  # ", rep("=", times = 100)), collapse = ""),
     '\n\n',
@@ -969,6 +975,10 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb, tabell_namn, output_mapp,
   
   # Öppna filen i RStudio om användaren inte valt bort det
   if (oppna_nya_skriptfilen) file.edit(paste0(output_mapp, "hamta_", filnamn_suffix, ".R"))
+  
+  # returnera sökväg till den skapade filen
+  return(paste0(output_mapp, "hamta_", filnamn_suffix, ".R"))
+  
 }
 
 kontrollera_scb_pxweb_url <- function(url_scb) {
