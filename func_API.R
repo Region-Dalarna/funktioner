@@ -770,19 +770,30 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb, tabell_namn, output_mapp,
   varlist_giltiga_varden <- map(varlist_koder, ~ pxvardelist(px_meta, .x)$klartext) %>% set_names(tolower(varlist_koder))
   varlist_giltiga_varden_koder <- map(varlist_koder, ~ pxvardelist(px_meta, .x)$kod) %>% set_names(tolower(varlist_koder))
   
+  
+  # Kombinera allt till en dataframe
+  varlista_info <- tibble(kod = map_chr(px_meta$variables, ~ .x$code), 
+                          namn = map_chr(px_meta$variables, ~ .x$text), 
+                          elimination = map_lgl(px_meta$variables, ~ .x$elimination))
+  
   # kontrollera hur många contentsvariabler som finns i databasen
   antal_contvar <- length(varlist_giltiga_varden$contentscode)
   
   funktion_parametrar <- map2_chr(varlist_koder, varlist_giltiga_varden, ~ {
-    retur_txt <- case_when(str_detect(tolower(.x), "fodel") ~ paste0(.x, '_klartext = "*",\t# Finns: ', paste0('"', .y, '"', collapse = ", ")),
-      str_detect(tolower(.x), "region") ~ paste0(.x, '_vekt = "20",\t# Val av region.'),
-                           tolower(.x) %in% c("tid") ~ paste0(.x, '_koder = "*",\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', .y, '"', collapse = ", ")),
-                           tolower(.x) %in% c("alder") ~ if (length(.y) < 90) paste0(.x, '_klartext = "*",\t # Finns: ', paste0('"', .y, '"', collapse = ", ")) else paste0(.x, '_koder = "*",\t # Finns: ', min(.y), " - ", max(.y)),
-                           TRUE ~ paste0(tolower(.x), '_klartext = "*",\t # Finns: ', paste0('"', .y, '"', collapse = ", ")) %>% str_replace("contentscode", "cont")) %>% 
-      tolower()
+    
+    ar_elimination <- varlista_info$elimination[varlista_info$kod == .x]            # hämta information om aktuell variabel kan elimineras ur tabellen
+    elim_info_txt <- if(ar_elimination) " NA = tas inte med i uttaget, " else ""    # skapa text som används som förklaring vid parametrarna i funktionen
+    
+    retur_txt <- case_when(str_detect(tolower(.x), "fodel") ~ paste0(tolower(.x), '_klartext = "*",\t\t\t# ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")),
+                           str_detect(tolower(.x), "region") ~ paste0(tolower(.x), '_vekt = "20",\t\t\t# Val av region.'),
+                           tolower(.x) %in% c("tid") ~ paste0(.x, '_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', .y, '"', collapse = ", ")),
+                           # Funktion för att ta lägsta och högsta värde i ålder är borttagen genom att jag satt length(.y) > 0, ska vara typ kanske 90. Större än 0 = alla så därför är den i praktiken avstängd. 
+                           tolower(.x) %in% c("alder") ~ if (length(.y) < 0) paste0(tolower(.x), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")) else paste0(.x, '_koder = "*",\t\t\t # Finns: ', min(.y), " - ", max(.y)),
+                           TRUE ~ paste0(tolower(.x), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")) %>% str_replace("contentscode", "cont")) 
+    
   }) %>% 
-    c(., if (antal_contvar > 1) 'long_format = TRUE,\n\t\t\twide_om_en_contvar = TRUE,' else "") %>%
-    c(., 'output_mapp = NA,', paste0('excel_filnamn = "', tabell_namn, '.xlsx",'), 'returnera_df = TRUE') %>%                     # lägg på output-mapp och excel-filnamn som kommer sist i funktionsparametrarna
+    c(., if (antal_contvar > 1) 'long_format = TRUE,\t\t\t# TRUE = konvertera innehållsvariablerna i datasetet till long-format \n\t\t\twide_om_en_contvar = TRUE,\t\t\t# TRUE = om man vill behålla wide-format om det bara finns en innehållsvariabel, FALSE om man vill konvertera till long-format även om det bara finns en innehållsvariabel' else "") %>%
+    c(., 'output_mapp = NA,\t\t\t# anges om man vill exportera en excelfil med uttaget, den mapp man vill spara excelfilen till', paste0('excel_filnamn = "', tabell_namn, '.xlsx",\t\t\t# filnamn för excelfil som exporteras om excel_filnamn och output_mapp anges'), 'returnera_df = TRUE\t\t\t# TRUE om man vill ha en dataframe i retur från funktionen') %>%                     # lägg på output-mapp och excel-filnamn som kommer sist i funktionsparametrarna
     str_c('\t\t\t', ., collapse = "\n") %>% 
     str_remove("\t\t\t\n")
   
