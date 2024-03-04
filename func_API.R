@@ -740,7 +740,13 @@ manader_bearbeta_scbtabeller <- function(skickad_df) {
 }
 
 
-skapa_hamta_data_skript_pxweb_scb <- function(url_scb, tabell_namn, output_mapp, var_med_koder = NA, oppna_nya_skriptfilen = TRUE) {
+skapa_hamta_data_skript_pxweb_scb <- function(url_scb, 
+                                              tabell_namn, 
+                                              output_mapp, 
+                                              var_med_koder = NA, 
+                                              oppna_nya_skriptfilen = TRUE,
+                                              skapa_temp_test_fil = TRUE
+                                              ) {
   
   # funktion för att skapa ett skript för att hämta data från SCB:s pxweb-api
   
@@ -974,7 +980,24 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb, tabell_namn, output_mapp,
   writeLines(query_code, paste0(output_mapp, "hamta_", filnamn_suffix, ".R"))
   
   # Öppna filen i RStudio om användaren inte valt bort det
-  if (oppna_nya_skriptfilen) file.edit(paste0(output_mapp, "hamta_", filnamn_suffix, ".R"))
+  if (oppna_nya_skriptfilen)file.edit(paste0(output_mapp, "hamta_", filnamn_suffix, ".R"))
+  
+  # Skapa en testfil som kan användas för att testa skriptet genom att source:a in det nya
+  # hämta data-skriptet och ladda en dataframe med data
+  if (skapa_temp_test_fil) {
+    temp_dir <- glue("{tempdir()}\\")
+    filnamn_testfil <- glue("test_hamta_{tabell_namn}.R")
+    
+    testfil_skript <- glue('if (!require("pacman")) install.packages("pacman")\n',
+                           "p_load(tidyverse)\n\n",
+                           'source("', paste0(output_mapp, "hamta_", filnamn_suffix, ".R"), '")\n\n',
+                           '{tabell_namn}_df <- hamta_{filnamn_suffix}(\n',
+                           '{funktion_parametrar}\n)\n\n')
+    
+    writeLines(testfil_skript, paste0(temp_dir, filnamn_testfil))
+    file.edit(paste0(temp_dir, filnamn_testfil))
+    
+  }
   
   # returnera sökväg till den skapade filen
   return(paste0(output_mapp, "hamta_", filnamn_suffix, ".R"))
