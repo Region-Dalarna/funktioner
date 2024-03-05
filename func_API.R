@@ -5,7 +5,8 @@ if (!require("pacman")) install.packages("pacman")
 p_load(pxweb,
        tidyverse,
        rKolada,
-       httr)
+       httr, 
+       glue)
 
 
 hamtaregtab <- function(){
@@ -745,7 +746,8 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
                                               output_mapp, 
                                               var_med_koder = NA, 
                                               oppna_nya_skriptfilen = TRUE,
-                                              skapa_temp_test_fil = TRUE
+                                              skapa_temp_test_fil = TRUE,
+                                              skapa_diagram_i_testfil = TRUE
                                               ) {
   
   # funktion för att skapa ett skript för att hämta data från SCB:s pxweb-api
@@ -934,8 +936,8 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
     '\n\n',
     'if (!require("pacman")) install.packages("pacman")\n',
     '  p_load(pxweb,\n',
-    '  \ttidyverse,\n',
-    '  \twritexl)\n\n',
+    '    \t\t\ttidyverse,\n',
+    '    \t\t\twritexl)\n\n',
     '  # Behändiga funktioner som används i skriptet\n',
     '  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R")\n\n',
     '  # Url till SCB:s databas\n',
@@ -988,16 +990,61 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
     temp_dir <- glue("{tempdir()}\\")
     filnamn_testfil <- glue("test_hamta_{tabell_namn}.R")
     
-    testfil_skript <- glue('if (!require("pacman")) install.packages("pacman")\n',
-                           "p_load(tidyverse)\n\n",
-                           'source("', paste0(output_mapp, "hamta_", filnamn_suffix, ".R"), '")\n\n',
-                           '{tabell_namn}_df <- hamta_{filnamn_suffix}(\n',
-                           '{funktion_parametrar}\n)\n\n')
+    # ta bort alla tecken i px_meta$title från och med strängen "efter" med str_extract
+    auto_diag_titel <- px_meta$title %>% str_remove(" efter[^.]*$")
     
-    writeLines(testfil_skript, paste0(temp_dir, filnamn_testfil))
+    
+    # testa om vissa variabler finns med i datasetet
+    region_txt <- if("region" %in% names(varlist_giltiga_varden)) paste0(' i {unique(', tabell_namn, '_df$region) %>% skapa_kortnamn_lan() %>% list_komma_och()}') else ""
+    regionkod_txt <- if("region" %in% names(varlist_giltiga_varden)) paste0('{unique(', tabell_namn, '_df$regionkod) %>% paste0(collapse = "_")}') else ""
+    tid_txt <- if("tid" %in% names(varlist_giltiga_varden)) {
+      tid_varnamn <- varlista_info$namn[tolower(varlista_info$kod) == "tid"]
+      paste0(' ', tid_varnamn, ' {min(', tabell_namn, '_df$', tid_varnamn, ')} - {max(', tabell_namn, '_df$', tid_varnamn, ')}')
+    } else ""
+    tid_filnamn_txt <- if("tid" %in% names(varlist_giltiga_varden)) paste0('_ar{min(', tabell_namn, '_df$', tid_varnamn, ')}_{max(', tabell_namn, '_df$', tid_varnamn, ')}')
+      
+    testfil_skript <- glue('if (!require("pacman")) install.packages("pacman")\n',
+                           'p_load(tidyverse,\n',
+                           '   \t\t\tglue)\n\n',
+                           'source("', paste0(output_mapp, "hamta_", filnamn_suffix, ".R"), '")\n',
+                           'source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_SkapaDiagram.R", encoding = "utf-8")\n\n',
+                           'diagram_capt <- "Källa: SCB:s öppna statistikdatabas\\nBearbetning: Samhällsanalys, Region Dalarna"\n',
+                           'output_mapp <- utskriftsmapp()\n',
+                           'visa_dataetiketter <- FALSE\n',
+                           'gg_list <- list()\n\n',
+                           '{tabell_namn}_df <- hamta_{filnamn_suffix}(\n',
+                           '{funktion_parametrar}\n)',)
+    
+    testfil_diagram <- glue('\n\ndiagramtitel <- glue("', auto_diag_titel, '{region_txt}{tid_txt}")\n',
+                           'diagramfil <- glue("', tabell_namn,'_', regionkod_txt, tid_filnamn_txt ,'.png")\n\n',
+                           'gg_obj <- SkapaStapelDiagram(skickad_df = {tabell_namn}_df,\n',
+                           '\t\t\t skickad_x_var = "', tid_varnamn, '",\n',
+                           '\t\t\t skickad_y_var = "', varlist_giltiga_varden$contentscode[1], '",\n',
+                           '\t\t\t skickad_x_grupp = NA,\n',
+                           '\t\t\t x_axis_sort_value = FALSE,\n',
+                           '\t\t\t diagram_titel = diagramtitel,\n',
+                           '\t\t\t diagram_capt = diagram_capt,\n',
+                           '\t\t\t stodlinjer_avrunda_fem = TRUE,\n',
+                           '\t\t\t filnamn_diagram = diagramfil,\n',
+                           '\t\t\t dataetiketter = visa_dataetiketter,\n',
+                           '\t\t\t manual_y_axis_title = "",\n',
+                           '\t\t\t manual_x_axis_text_vjust = 1,\n',
+                           '\t\t\t manual_x_axis_text_hjust = 1,\n',
+                           '\t\t\t manual_color = diagramfarger("rus_sex")[1],\n',
+                           '\t\t\t output_mapp = output_mapp,\n',
+                           '\t\t\t diagram_facet = FALSE,\n',
+                           '\t\t\t facet_grp = "region",\n',
+                           '\t\t\t facet_scale = "free",\n',
+                           ')\n\n',
+                           'gg_list <- c(gg_list, list(gg_obj))\n',
+                           'names(gg_list)[[length(gg_list)]] <- diagramfil %>% str_remove(".png")\n\n')
+
+    if (skapa_diagram_i_testfil) testfil_skript <- glue(testfil_skript, testfil_diagram)
+    
+    writeLines(testfil_skript, paste0(temp_dir, filnamn_testfil))        
     file.edit(paste0(temp_dir, filnamn_testfil))
     
-  }
+  } # slut if-sats om man vill skapa en testfil
   
   # returnera sökväg till den skapade filen
   return(paste0(output_mapp, "hamta_", filnamn_suffix, ".R"))
