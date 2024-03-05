@@ -904,8 +904,19 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
     #var_med_koder <- var_med_koder %>% paste0('"', ., '"', collapse = ", ")   
     if (any(var_med_koder %in% varlist_koder)) variabler_med_kod <- c(variabler_med_kod, var_med_koder[var_med_koder %in% varlist_koder]) %>% unique()
   } 
-  names(variabler_med_kod) <- paste0(tolower(variabler_med_kod), "koder")
-  if (length(variabler_med_kod) > 0) variabler_med_klartext <- tabell_variabler$klartext[match(variabler_med_kod, tabell_variabler$koder)]
+  if (length(variabler_med_kod) > 0) {
+    names(variabler_med_kod) <- paste0(tolower(variabler_med_kod), "koder")
+    variabler_med_klartext <- tabell_variabler$klartext[match(variabler_med_kod, tabell_variabler$koder)]
+    var_vektor_skriptdel <- glue(
+    '  var_vektor <- ', capture.output(dput(variabler_med_kod))%>% paste0(collapse = ""), '\n',
+    '  var_vektor_klartext <- ', capture.output(dput(variabler_med_klartext)) %>% paste0(collapse = ""), '\n',
+    )
+  } else {                                    # om det inte finns någon kolumn som vi vill ta med koder för
+    var_vektor_skriptdel <- glue(
+      '  var_vektor <- NA\n',
+      '  var_vektor_klartext <- NA\n',
+    )
+  }  # slut if-sats om det finns variabler med kod
   
                         # 
                         # # lägg in möjligheter att få med koder med variabler
@@ -957,14 +968,14 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
     var_klartext_tabort_NA_skriptrader, '\n\n',
     #variabler_med_kod_skriptrader, '\n\n',
     '  px_uttag <- pxweb_get(url = url_uttag, query = varlista)\n\n',
-    
-    '  var_vektor <- ', capture.output(dput(variabler_med_kod))%>% paste0(collapse = ""), '\n',
-    '  var_vektor_klartext <- ', capture.output(dput(variabler_med_klartext)) %>% paste0(collapse = ""), '\n',
-    
-    '  px_df <- as.data.frame(px_uttag) %>%\n',
-    '    cbind(as.data.frame(px_uttag, column.name.type = "code", variable.value.type = "code") %>%\n',
+    var_vektor_skriptdel, '\n',
+    '  px_df <- as.data.frame(px_uttag)\n',
+    '  if (!is.na(var_vektor)) {',
+    '      px_df <- px_df %>%\n',
+    '            cbind(as.data.frame(px_uttag, column.name.type = "code", variable.value.type = "code") %>%\n',
     '            select(any_of(var_vektor)))\n\n',
-    '  if (length(var_vektor) > 0) px_df <- map2(names(var_vektor), var_vektor_klartext, ~ px_df %>% relocate(all_of(.x), .before = all_of(.y))) %>% list_rbind()\n\n',
+    '      px_df <- map2(names(var_vektor), var_vektor_klartext, ~ px_df %>% relocate(all_of(.x), .before = all_of(.y))) %>% list_rbind()\n',
+    '  }\n\n',
     long_format_skriptrader, '\n',
     '  # Om användaren vill spara data till en Excel-fil\n',
     '  if (!is.na(output_mapp) & !is.na(excel_filnamn)){\n',
@@ -996,7 +1007,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
     
     # testa om vissa variabler finns med i datasetet
     region_txt <- if("region" %in% names(varlist_giltiga_varden)) paste0(' i {unique(', tabell_namn, '_df$region) %>% skapa_kortnamn_lan() %>% list_komma_och()}') else ""
-    regionkod_txt <- if("region" %in% names(varlist_giltiga_varden)) paste0('{unique(', tabell_namn, '_df$regionkod) %>% paste0(collapse = "_")}') else ""
+    regionkod_txt <- if("region" %in% names(varlist_giltiga_varden)) paste0('{unique(', tabell_namn, '_df$regionkod) %>% paste0(collapse = \"_\")}') else ""
     tid_txt <- if("tid" %in% names(varlist_giltiga_varden)) {
       tid_varnamn <- varlista_info$namn[tolower(varlista_info$kod) == "tid"]
       paste0(' ', tid_varnamn, ' {min(', tabell_namn, '_df$', tid_varnamn, ')} - {max(', tabell_namn, '_df$', tid_varnamn, ')}')
@@ -1013,14 +1024,17 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
                            'visa_dataetiketter <- FALSE\n',
                            'gg_list <- list()\n\n',
                            '{tabell_namn}_df <- hamta_{filnamn_suffix}(\n',
-                           '{funktion_parametrar}\n)',)
+                           '{funktion_parametrar}\n\n)')
     
     testfil_diagram <- glue('\n\ndiagramtitel <- glue("', auto_diag_titel, '{region_txt}{tid_txt}")\n',
-                           'diagramfil <- glue("', tabell_namn,'_', regionkod_txt, tid_filnamn_txt ,'.png")\n\n',
-                           'gg_obj <- SkapaStapelDiagram(skickad_df = {tabell_namn}_df,\n',
+                           'diagramfil <- glue("{tabell_namn}_{regionkod_txt}{tid_filnamn_txt}.png")\n\n',
+                           'if ("variabel" %in% names({tabell_namn}_df)) {{\n',
+                           '   if (length(unique({tabell_namn}_df$variabel)) > 6) chart_df <- {tabell_namn}_df %>% filter(variabel == unique({tabell_namn}_df$variabel)[1]) else chart_df <- {tabell_namn}_df\n',
+                           '}} else chart_df <- {tabell_namn}_df\n\n',
+                           'gg_obj <- SkapaStapelDiagram(skickad_df = chart_df,\n',
                            '\t\t\t skickad_x_var = "', tid_varnamn, '",\n',
-                           '\t\t\t skickad_y_var = "', varlist_giltiga_varden$contentscode[1], '",\n',
-                           '\t\t\t skickad_x_grupp = NA,\n',
+                           '\t\t\t skickad_y_var = if ("varde" %in% names(chart_df)) "varde" else "', varlist_giltiga_varden$contentscode[1], '",\n',
+                           '\t\t\t skickad_x_grupp = if ("variabel" %in% names(chart_df) & length(unique(chart_df$variabel)) > 1) "variabel" else NA,\n',
                            '\t\t\t x_axis_sort_value = FALSE,\n',
                            '\t\t\t diagram_titel = diagramtitel,\n',
                            '\t\t\t diagram_capt = diagram_capt,\n',
@@ -1030,16 +1044,16 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
                            '\t\t\t manual_y_axis_title = "",\n',
                            '\t\t\t manual_x_axis_text_vjust = 1,\n',
                            '\t\t\t manual_x_axis_text_hjust = 1,\n',
-                           '\t\t\t manual_color = diagramfarger("rus_sex")[1],\n',
+                           '\t\t\t manual_color = if ("variabel" %in% names(chart_df) & length(unique(chart_df$variabel)) > 1) diagramfarger("rus_sex") else diagramfarger("rus_sex")[1],\n',
                            '\t\t\t output_mapp = output_mapp,\n',
                            '\t\t\t diagram_facet = FALSE,\n',
-                           '\t\t\t facet_grp = "region",\n',
+                           '\t\t\t facet_grp = NA,\n',
                            '\t\t\t facet_scale = "free",\n',
                            ')\n\n',
                            'gg_list <- c(gg_list, list(gg_obj))\n',
                            'names(gg_list)[[length(gg_list)]] <- diagramfil %>% str_remove(".png")\n\n')
 
-    if (skapa_diagram_i_testfil) testfil_skript <- glue(testfil_skript, testfil_diagram)
+    if (skapa_diagram_i_testfil) testfil_skript <- paste0(testfil_skript, testfil_diagram)
     
     writeLines(testfil_skript, paste0(temp_dir, filnamn_testfil))        
     file.edit(paste0(temp_dir, filnamn_testfil))
