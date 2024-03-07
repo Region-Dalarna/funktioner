@@ -148,12 +148,12 @@ SkapaStapelDiagram <- function(skickad_df,
   if (geom_position_stack) {
     if (max(plot_df$total) > 0 & min(plot_df$total) < 0){
       # om det finns både positiva och negativa värden, beräkna max-värden bara på postiva värden och min-värden bara på negativa värden
-      max_varde_plot_df <- plot_df %>% filter(total > 0) %>% group_by(across(all_of(skickad_x_var))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == max(summ)) %>% slice(1) %>% pull()
-      min_varde_plot_df <- plot_df %>% filter(total < 0) %>% group_by(across(all_of(skickad_x_var))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == min(summ)) %>% slice(1) %>% pull()
+      max_varde_plot_df <- plot_df %>% filter(total > 0) %>% group_by(across(all_of(skickad_x_var))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == max(summ)) %>% slice(1) %>% dplyr::pull()
+      min_varde_plot_df <- plot_df %>% filter(total < 0) %>% group_by(across(all_of(skickad_x_var))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == min(summ)) %>% slice(1) %>% dplyr::pull()
     } else {
       # om det bara finns positiva eller negativa värden beräknas max- och min-värden som vanligt
-      max_varde_plot_df <- plot_df %>% group_by(across(all_of(skickad_x_var))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == max(summ)) %>% slice(1) %>% pull()
-      min_varde_plot_df <- plot_df %>% group_by(across(all_of(skickad_x_var))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == min(summ)) %>% slice(1) %>% pull()
+      max_varde_plot_df <- plot_df %>% group_by(across(all_of(skickad_x_var))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == max(summ)) %>% slice(1) %>% dplyr::pull()
+      min_varde_plot_df <- plot_df %>% group_by(across(all_of(skickad_x_var))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == min(summ)) %>% slice(1) %>% dplyr::pull()
         
     } # slut if-sats för att kolla om värdena i stacked bar sträcker sig över 0
     
