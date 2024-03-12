@@ -105,7 +105,7 @@ hamta_tidigaste_tid_i_tabell <- function(skickad_url, tidkol = "år", tabort_var
   tidigaste_tid <- as.numeric(min(px_df_small[[tidkol]]))     # startår är alltid ett år innan första året i prognosen
   message(paste0('Denna funktion är gammal och kommer att tas bort så småningom. Använd\n   min(hamta_giltiga_varden_fran_tabell(api_url, "tid")) \nistället!'))
   return(as.character(tidigaste_tid))
-}
+} 
 
 #################### OBS! Gammal funktion, använd inte denna utan hamta_giltiga_varden_fran_tabell() istället!!!
 
