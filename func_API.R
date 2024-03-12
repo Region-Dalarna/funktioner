@@ -760,7 +760,8 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
   # var_med_koder = man kan skicka med variabler som ska få med sin kod i uttaget. Variabeln skrivs med sin kod, t.ex. "yrke2012" för att få ssyk-koder till yrkesvariabeln 
   
   webb_url <- url_scb
-  url_scb <- kontrollera_scb_pxweb_url(url_scb)
+  url_scb <- map_chr(url_scb, ~ kontrollera_scb_pxweb_url(.x))
+  #url_scb <- kontrollera_scb_pxweb_url(url_scb)
   
   if (!require("pacman")) install.packages("pacman")
   source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R")
@@ -905,7 +906,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
     if (any(var_med_koder %in% varlist_koder)) variabler_med_kod <- c(variabler_med_kod, var_med_koder[var_med_koder %in% varlist_koder]) %>% unique()
   } 
   if (length(variabler_med_kod) > 0) {
-    names(variabler_med_kod) <- paste0(tolower(variabler_med_kod), "koder")
+    names(variabler_med_kod) <- paste0(tolower(variabler_med_kod), "kod")
     variabler_med_klartext <- tabell_variabler$klartext[match(variabler_med_kod, tabell_variabler$koder)]
     var_vektor_skriptdel <- glue(
     '  var_vektor <- ', capture.output(dput(variabler_med_kod))%>% paste0(collapse = ""), '\n',
