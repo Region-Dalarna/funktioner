@@ -725,7 +725,7 @@ manader_bearbeta_scbtabeller <- function(skickad_df) {
            år_månad = paste0(år, " - ", månad),
            månad_år = paste0(månad, " ", år)) 
   
-  manad_sort <- retur_df %>% group_by(månad_nr) %>% summarise(antal = n(), månad_sort = max(månad)) %>% select(månad_sort) %>% pull()
+  manad_sort <- retur_df %>% group_by(månad_nr) %>% summarise(antal = n(), månad_sort = max(månad)) %>% select(månad_sort) %>% dplyr::pull()
   
   retur_df <- retur_df %>% 
     mutate(månad_år = factor(månad_år, levels = unique(månad_år[order(år, månad_nr)])),
@@ -989,8 +989,10 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
   # Skriv ut den genererade koden - om man vill kolla att skriptet verkar stämma
   #cat(query_code)
   
+  tabell_id <- url_scb %>% str_extract("/[^/]+$") %>% str_sub(2)
+  
   # Alternativt, om du vill skapa en skriptfil istället:
-  writeLines(query_code, paste0(output_mapp, "hamta_", filnamn_suffix, ".R"))
+  writeLines(query_code, paste0(output_mapp, "hamta_", filnamn_suffix, "_", tabell_id, ".R"))
   
   # Öppna filen i RStudio om användaren inte valt bort det
   if (oppna_nya_skriptfilen)file.edit(paste0(output_mapp, "hamta_", filnamn_suffix, ".R"))
