@@ -996,7 +996,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
   writeLines(query_code, paste0(output_mapp, "hamta_", filnamn_suffix, "_", tabell_id, ".R"))
   
   # Öppna filen i RStudio om användaren inte valt bort det
-  if (oppna_nya_skriptfilen)file.edit(paste0(output_mapp, "hamta_", filnamn_suffix, ".R"))
+  if (oppna_nya_skriptfilen)file.edit(paste0(output_mapp, "hamta_", filnamn_suffix, "_", tabell_id, ".R"))
   
   # Skapa en testfil som kan användas för att testa skriptet genom att source:a in det nya
   # hämta data-skriptet och ladda en dataframe med data
