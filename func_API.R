@@ -767,7 +767,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
   source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R")
   
   
-  px_meta <- pxweb_get(url_scb)
+  px_meta <- pxweb_get(url_scb[1])
   
   # Använd en befintlig funktion för att hämta variabellistan från SCB
   tabell_variabler <- pxvarlist(px_meta)
