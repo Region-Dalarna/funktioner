@@ -683,7 +683,11 @@ github_lista_repos <- function(owner = "Region-Dalarna") {
   )
 }
 
-github_lista_repo_filer <- function(owner = "Region-Dalarna", repo = "hamta_data", url_vekt_enbart = TRUE) {
+github_lista_repo_filer <- function(owner = "Region-Dalarna",                     # användaren vars repos vi ska lista
+                                    repo = "hamta_data",                          # repot vars filer vi ska lista
+                                    url_vekt_enbart = TRUE,                       # om TRUE returneras en vektor med url:er, annars en dataframe med både filnamn och url
+                                    skriv_source_konsol = TRUE,                   # om TRUE returneras färdiga source-satser som man kan klistra in i sin kod
+                                    filtrera = NA) {                                # om man vill filtrera filer på specifika sökord så gör man det här, kan vara ett eller en vektor med flera (som körs med OR och inte AND)
   # En funktion för att lista filer i ett repository som finns hos en github-användare
   # Användaren "Region-Dalarna" är standardinställing och standardinställning för repo
   # är "hamta_data" så körs funktionen utan parametrar så listas alla filer i repot
@@ -700,9 +704,17 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna", repo = "hamta_data
   retur_df <- tibble::tibble(
     namn = map_chr(content, "name"),
     url = map_chr(content, "download_url")
-  ) %>% .[.$namn != ".gitignore",]
+  ) %>% .[.$namn != ".gitignore",] %>%
+    mutate(source = url %>% paste0('source("', ., '")\n'))
   
-  if (url_vekt_enbart) return(retur_df$url) else return(retur_df)
+  if (!any(is.na(filtrera))) {
+   if (length(filtrera) > 1) filtrera <- paste0(filtrera, collapse = "|")
+    retur_df <- retur_df %>% filter(str_detect(namn, filtrera)) 
+   if (nrow(retur_df) == 0) stop("Inga filer hittades som matchade sökorden.")
+  }
+  if (skriv_source_konsol) {
+    cat(retur_df$source)
+  } else if (url_vekt_enbart) return(retur_df$url) else return(retur_df %>% select(-source))
 }
 
 # returnera rätt sökväg till vår utskriftsmapp där vi sparar diagram- och kartfiler som inte har någon särskild
@@ -881,7 +893,9 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
     }
   }
   
-  filnamn_suffix <- map_chr(varlist_koder, ~ tolower(.x)) %>% .[. != "contentscode"] %>% c(tabell_namn, ., "scb") %>% str_c(collapse = "_")
+  tabell_id <- url_scb %>% str_extract("/[^/]+$") %>% str_sub(2)
+  
+  filnamn_suffix <- map_chr(varlist_koder, ~ tolower(.x)) %>% .[. != "contentscode"] %>% c(tabell_namn, ., "_", tabell_id, "_scb") %>% str_c(collapse = "_")
   
   tid_skriptrader <- paste0('  giltiga_ar <- hamta_giltiga_varden_fran_tabell(px_meta, "tid")\n',
                             '  if (all(tid_koder != "*")) tid_koder <- tid_koder %>% as.character() %>% str_replace("9999", max(giltiga_ar)) %>% .[. %in% giltiga_ar] %>% unique()\n')
@@ -990,13 +1004,11 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
   # Skriv ut den genererade koden - om man vill kolla att skriptet verkar stämma
   #cat(query_code)
   
-  tabell_id <- url_scb %>% str_extract("/[^/]+$") %>% str_sub(2)
-  
   # Alternativt, om du vill skapa en skriptfil istället:
-  writeLines(query_code, paste0(output_mapp, "hamta_", filnamn_suffix, "_", tabell_id, ".R"))
+  writeLines(query_code, paste0(output_mapp, "hamta_", filnamn_suffix, ".R"))
   
   # Öppna filen i RStudio om användaren inte valt bort det
-  if (oppna_nya_skriptfilen)file.edit(paste0(output_mapp, "hamta_", filnamn_suffix, "_", tabell_id, ".R"))
+  if (oppna_nya_skriptfilen)file.edit(paste0(output_mapp, "hamta_", filnamn_suffix, ".R"))
   
   # Skapa en testfil som kan användas för att testa skriptet genom att source:a in det nya
   # hämta data-skriptet och ladda en dataframe med data
