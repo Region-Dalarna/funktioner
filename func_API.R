@@ -893,9 +893,14 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
     }
   }
   
+  # extrahera tabell-id från url:en så att vi kan lägga in det i filnamnet
   tabell_id <- url_scb %>% str_extract("/[^/]+$") %>% str_sub(2)
   
+  # skapa filnamn-suffix som vi använder till filnamnet för hämta data-funktionen
   filnamn_suffix <- map_chr(varlist_koder, ~ tolower(.x)) %>% .[. != "contentscode"] %>% c(tabell_namn, ., tabell_id, "scb") %>% str_c(collapse = "_")
+  
+  # skapa ett namn för själva funktionen där inte tabell-id är med
+  funktion_namn <- filnamn_suffix %>% str_remove(paste0("_", tabell_id))
   
   tid_skriptrader <- paste0('  giltiga_ar <- hamta_giltiga_varden_fran_tabell(px_meta, "tid")\n',
                             '  if (all(tid_koder != "*")) tid_koder <- tid_koder %>% as.character() %>% str_replace("9999", max(giltiga_ar)) %>% .[. %in% giltiga_ar] %>% unique()\n')
@@ -944,7 +949,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
   
   # Skapa en sträng med skriptet för att hämta data med pxweb
   query_code <- paste0(
-    'hamta_', filnamn_suffix, ' <- function(\n',
+    'hamta_', funktion_namn, ' <- function(\n',
     funktion_parametrar, '\n',
     '){\n\n',
     paste0(c("  # ", rep("=", times = 100)), collapse = ""),
@@ -1038,7 +1043,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
                            'output_mapp <- utskriftsmapp()\n',
                            'visa_dataetiketter <- FALSE\n',
                            'gg_list <- list()\n\n',
-                           '{tabell_namn}_df <- hamta_{filnamn_suffix}(\n',
+                           '{tabell_namn}_df <- hamta_{funktion_namn}(\n',
                            '{funktion_parametrar}\n\n)')
     
     testfil_diagram <- glue('\n\ndiagramtitel <- glue("', auto_diag_titel, '{region_txt}{tid_txt}")\n',
