@@ -481,3 +481,4 @@ github_commit_push <- function(
     print("Inga nya eller uppdaterade filer att ladda upp till Github.")
   } # slut if-sats som testar om det finns filer att committa
 } # slut funktion
+ 
