@@ -895,7 +895,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
   
   tabell_id <- url_scb %>% str_extract("/[^/]+$") %>% str_sub(2)
   
-  filnamn_suffix <- map_chr(varlist_koder, ~ tolower(.x)) %>% .[. != "contentscode"] %>% c(tabell_namn, ., "_", tabell_id, "_scb") %>% str_c(collapse = "_")
+  filnamn_suffix <- map_chr(varlist_koder, ~ tolower(.x)) %>% .[. != "contentscode"] %>% c(tabell_namn, ., tabell_id, "scb") %>% str_c(collapse = "_")
   
   tid_skriptrader <- paste0('  giltiga_ar <- hamta_giltiga_varden_fran_tabell(px_meta, "tid")\n',
                             '  if (all(tid_koder != "*")) tid_koder <- tid_koder %>% as.character() %>% str_replace("9999", max(giltiga_ar)) %>% .[. %in% giltiga_ar] %>% unique()\n')
