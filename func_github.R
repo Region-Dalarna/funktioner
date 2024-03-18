@@ -433,15 +433,18 @@ github_commit_push <- function(
   push_repo <- git2r::init(lokal_sokvag_repo)
   repo_status <- git2r::status(push_repo)
   
-  if (length(repo_status$untracked) > 0) {
+  if (length(repo_status$untracked) + length(repo_status$unstaged) > 0) {
     # hämta ner en lista med filer som finns i remote repot
     github_fillista <- github_lista_repo_filer(owner = repo_org,
                                                repo = repo_namn,
                                                url_vekt_enbart = FALSE,
                                                skriv_source_konsol = FALSE)$namn
     
-    filer_uppdatering <- repo_status$untracked[repo_status$untracked %in% github_fillista] 
-    filer_nya <- repo_status$untracked[!repo_status$untracked %in% github_fillista]
+    filer_uppdatering <- c(repo_status$untracked[repo_status$untracked %in% github_fillista],
+                           repo_status$unstaged[repo_status$unstaged %in% github_fillista])
+    
+    filer_nya <- c(repo_status$untracked[!repo_status$untracked %in% github_fillista],
+                   repo_status$unstaged[!repo_status$unstaged %in% github_fillista])
     
     if (is.na(commit_txt)) {
       commit_txt <- case_when(length(filer_uppdatering) > 0 & length(filer_nya) > 0 ~ 
@@ -452,7 +455,10 @@ github_commit_push <- function(
                               length(filer_uppdatering) == 0 & length(filer_nya) > 0 ~
                                 paste0(length(filer_nya), " filer har lagts till."))
     }
-    git2r::add(push_repo, path = repo_status$untracked %>% as.character())
+    # vi lägger till alla filer som är ändrade eller tillagda
+    git2r::add(push_repo, path = c(repo_status$untracked %>% as.character(),
+                                    repo_status$unstaged %>% as.character()))
+    
     git2r::commit(push_repo, commit_txt)
     
     # först en pull
