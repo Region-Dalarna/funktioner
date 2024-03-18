@@ -446,14 +446,16 @@ github_commit_push <- function(
     filer_nya <- c(repo_status$untracked[!repo_status$untracked %in% github_fillista],
                    repo_status$unstaged[!repo_status$unstaged %in% github_fillista])
     
+    uppdatering_txt <- case_when(length(filer_uppdatering) > 0 & length(filer_nya) > 0 ~ 
+                              paste0(length(filer_nya), " filer har lagts till och ", length(filer_uppdatering), 
+                                     " filer har uppdaterats."),
+                            length(filer_uppdatering) > 0 & length(filer_nya) == 0 ~
+                              paste0(length(filer_uppdatering), " filer har uppdaterats."),
+                            length(filer_uppdatering) == 0 & length(filer_nya) > 0 ~
+                              paste0(length(filer_nya), " filer har lagts till."))
+    
     if (is.na(commit_txt)) {
-      commit_txt <- case_when(length(filer_uppdatering) > 0 & length(filer_nya) > 0 ~ 
-                                paste0(length(filer_nya), " filer har lagts till och ", length(filer_uppdatering), 
-                                       " filer har uppdaterats."),
-                              length(filer_uppdatering) > 0 & length(filer_nya) == 0 ~
-                                paste0(length(filer_uppdatering), " filer har uppdaterats."),
-                              length(filer_uppdatering) == 0 & length(filer_nya) > 0 ~
-                                paste0(length(filer_nya), " filer har lagts till."))
+      commit_txt <- uppdatering_txt  
     }
     # vi lägger till alla filer som är ändrade eller tillagda
     git2r::add(push_repo, path = c(repo_status$untracked %>% as.character(),
@@ -472,6 +474,8 @@ github_commit_push <- function(
     git2r::push( object = push_repo,               
                  credentials = cred_user_pass( username = key_list(service = "github_token")$username, 
                                                password = key_get("github_token", key_list(service = "github_token")$username)))
+    
+    print(paste0("Commit och push till Github klar. ", uppdatering_txt))
     
   } else {
     print("Inga nya eller uppdaterade filer att ladda upp till Github.")
