@@ -1,10 +1,12 @@
 
 if (!require("pacman")) install.packages("pacman")
-p_load(git2r,
+p_load(tidyverse,
+       git2r,
        keyring,
        glue)
 
 source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_filer.R", encoding = "utf-8")
+source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_text.R")
 
 skicka_filer_till_github <- function(lokalt_repo_sokvag,        # sökväg till en mapp som utgör ett lokalt Github-repository
                                      filnamn_gh_push,           # filnamn utan sökväg, utöver undermappar i den lokala repository-mappen
@@ -419,3 +421,53 @@ message("Ett nytt R-projekt har skapats och öppnats i en ny session i R-studio.
   
 } # slut funktion
 
+github_commit_push <- function(
+    sokvag_lokal_repo = "c:/gh/",
+    repo_namn = "hamta_data",
+    repo_org = "Region-Dalarna",
+    commit_txt = NA,
+    pull_forst = TRUE) {
+  
+  lokal_sokvag_repo <- paste0(sokvag_lokal_repo, repo_namn)
+  
+  push_repo <- git2r::init(lokal_sokvag_repo)
+  repo_status <- git2r::status(push_repo)
+  
+  if (length(repo_status$untracked) > 0) {
+    # hämta ner en lista med filer som finns i remote repot
+    github_fillista <- github_lista_repo_filer(owner = repo_org,
+                                               repo = repo_namn,
+                                               url_vekt_enbart = FALSE,
+                                               skriv_source_konsol = FALSE)$namn
+    
+    filer_uppdatering <- repo_status$untracked[repo_status$untracked %in% github_fillista] 
+    filer_nya <- repo_status$untracked[!repo_status$untracked %in% github_fillista]
+    
+    if (is.na(commit_txt)) {
+      commit_txt <- case_when(length(filer_uppdatering) > 0 & length(filer_nya) > 0 ~ 
+                                paste0(length(filer_nya), " filer har lagts till och ", length(filer_uppdatering), 
+                                       " filer har uppdaterats."),
+                              length(filer_uppdatering) > 0 & length(filer_nya) == 0 ~
+                                paste0(length(filer_uppdatering), " filer har uppdaterats."),
+                              length(filer_uppdatering) == 0 & length(filer_nya) > 0 ~
+                                paste0(length(filer_nya), " filer har lagts till."))
+    }
+    git2r::add(push_repo, path = repo_status$untracked %>% as.character())
+    git2r::commit(push_repo, commit_txt)
+    
+    # först en pull
+    if (pull_forst){
+      git2r::pull( repo = push_repo,                 
+                   credentials = cred_user_pass( username = key_list(service = "github")$username, 
+                                                 password = key_get("github", key_list(service = "github")$username)))
+    } # slut if-sats där man kan stänga av att man kör en pull först (inte att rekommendera)
+    
+    # och sedan en push
+    git2r::push( object = push_repo,               
+                 credentials = cred_user_pass( username = key_list(service = "github_token")$username, 
+                                               password = key_get("github_token", key_list(service = "github_token")$username)))
+    
+  } else {
+    print("Inga nya eller uppdaterade filer att ladda upp till Github.")
+  } # slut if-sats som testar om det finns filer att committa
+} # slut funktion

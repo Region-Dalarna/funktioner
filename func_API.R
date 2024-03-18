@@ -1105,3 +1105,20 @@ kontrollera_scb_pxweb_url <- function(url_scb) {
   }
 }
 
+extrahera_funktionsnamn_ur_r_filer <- function(filsokvagar) {
+  # funktion som extraherar funktionsnamn ur R-filer
+  
+  # Använder map för att iterera över filvägar och extrahera funktionsnamnen
+  retur_vekt <- map_chr(filsokvagar, ~ {
+    r_kod <- read_lines(.x)
+    if (length(r_kod) > 0) {
+      funktionsnamn <- str_extract_all(r_kod, "\\b\\w+\\s*(?=\\s*<-\\s*function)") %>% unlist()
+      unikaFunktionsnamn <- unique(funktionsnamn[funktionsnamn != ""])
+      
+    } else {
+      unikaFunktionsnamn <- NA
+    }
+    return(unikaFunktionsnamn)
+  })
+  return(retur_vekt <- retur_vekt[!is.na(retur_vekt)])
+}
