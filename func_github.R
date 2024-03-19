@@ -461,7 +461,7 @@ github_commit_push <- function(
     git2r::add(push_repo, path = c(repo_status$untracked %>% as.character(),
                                     repo_status$unstaged %>% as.character()))
     
-    git2r::commit(push_repo, commit_txt)
+    git2r::commit(push_repo, commit_txt) 
     
     # först en pull
     if (pull_forst){
