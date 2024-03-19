@@ -6,6 +6,7 @@ p_load(pxweb,
        tidyverse,
        rKolada,
        httr,
+       keyring,
        usethis,
        git2r,
        glue)
