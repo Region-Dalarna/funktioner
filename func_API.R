@@ -5,7 +5,9 @@ if (!require("pacman")) install.packages("pacman")
 p_load(pxweb,
        tidyverse,
        rKolada,
-       httr, 
+       httr,
+       usethis,
+       git2r,
        glue)
 
 
