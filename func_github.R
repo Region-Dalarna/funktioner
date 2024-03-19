@@ -3,6 +3,7 @@ if (!require("pacman")) install.packages("pacman")
 p_load(tidyverse,
        git2r,
        keyring,
+       usethis,
        glue)
 
 source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_filer.R", encoding = "utf-8")
