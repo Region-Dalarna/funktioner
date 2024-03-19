@@ -4,7 +4,7 @@ p_load(tidyverse,
        git2r,
        keyring,
        usethis,
-       glue) 
+       glue)
 
 source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_filer.R", encoding = "utf-8")
 source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_text.R")

@@ -9,7 +9,7 @@ p_load(pxweb,
        keyring,
        usethis,
        git2r,
-       glue)
+       glue) 
 
 
 hamtaregtab <- function(){
