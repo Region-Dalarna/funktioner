@@ -712,7 +712,7 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
   
   if (!any(is.na(filtrera))) {
    if (length(filtrera) > 1) filtrera <- paste0(filtrera, collapse = "|")
-    retur_df <- retur_df %>% filter(str_detect(namn, filtrera)) 
+    retur_df <- retur_df %>% filter(str_detect(tolower(namn), tolower(filtrera))) 
    if (nrow(retur_df) == 0) stop("Inga filer hittades som matchade sökorden.")
   }
   if (skriv_source_konsol) {
@@ -722,12 +722,12 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
 
 github_commit_push <- function(
     sokvag_lokal_repo = "c:/gh/",
-    repo_namn = "hamta_data",
+    repo = "hamta_data",
     repo_org = "Region-Dalarna",
     commit_txt = NA,
     pull_forst = TRUE) {
   
-  lokal_sokvag_repo <- paste0(sokvag_lokal_repo, repo_namn)
+  lokal_sokvag_repo <- paste0(sokvag_lokal_repo, repo)
   
   push_repo <- git2r::init(lokal_sokvag_repo)
   repo_status <- git2r::status(push_repo)
@@ -735,7 +735,7 @@ github_commit_push <- function(
   if (length(repo_status$untracked) + length(repo_status$unstaged) > 0) {
     # hämta ner en lista med filer som finns i remote repot
     github_fillista <- github_lista_repo_filer(owner = repo_org,
-                                               repo = repo_namn,
+                                               repo = repo,
                                                url_vekt_enbart = FALSE,
                                                skriv_source_konsol = FALSE)$namn
     
