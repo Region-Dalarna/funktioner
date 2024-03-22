@@ -287,6 +287,7 @@ diagramfarger <- function(farg = "gron_sex"){
   #rus_tva_fokus <- c("#54B798", "#459079")
   # blå variant av rus_tva_fokus
   rus_tva_fokus <- c("#93cec1", "#178571")
+  rus_tva_gra <- c("#178571", "#e6e6e6")
   
   #rus_tre_fokus <- c("#54B798", "#459079", "#000000")
   # blå variant av rus_tre_fokus
@@ -389,6 +390,8 @@ diagramfarger <- function(farg = "gron_sex"){
   rd_gul <- c("#FFD378", "#FFEC9F", "#FFF5CC", "#E2A855")
   
   rd_rod <- c("#F15060", "#F8AAB6", "#FFDDE2", "#AE2D3A")
+  
+  rd_gra <- c("#969696", "#e6e6e6", "#f1f1f1", "#424242")
   
   rd_karta_gron <- c("#459079", "#54B798", "#93CEC1", "#D5EAE6")
   
