@@ -785,7 +785,7 @@ github_commit_push <- function(
                  credentials = cred_user_pass( username = key_list(service = "github_token")$username, 
                                                password = key_get("github_token", key_list(service = "github_token")$username)))
     
-    print(paste0("Commit och push till ", repo, " på Github är klar.\n\n", konsolmeddelande))
+    cat(paste0("Commit och push till ", repo, " på Github är klar.\n\n", konsolmeddelande))
     
   } else {
     print("Inga nya eller uppdaterade filer att ladda upp till Github.")
