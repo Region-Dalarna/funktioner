@@ -35,6 +35,8 @@ SkapaStapelDiagram <- function(skickad_df,
                                facet_x_axis_storlek = 8,          # styr storleken på x-axeln i facetdiagram
                                facet_y_axis_storlek = 8,          # styr storleken på x-axeln i facetdiagram
                                facet_rubrik_storlek = 12,         # styr rubriken som skrivs ut ovanför varje facet
+                               facet_space_diag_horisont = 5.5,   # styr det horisontella avståndet mellan facet-diagram
+                               facet_oka_avstand_vid_visa_sista_vardet = 1.5,   # ökar avståndet mellan facet-diagram om man visar sista värdet med x_axis_visa_var_xe_etikett
                                manual_color = NA,                 # man kan lägga till en färgpalett som skickas som vektor med hexkoder, går före brew_palett
                                brew_palett = "Greens",            # defaultpalett är Greens i Rcolorbrewer men byts ut om det finns manual color
                                utan_diagramtitel = FALSE,         # visar ingen diagramtitel vid TRUE, om vi vill stänga av diagramtitel
@@ -53,6 +55,7 @@ SkapaStapelDiagram <- function(skickad_df,
                                y_axis_100proc = FALSE,            # om man har ett diagram med procentvärden och vill visa hela skalan upp till 100 %, och inte sluta på en lägre procentsats kör man TRUE
                                y_axis_borjar_pa_noll = TRUE,      # man kan stänga av att diagrammet börjar på noll om man sätter detta till FALSE, då blir minvärdet högre än 0, annars börjar det alltid på 0
                                x_axis_visa_var_xe_etikett = NA,   # möjlighet att bara visa var x:e etikett. X bestäms av det värde man skickar med (kan vara ex. 3 för att visa var tredje etikett på x-axeln)
+                               inkludera_sista_vardet_var_xe_etikett = TRUE,              # om man vill ha med sista värdet när man kör x_axis_visa_var_xe_etikett
                                procent_0_100_10intervaller = FALSE,  # om TRUE, så går y-axeln mellan 0 och 100, med tjocka stödlinjer med 10 enheters mellanrum, passar bra med procent 
                                legend_titel = NA,                 # om man vill ha en titel på teckenförklaringen kan man skicka med det som text här
                                legend_tabort = FALSE,             # om man vill tvinga bort legenden så kan man göra det här med TRUE
@@ -112,6 +115,9 @@ SkapaStapelDiagram <- function(skickad_df,
   }
   # legendfix
   #if (legend_rader > 1) legend_radbryt = TRUE else legend_radbryt = FALSE
+  
+  # speciallösning, om vi vill visa sista värdet med x_var_visa_var_xe_etikett så ökar vi avståndet mellan facet-diagram
+  if (inkludera_sista_vardet_var_xe_etikett) facet_space_diag_horisont <- facet_space_diag_horisont + facet_oka_avstand_vid_visa_sista_vardet
   
   # gruppera variabler inför diagramskapande ===========================================================
   # testa om filter-variabeln är tom
@@ -183,11 +189,6 @@ SkapaStapelDiagram <- function(skickad_df,
     }
     return(x)
   }
-  
-  every_nth = function(n) {
-    return(function(x) {x[c(TRUE, rep(FALSE, n - 1))]})
-  }
-  
   
   # diagramfärger
   if (!is.na(manual_color)[1]) {
@@ -376,12 +377,14 @@ SkapaStapelDiagram <- function(skickad_df,
           panel.grid.major.y = element_line(linewidth=0.8, colour = "lightgrey"),
           panel.grid.minor.y = element_line(linewidth=0.4, colour = "lightgrey"),
           panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank()) +
+          panel.grid.minor.x = element_blank(),
+          panel.spacing.x = unit(facet_space_diag_horisont, "mm")) +
     {if (diagram_liggande) { 
       theme(panel.grid.major.x = element_line(linewidth=0.8, colour = "lightgrey"),
             panel.grid.minor.x = element_line(linewidth=0.4, colour = "lightgrey"),
             panel.grid.major.y = element_blank(),
             panel.grid.minor.y = element_blank(),
+            panel.spacing.x = unit(facet_space_diag_horisont, "mm"),
             plot.margin=unit(c(5.5, 25, 5.5, 5.5), 'pt'))
     }
     } +
@@ -405,7 +408,7 @@ SkapaStapelDiagram <- function(skickad_df,
     }} +
     # funktion för att bara visa var x:e etikett på x-axeln
     { if (!is.na(x_axis_visa_var_xe_etikett)) {  
-      scale_x_discrete(expand = c(0,0), breaks = every_nth(n = x_axis_visa_var_xe_etikett))
+      scale_x_discrete(expand = c(0,0), breaks = every_nth(n = x_axis_visa_var_xe_etikett, sista_vardet = inkludera_sista_vardet_var_xe_etikett))
     }} +
     
     
@@ -528,6 +531,8 @@ SkapaLinjeDiagram <- function(skickad_df,
                               diagram_facet = FALSE,
                               facet_grp = NA,
                               facet_scale = "free",
+                              facet_space_diag_horisont = 5.5,   # styr det horisontella avståndet mellan facet-diagram
+                              facet_oka_avstand_vid_visa_sista_vardet = 1.5,   # ökar avståndet mellan facet-diagram om man visar sista värdet med x_axis_visa_var_xe_etikett
                               manual_color = NA,
                               brew_palett = "Greens",
                               stodlinjer_avrunda_fem = FALSE,     # för att alltid ha y-axlar som blir jämna tal, FALSE under testperioden, TRUE när vi vet att det funkar
@@ -536,7 +541,8 @@ SkapaLinjeDiagram <- function(skickad_df,
                               x_axis_lutning = 45,
                               x_axis_storlek = 10.5,
                               facet_legend_bottom = FALSE,
-                              visa_var_x_xlabel = 0,
+                              x_axis_visa_var_xe_etikett = NA,
+                              inkludera_sista_vardet_var_xe_etikett = TRUE,              # om man vill ha med sista värdet när man kör x_axis_visa_var_xe_etikett
                               AF_special = FALSE,
                               
                               legend_titel = NA,                 # om man vill ha en titel på teckenförklaringen kan man skicka med det som text här
@@ -574,6 +580,9 @@ SkapaLinjeDiagram <- function(skickad_df,
   filter_or <- paste0("'", filter_or, "'") #%>%             # Lägg till ' runt värdena som ska filtreras ut
   filter_or <- paste0(filter_or_var, " == ", filter_or)     # Sätt ihop variabeln som de tillhör, likamedtecken samt variabelvärdena (från raden ovan) 
   filter_or <- paste(filter_or, collapse = " | ")           # Sätt ihop alla värden till en OR-sats
+  
+  # speciallösning, om vi vill visa sista värdet med x_var_visa_var_xe_etikett så ökar vi avståndet mellan facet-diagram
+  if (inkludera_sista_vardet_var_xe_etikett) facet_space_diag_horisont <- facet_space_diag_horisont + facet_oka_avstand_vid_visa_sista_vardet
   
   # gruppera variabler inför diagramskapande ===========================================================
   # testa om filter-variabeln är tom
@@ -640,7 +649,7 @@ SkapaLinjeDiagram <- function(skickad_df,
   maj_by_yvar <- stodlinjer_list$maj_by_yvar
   
   # om vi vill visa var x:e x-axeletikett
-  if (visa_var_x_xlabel > 0) rep_vec <- c(T, rep(F, visa_var_x_xlabel-1))
+  #if (visa_var_x_xlabel > 0) rep_vec <- c(T, rep(F, visa_var_x_xlabel-1))
   
   
   etikett_format <- function(x){
@@ -709,6 +718,7 @@ SkapaLinjeDiagram <- function(skickad_df,
           plot.caption = element_text(face = "italic",
                                       hjust = 0, vjust = 0),
           plot.caption.position = "plot",
+          panel.spacing.x = unit(facet_space_diag_horisont, "mm"),
           panel.background = element_rect(fill = "white"),
           panel.grid.major.y = element_line(linewidth=0.8, colour = "lightgrey"),
           panel.grid.minor.y = element_line(linewidth=0.4, colour = "lightgrey") ,
@@ -730,8 +740,8 @@ SkapaLinjeDiagram <- function(skickad_df,
     { if (AF_special) {  
       scale_x_continuous(expand = c(0,.3), breaks = seq(1,53, by = 1))
     }} +
-    {if (visa_var_x_xlabel > 0){
-      scale_x_discrete(breaks = plot_df[[x_var]][rep_vec])
+    { if (!is.na(x_axis_visa_var_xe_etikett)) {  
+      scale_x_discrete(expand = c(0,0), breaks = every_nth(n = x_axis_visa_var_xe_etikett, sista_vardet = inkludera_sista_vardet_var_xe_etikett))
     }} +
     # scale_y_continuous(breaks = seq(min_yvar, max_yvar, 
     #                                 by = round(max_yvar / 6, (nchar(trunc(max_yvar/6))-1)*-1)),
@@ -741,7 +751,8 @@ SkapaLinjeDiagram <- function(skickad_df,
                        minor_breaks = seq(min_yvar, max_yvar, by = min_by_yvar),
                        labels = etikett_format,
                        #expand = expand_vekt, 
-                       limits = c(limit_min,max_yvar)) +
+                       limits = c(limit_min,max_yvar),
+                       expand = c(0,0)) +
     #labels = function(x) format(x, big.mark = " ")) +
     {if (diagram_facet & x_grupp != "NA") facet_wrap(as.formula(paste("~",facet_grp)), scales = facet_scale) } +
     {if(diagram_facet & x_grupp != "NA"){
@@ -812,4 +823,20 @@ skriv_till_diagramfil <- function(ggplot_objekt,
       #10 as default, but can change to manually make logo bigger (lägre tal = större logga)
       replace = TRUE)
     }
+}
+
+# every_nth <- function(n) {
+#   return(function(x) {x[c(TRUE, rep(FALSE, n - 1))]})
+# }
+
+every_nth <- function(n, sista_vardet) {
+  return(function(x) {
+    # Skapar en logisk vektor med var n:te element satt till TRUE
+    vec <- c(TRUE, rep(FALSE, n - 1))
+    # Upprepar vektorn så att den täcker hela längden på x
+    repeated_vec <- rep(vec, length.out = length(x))
+    # Säkerställer att det sista värdet alltid är TRUE
+    if (sista_vardet) repeated_vec[length(x)] <- TRUE
+    return(x[repeated_vec])
+  })
 }
