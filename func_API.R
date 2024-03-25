@@ -753,6 +753,17 @@ github_commit_push <- function(
                                  length(filer_uppdatering) == 0 & length(filer_nya) > 0 ~
                                    paste0(length(filer_nya), " ", ifelse(length(filer_nya) == 1, "fil", "filer"),  " har lagts till."))
     
+    filer_uppdatering_txt <- filer_uppdatering %>% paste0(collapse = "\n")
+    filer_nya_txt <- filer_nya %>% paste0(collapse = "\n")
+    
+    konsolmeddelande <- case_when(length(filer_uppdatering) > 0 & length(filer_nya) > 0 ~ 
+                                    paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har lagts till:\n", filer_nya_txt, 
+                                           "\n\n och följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har uppdaterats:\n", filer_uppdatering_txt),
+                                  length(filer_uppdatering) > 0 & length(filer_nya) == 0 ~
+                                    paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har uppdaterats:\n", filer_uppdatering_txt),
+                                  length(filer_uppdatering) == 0 & length(filer_nya) > 0 ~
+                                    paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har lagts till:\n", filer_nya_txt))
+    
     if (is.na(commit_txt)) {
       commit_txt <- uppdatering_txt  
     }
@@ -774,7 +785,7 @@ github_commit_push <- function(
                  credentials = cred_user_pass( username = key_list(service = "github_token")$username, 
                                                password = key_get("github_token", key_list(service = "github_token")$username)))
     
-    print(paste0("Commit och push till Github klar. ", uppdatering_txt))
+    print(paste0("Commit och push till ", repo, " på Github är klar.\n\n", konsolmeddelande))
     
   } else {
     print("Inga nya eller uppdaterade filer att ladda upp till Github.")
