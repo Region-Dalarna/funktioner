@@ -21,6 +21,9 @@ SkapaStapelDiagram <- function(skickad_df,
                                skickad_filter_OR_vect = NA, 
                                skickad_filter_OR_var = NA,
                                diagram_titel = NULL,          # textsträng, blir diagramtitel, om NULL så skrivs diagrammet utan titel
+                               diagram_undertitel = NULL,     # textsträng, blir undertitel, om NULL så skrivs diagrammet utan undertitel
+                               undertitel_hjust = 0.5,        # styr vart undertiteln hamnar, 0 = vänster, 0.5 = mitten, 1 = höger
+                               undertitel_storlek = 11,       # styr storleken på undertiteln
                                output_mapp,                   # textsträng, en giltig sökväg till den mapp som diagrammet ska sparas i 
                                diagram_capt = NULL,           # skicka med en textsträng som hamnar i nedre vänstra hörnet på diagram, som kan beskriva källa, vem som gjort diagrammet etc.
                                #diagram_capt_size, 
@@ -370,6 +373,7 @@ SkapaStapelDiagram <- function(skickad_df,
           legend.text = element_text(size = 12),
           plot.title = element_text(hjust = 0.5, size = 20),
           plot.title.position = "plot",
+          plot.subtitle = element_text(hjust = undertitel_hjust, size = undertitel_storlek),
           plot.caption = element_text(face = "italic",
                                       hjust = 0, vjust = 0),
           plot.caption.position = "plot",
@@ -391,6 +395,7 @@ SkapaStapelDiagram <- function(skickad_df,
     {if (utan_diagramtitel) theme(plot.title = element_blank())} +
     #{if (diagram_liggande) scale_x_discrete(limits = rev(levels(plot_df[x_var])))} + 
     labs(title = diagram_titel,
+         subtitle = diagram_undertitel,
          caption = diagram_capt,
          x = manual_x_axis_title,
          y = y_titel,
@@ -524,6 +529,9 @@ SkapaLinjeDiagram <- function(skickad_df,
                               skickad_filter_OR_vect = NA, 
                               skickad_filter_OR_var = NA,
                               diagram_titel = NULL, 
+                              diagram_undertitel = NULL, 
+                              undertitel_hjust = 0.5,        # styr vart undertiteln hamnar, 0 = vänster, 0.5 = mitten, 1 = höger
+                              undertitel_storlek = 11,       # styr storleken på undertiteln
                               output_mapp, 
                               diagram_capt = NULL,             # skicka med en textsträng som hamnar i nedre vänstra hörnet på diagram, som kan beskriva källa, vem som gjort diagrammet etc.
                               berakna_index = FALSE,
@@ -715,6 +723,7 @@ SkapaLinjeDiagram <- function(skickad_df,
           legend.title = element_blank(),
           legend.text = element_text(size = 12),
           plot.title = element_text(hjust = 0.5, size = 20),
+          plot.subtitle = element_text(hjust = undertitel_hjust, size = undertitel_storlek),
           plot.caption = element_text(face = "italic",
                                       hjust = 0, vjust = 0),
           plot.caption.position = "plot",
@@ -725,7 +734,8 @@ SkapaLinjeDiagram <- function(skickad_df,
           panel.grid.major.x = element_blank(),
           panel.grid.minor.x = element_blank()) +
     {if (utan_diagramtitel) theme(plot.title = element_blank())} +
-    labs(title = diagram_titel, 
+    labs(title = diagram_titel,
+         subtitle = diagram_undertitel,
          x = manual_x_axis_title,
          caption = diagram_capt,
          y = y_titel,
