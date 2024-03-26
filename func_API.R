@@ -918,7 +918,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
   # skapa skriptrader för klartext-variabler som måste omvandlas till koder till query-listan, dvs. "vekt_" och sedan variabelnamnet
   var_klartext_skriptrader <- map(varlist_koder, function(var_kod) {
     # koda klartext till vekt för variabler som inte innehåller region, alder, tid, contentscode eller som innehåller "fodel"
-    if (!str_detect(tolower(var_kod), "region|alder|tid|contentscode") | str_detect(tolower(var_kod), "fodel")) {
+    if (!str_detect(tolower(var_kod), "region|alder|tid|contentscode") | str_detect(tolower(var_kod), "fodel|grupp")) {
       if (px_meta$variables %>%
           keep(~ .x$code == var_kod) %>% 
           map_lgl(~ .x$elimination) %>%
@@ -928,7 +928,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
           paste0("  ", tolower(var_kod), '_vekt <- if (!all(is.na(', tolower(var_kod), '_klartext))) hamta_kod_med_klartext(px_meta, ', tolower(var_kod), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '") else NA\n')
           
       } else {    # variabler som inte går att eliminera (göra uttag utan) men som är klartext till kod
-        if (!str_detect(tolower(var_kod), "alder")) paste0("  ", tolower(var_kod), '_vekt <- hamta_kod_med_klartext(px_meta, ', tolower(var_kod), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '")\n')
+        if (!str_detect(tolower(var_kod), "alder") | str_detect(tolower(var_kod), "grupp")) paste0("  ", tolower(var_kod), '_vekt <- hamta_kod_med_klartext(px_meta, ', tolower(var_kod), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '")\n')
       }
     } else NA           # om det är koder för region eller ålder så ska de inte med på dessa rader
        
