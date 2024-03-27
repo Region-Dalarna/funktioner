@@ -656,6 +656,8 @@ skapa_aldersgrupper <- function(alder, aldergrupp_vekt, konv_fran_txt = TRUE) {
       labels[i] <- str_c("-", upper, " år")
     } else if (is.infinite(upper + 1)) {
       labels[i] <- str_c(lower, "+ år")
+    } else if (lower == upper) {
+      labels[i] <- str_c(lower, " år")  # Hantera enstaka åldrar
     } else {
       labels[i] <- str_c(lower, "-", upper, " år")
     }
