@@ -720,6 +720,63 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
   } else if (url_vekt_enbart) return(retur_df$url) else return(retur_df %>% select(-source))
 }
 
+github_status_filer_lokalt_repo <- function(sokvag_lokal_repo = "c:/gh/",
+                                            repo = "hamta_data"                          # repot vars filer vi ska lista
+                                            ) {
+ 
+  # En funktion för att lista status på filer i ett repository som finns hos en github-användare
+  # Användaren "Region-Dalarna" är standardinställing och standardinställning för repo
+  # är "hamta_data" så körs funktionen utan parametrar så status för lokala filer i repot
+  # "hamta_data" för github-användaren Region-Dalarna, dvs. om det finns ändrade eller nya filer som ännu 
+  # inte skickats upp till github-repositoryt
+  
+  lokal_sokvag_repo <- paste0(sokvag_lokal_repo, repo)
+  
+  lokalt_repo <- git2r::init(lokal_sokvag_repo)
+  repo_status <- git2r::status(lokalt_repo)
+  
+  retur_meddelande <- NULL
+  
+  # helt nya filer
+  if (length(repo_status$untracked) == 1){
+    fil_txt <- "ny fil"
+    dessa_txt <- "Det är"
+  }  else  {
+    fil_txt <- "nya filer"
+    dessa_txt <- "Dessa är"
+  }
+  if (length(repo_status$untracked) > 0) retur_meddelande <- paste0(retur_meddelande, 
+                                                                    glue("Det finns {length(repo_status$untracked)} {fil_txt} i {lokal_sokvag_repo}\n{dessa_txt} är:\n{paste0(repo_status$untracked, collapse = '\n')}\n\n"))
+  # ändrade filer
+  if (length(repo_status$unstaged) == 1){
+    fil_txt <- "fil"
+    dessa_txt <- "Det är"
+  }  else  {
+    fil_txt <- "filer"
+    dessa_txt <- "Dessa är"
+  }
+  if (length(repo_status$unstaged) > 0) retur_meddelande <- paste0(retur_meddelande, 
+                                                                    glue("{length(repo_status$unstaged)} {fil_txt} i {lokal_sokvag_repo} har ändrats, och {tolower(dessa_txt)}:\n{paste0(repo_status$unstaged, collapse = '\n')}\n\n"))
+  # stage:ade filer men ännu inte push:ade till github.com
+  if (length(repo_status$staged) == 1){
+    fil_txt <- "fil"
+    dessa_txt <- "Det är"
+    stage_txt <- "stage:ad"
+    push_txt <- "push:ad"
+  }  else  {
+    fil_txt <- "filer"
+    dessa_txt <- "Dessa är"
+    stage_txt <- "stage:ade"
+    push_txt <- "push:ade"
+  }
+  if (length(repo_status$staged) > 0) retur_meddelande <- paste0(retur_meddelande, 
+                                                                   glue("{length(repo_status$staged)} {fil_txt} i {lokal_sokvag_repo} har ändrats och är {stage_txt} men ännu inte {push_txt} till github.com, och {tolower(dessa_txt)}:\n{paste0(repo_status$staged, collapse = '\n')}"))
+  if (length(retur_meddelande) == 0) retur_meddelande <- glue("Inga nya filer eller ändringar av befintliga filer har gjorts i {lokal_sokvag_repo}.")
+  cat(retur_meddelande)
+    
+} # slut funktion
+
+
 github_commit_push <- function(
     sokvag_lokal_repo = "c:/gh/",
     repo = "hamta_data",
