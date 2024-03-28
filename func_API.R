@@ -889,7 +889,7 @@ manader_bearbeta_scbtabeller <- function(skickad_df) {
 }
 
 
-skapa_hamta_data_skript_pxweb_scb <- function(url_scb, 
+skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb, 
                                               tabell_namn, 
                                               output_mapp, 
                                               var_med_koder = NA, 
@@ -907,12 +907,11 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
   # output_mapp = mapp där skriptet ska sparas när det är klart
   # var_med_koder = man kan skicka med variabler som ska få med sin kod i uttaget. Variabeln skrivs med sin kod, t.ex. "yrke2012" för att få ssyk-koder till yrkesvariabeln 
   
-  webb_url <- url_scb
-  url_scb <- map_chr(url_scb, ~ kontrollera_scb_pxweb_url(.x))
-  #url_scb <- kontrollera_scb_pxweb_url(url_scb)
+  webb_url <- skickad_url_scb %>% paste0(., collapse = "\n  #\t\t\t\t\t\t\t")
+  url_scb <- kontrollera_scb_pxweb_url(skickad_url_scb)
   
   if (!require("pacman")) install.packages("pacman")
-  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R")
+  #source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R")
   
   
   px_meta <- pxweb_get(url_scb[1])
@@ -1030,7 +1029,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
   }
   
   # extrahera tabell-id från url:en så att vi kan lägga in det i filnamnet
-  tabell_id <- url_scb %>% str_extract("/[^/]+$") %>% str_sub(2)
+  tabell_id <- url_scb %>% str_extract("/[^/]+$") %>% str_sub(2) %>% paste0(collapse = "_")
   
   # skapa filnamn-suffix som vi använder till filnamnet för hämta data-funktionen
   filnamn_suffix <- map_chr(varlist_koder, ~ tolower(.x)) %>% .[. != "contentscode"] %>% c(tabell_namn, ., tabell_id, "scb") %>% str_c(collapse = "_")
@@ -1064,7 +1063,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
     names(variabler_med_kod) <- paste0(tolower(variabler_med_kod), "kod")
     variabler_med_klartext <- tabell_variabler$klartext[match(variabler_med_kod, tabell_variabler$koder)]
     var_vektor_skriptdel <- glue(
-    '  var_vektor <- ', capture.output(dput(variabler_med_kod))%>% paste0(collapse = ""), '\n',
+    '\tvar_vektor <- ', capture.output(dput(variabler_med_kod))%>% paste0(collapse = ""), '\n',
     '  var_vektor_klartext <- ', capture.output(dput(variabler_med_klartext)) %>% paste0(collapse = ""), '\n',
     )
   } else {                                    # om det inte finns någon kolumn som vi vill ta med koder för
@@ -1083,7 +1082,31 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
                         #   '  if (length(variabler_med_kod) > 0) variabler_med_klartext <- varlist_bada$klartext[match(variabler_med_kod, varlist_bada$koder)]\n\n'
                         # )
   
-  # Skapa en sträng med skriptet för att hämta data med pxweb
+  # ============== lösning för om man skickar med flera url:er, funkar bara om tabellerna innehåller samma variabler =================
+  # skapa en url-sträng utifrån om vi har en eller flera url:er
+  if (length(url_scb) > 1) {
+    
+    # här skapas url_uttag <- eller url_list <- beroende på om vi har en eller flera url:er
+    url_list <- paste0('"', url_scb, '"', collapse = (",\n\t\t"))
+    url_txt <- paste0('  url_list <- c(', url_list, ')\n')
+    
+    # om vi har flera url:er måste vi skapa en funktion som hämtar data från varje url och sätter ihop med map
+    hamta_funktion_txt <- "\n\n hamta_data <- function(url_uttag) {\n\n"
+    hamta_funktion_slut_txt <- '  return(px_df)\n  }\n\n'
+    map_funktion_txt <- '  px_alla <- map(url_lista, ~ hamta_data(.x)) %>% list_rbind()\n\n'
+    px_retur_txt <- "px_alla"
+    
+  } else {
+    
+    url_txt <- paste0('  url_uttag <- "', url_scb, '"\n')
+    hamta_funktion_txt <- NULL
+    hamta_funktion_slut_txt <- NULL
+    map_funktion_txt <- NULL
+    px_retur_txt <- "px_df"
+    
+  } 
+  
+  # ================================================ Skapar själva strängen med skriptet för att hämta data med pxweb =======================================
   query_code <- paste0(
     'hamta_', funktion_namn, ' <- function(\n',
     funktion_parametrar, '\n',
@@ -1101,14 +1124,15 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
     "  #\n",
     paste0(c("  # ", rep("=", times = 100)), collapse = ""),
     '\n\n',
-    'if (!require("pacman")) install.packages("pacman")\n',
+    '  if (!require("pacman")) install.packages("pacman")\n',
     '  p_load(pxweb,\n',
     '    \t\t\ttidyverse,\n',
     '    \t\t\twritexl)\n\n',
     '  # Behändiga funktioner som används i skriptet\n',
     '  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R")\n\n',
     '  # Url till SCB:s databas\n',
-    '  url_uttag <- "', url_scb, '"\n',
+    url_txt,
+    hamta_funktion_txt,
     '  px_meta <- pxweb_get(url_uttag)\n\n',
     '  varlist_koder <- pxvarlist(px_meta)$koder\n',
     '  varlist_bada <- pxvarlist(px_meta)\n\n',
@@ -1119,7 +1143,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
     '  # Hantera tid-koder\n',
     tid_skriptrader, '\n',
     #variabler_med_kod_skriptrader, '\n',
-    '# query-lista till pxweb-uttag\n',
+    '  # query-lista till pxweb-uttag\n',
     '  varlista <- ', varlist_skriptrader, '\n\n',
     var_klartext_tabort_NA_skriptrader, '\n\n',
     #variabler_med_kod_skriptrader, '\n\n',
@@ -1133,12 +1157,14 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
     '      px_df <- map2(names(var_vektor), var_vektor_klartext, ~ px_df %>% relocate(all_of(.x), .before = all_of(.y))) %>% list_rbind()\n',
     '  }\n\n',
     long_format_skriptrader, '\n',
+    hamta_funktion_slut_txt,
+    map_funktion_txt,
     '  # Om användaren vill spara data till en Excel-fil\n',
     '  if (!is.na(output_mapp) & !is.na(excel_filnamn)){\n',
-    '    write.xlsx(px_df, paste0(output_mapp, excel_filnamn))\n',
+    '    write.xlsx(', px_retur_txt, ', paste0(output_mapp, excel_filnamn))\n',
     '  }\n\n',
     '  # Returnera data som en dataframe om användern valt det\n',
-    '  if (returnera_df) return(px_df)\n\n',
+    '  if (returnera_df) return(', px_retur_txt, ')\n\n',
     '}'
   )
   
@@ -1221,14 +1247,15 @@ skapa_hamta_data_skript_pxweb_scb <- function(url_scb,
   
 }
 
-kontrollera_scb_pxweb_url <- function(url_scb) {
+kontrollera_scb_pxweb_url <- function(url_scb_lista) {
   # Kontrollera att url:en är en giltig pxweb-url - om det är en webb-url från SCB:s öppna statstikdatabas på webben 
   # så konverterar vi den till en API-url, annars returnerar vi den som den är
-  if (str_detect(url_scb, "https://www.statistikdatabasen.scb.se/")) {
+  slut_retur_url <- map_chr(url_scb_lista, ~ {
+  if (str_detect(.x, "https://www.statistikdatabasen.scb.se/")) {
     
     start_url <- "https://api.scb.se/OV0104/v1/doris/sv/ssd/START/"
     # här extraherar vi den del av url:en som är unik för varje tabell och som ska byggas ihop med start_url:en
-    retur_url <- url_scb %>% 
+    retur_url <- .x %>% 
       str_remove("https://www.statistikdatabasen.scb.se/pxweb/sv/ssd/START") %>%
       str_split("__") %>% unlist() %>% .[. != ""] %>% 
       str_split("/") %>% unlist() %>% .[. != ""] %>% 
@@ -1237,8 +1264,10 @@ kontrollera_scb_pxweb_url <- function(url_scb) {
     
     return(retur_url)
   } else {
-    return(url_scb)
+    return(.x)
   }
+  })
+  return(slut_retur_url)
 }
 
 extrahera_funktionsnamn_ur_r_filer <- function(filsokvagar) {
