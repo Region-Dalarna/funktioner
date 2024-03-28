@@ -907,7 +907,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
   # output_mapp = mapp där skriptet ska sparas när det är klart
   # var_med_koder = man kan skicka med variabler som ska få med sin kod i uttaget. Variabeln skrivs med sin kod, t.ex. "yrke2012" för att få ssyk-koder till yrkesvariabeln 
   
-  webb_url <- skickad_url_scb %>% paste0(., collapse = "\n  #\t\t\t\t\t\t\t")
+  webb_url <- skickad_url_scb %>% paste0(., collapse = "\n  #\t\t\t\t\t\t\t\t\t\t\t\t")
   url_scb <- kontrollera_scb_pxweb_url(skickad_url_scb)
   
   if (!require("pacman")) install.packages("pacman")
@@ -1087,13 +1087,13 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
   if (length(url_scb) > 1) {
     
     # här skapas url_uttag <- eller url_list <- beroende på om vi har en eller flera url:er
-    url_list <- paste0('"', url_scb, '"', collapse = (",\n\t\t"))
+    url_list <- paste0('"', url_scb, '"', collapse = (",\n\t\t\t\t\t\t"))
     url_txt <- paste0('  url_list <- c(', url_list, ')\n')
     
     # om vi har flera url:er måste vi skapa en funktion som hämtar data från varje url och sätter ihop med map
     hamta_funktion_txt <- "\n\n hamta_data <- function(url_uttag) {\n\n"
     hamta_funktion_slut_txt <- '  return(px_df)\n  }\n\n'
-    map_funktion_txt <- '  px_alla <- map(url_lista, ~ hamta_data(.x)) %>% list_rbind()\n\n'
+    map_funktion_txt <- '  px_alla <- map(url_list, ~ hamta_data(.x)) %>% list_rbind()\n\n'
     px_retur_txt <- "px_alla"
     
   } else {
