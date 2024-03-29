@@ -913,26 +913,46 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
   if (!require("pacman")) install.packages("pacman")
   #source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R")
   
+  px_meta_list <- map(url_scb, ~ pxweb_get(.x))
   
-  px_meta <- pxweb_get(url_scb[1])
-  
-  # Använd en befintlig funktion för att hämta variabellistan från SCB
+  px_meta_enkel_list <- extrahera_unika_varden_flera_scb_tabeller(px_meta_list)
   tabell_variabler <- pxvarlist(px_meta)
   
-  # Skapa en liststruktur för varlistan
-  # hämta vektor med variabelkoder
-  varlist_koder <- tabell_variabler$koder
+  # om det finns år och månader så sorterar vi dessa i listan så det blir snyggare när de listas som möjliga värden i parameterlistan
+  if ("tid" %in% tolower(tabell_variabler$koder)) {
+    px_meta_enkel_list <- sortera_px_variabler(px_meta_enkel_list, sorterings_vars = "tid", sortera_pa_kod = TRUE)
+  }
   
-  # hämta lista med giltiga värden som vektorer för varje variabel
-  varlist_giltiga_varden <- map(varlist_koder, ~ pxvardelist(px_meta, .x)$klartext) %>% set_names(tolower(varlist_koder))
+  # vi skapar en lista som heter px_meta som liknar en lista man får med en vanlig pxweb_get()-funktion
+  px_meta <- list(title = px_meta_list[[1]]$title, variables = px_meta_enkel_list)
+
+  varlist_koder <- tabell_variabler$koder                                                # hämta vektor med variabelkoder
+  
+  varlist_giltiga_varden <- map(varlist_koder, ~ pxvardelist(px_meta, .x)$klartext) %>% set_names(tolower(varlist_koder) %>% unique())
   varlist_giltiga_varden_koder <- map(varlist_koder, ~ pxvardelist(px_meta, .x)$kod) %>% set_names(tolower(varlist_koder))
+  
+  # =========================== gammal lösning då det bara gick att skicka en url till funktionen ===============================
+  # px_meta <- pxweb_get(url_scb[1])
+  # 
+  # # Använd en befintlig funktion för att hämta variabellistan från SCB
+  # tabell_variabler <- pxvarlist(px_meta)
+  # 
+  # # Skapa en liststruktur för varlistan
+  # # hämta vektor med variabelkoder
+  # varlist_koder <- tabell_variabler$koder
+  # 
+  # # hämta lista med giltiga värden som vektorer för varje variabel
+  # varlist_giltiga_varden <- map(varlist_koder, ~ pxvardelist(px_meta, .x)$klartext) %>% set_names(tolower(varlist_koder))
+  # varlist_giltiga_varden_koder <- map(varlist_koder, ~ pxvardelist(px_meta, .x)$kod) %>% set_names(tolower(varlist_koder))
+  # 
+  
   
   # kolla om det finns åldrar i tabellen och hur många det är i så fall
   if ("alder" %in% names(varlist_giltiga_varden)) alder_txt <- if (length(varlist_giltiga_varden$alder) > 90) "_koder" else "_klartext" else alder_txt <- ""
-  
+
   # Kombinera allt till en dataframe
-  varlista_info <- tibble(kod = map_chr(px_meta$variables, ~ .x$code), 
-                          namn = map_chr(px_meta$variables, ~ .x$text), 
+  varlista_info <- tibble(kod = map_chr(px_meta$variables, ~ .x$code),
+                          namn = map_chr(px_meta$variables, ~ .x$text),
                           elimination = map_lgl(px_meta$variables, ~ .x$elimination))
   
   # kontrollera hur många contentsvariabler som finns i databasen
@@ -948,7 +968,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
                            tolower(.x) %in% c("tid") ~ paste0(tolower(.x), '_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', .y, '"', collapse = ", ")),
                            # Funktion för att ta lägsta och högsta värde i ålder är borttagen genom att jag satt length(.y) > 0, ska vara typ kanske 90. Större än 0 = alla så därför är den i praktiken avstängd. 
                            tolower(.x) %in% c("alder") ~ paste0(tolower(.x), alder_txt,' = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")),                                                 # gammalt: if (length(.y) < 0) paste0(tolower(.x), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")) else paste0(tolower(.x), '_koder = "*",\t\t\t # Finns: ', min(.y), " - ", max(.y)),
-                           TRUE ~ paste0(tolower(.x), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")) %>% str_replace("contentscode", "cont")) 
+                           TRUE ~ paste0(tolower(.x), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y %>% unique(), '"', collapse = ", ")) %>% str_replace("contentscode", "cont")) 
     
   }) %>% 
     c(., if (antal_contvar > 1) 'long_format = TRUE,\t\t\t# TRUE = konvertera innehållsvariablerna i datasetet till long-format \n\t\t\twide_om_en_contvar = TRUE,\t\t\t# TRUE = om man vill behålla wide-format om det bara finns en innehållsvariabel, FALSE om man vill konvertera till long-format även om det bara finns en innehållsvariabel' else "") %>%
@@ -1030,6 +1050,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
   
   # extrahera tabell-id från url:en så att vi kan lägga in det i filnamnet
   tabell_id <- url_scb %>% str_extract("/[^/]+$") %>% str_sub(2) %>% paste0(collapse = "_")
+  if (nchar(tabell_id) > 40) tabell_id <- ""
   
   # skapa filnamn-suffix som vi använder till filnamnet för hämta data-funktionen
   filnamn_suffix <- map_chr(varlist_koder, ~ tolower(.x)) %>% .[. != "contentscode"] %>% c(tabell_namn, ., tabell_id, "scb") %>% str_c(collapse = "_")
@@ -1286,4 +1307,69 @@ extrahera_funktionsnamn_ur_r_filer <- function(filsokvagar) {
     return(unikaFunktionsnamn)
   })
   return(retur_vekt <- retur_vekt[!is.na(retur_vekt)])
+}
+
+extrahera_unika_varden_flera_scb_tabeller <- function(px_meta) {
+  
+  # funktion för att skapa en lista som innehåller alla variabler i skickade listor (en för varje scb-tabell)
+  # och samtliga unika värden i alla listor (en för varje scb_tabell)
+  
+  # funktionen används i skapa hämta-data-skriptet men kan användas fristående också om man vill ha en lista med alla variabler
+  # i flera scb-tabeller och samtliga unika värden för varje variabel
+  
+  # Hämta namnen i kod, klartext samt elimination för variablerna från den första listan
+  variabel_namn <- map_chr(px_meta[[1]]$variables, 'code')
+  variabel_namn_klartext <- map_chr(px_meta[[1]]$variables, 'text')
+  variabel_namn_elim <- map(px_meta[[1]]$variables, 'elimination')
+  
+  # Skapa en lista för att hålla de unika värdena för varje variabel
+  unika_variabler <- pmap(list(variabel_namn, variabel_namn_klartext, variabel_namn_elim), function(namn, klartext, elim) {
+    
+    # Hitta rätt variabel baserat på 'code' och extrahera 'values'
+    alla_values <- map(px_meta, ~ .x$variables %>% 
+                         keep(~ .x$code == namn) %>% 
+                         map('values') %>% 
+                         unlist()) %>% 
+      unlist() %>% 
+      unique()
+    
+    # Hitta rätt variabel baserat på 'code' och extrahera 'valueTexts'
+    alla_valueTexts <- map(px_meta, ~ .x$variables %>% 
+                             keep(~ .x$code == namn) %>% 
+                             map('valueTexts') %>% 
+                             unlist()) %>% 
+      unlist() %>% 
+      unique()
+    
+    #if (tolower(.x$code) == "tid") alla_valueTexts <- alla_valueTexts %>% sort()
+    
+    # Skapa en lista med 'code', unika 'values' och 'valueTexts'
+    list(code = namn, text = klartext, elimination = elim, values = alla_values, valueTexts = alla_valueTexts)
+  })
+  
+  return(unika_variabler)
+}
+
+sortera_px_variabler <- function(lista, sorterings_vars = c("Tid"), sortera_pa_kod = TRUE) {
+  
+  # denna funktion används till px-web-objekt, närmare bestämt en lista man får när man skriver px_meta <- pxweb_get(url) och sedan 
+  # extrahera med lista <- px_meta$variables. 
+  
+  # Funktionen används för att sortera värdena för de variabler som anges i sorterings_vars
+  # sorterings_vars är en vektor med variabel-koder eller namn som sorteras utifrån variabelkoden om sortera_pa_kod är TRUE
+  # annars på variabelns klartextvärden (tex. "20" är kod och "Dalarnas län" är klartext för variabeln "region")
+  
+  # Använd 'map' för att iterera över 'lista' och tillämpa sorteringsfunktionen för varje element
+  retur_lista <- map(lista, function(list_element) {
+    if (tolower(list_element$code) %in% tolower(sorterings_vars) | tolower(list_element$text) %in% tolower(sorterings_vars)) {
+      # Sortera 'values' och 'valueTexts' baserat på 'values' eller 'valueTexts' beroende på sortera_pa_kod är TRUE eller FALSE
+      if (sortera_pa_kod) order_index <- order(list_element$values) else order_index <- order(list_element$valueTexts)
+      list_element$values <- list_element$values[order_index]
+      list_element$valueTexts <- list_element$valueTexts[order_index]
+    }
+    # Returnera det modifierade eller ursprungliga listelementet
+    list_element
+  })
+  
+  return(retur_lista)
 }
