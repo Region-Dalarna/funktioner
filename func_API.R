@@ -916,7 +916,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
   px_meta_list <- map(url_scb, ~ pxweb_get(.x))
   
   px_meta_enkel_list <- extrahera_unika_varden_flera_scb_tabeller(px_meta_list)
-  tabell_variabler <- pxvarlist(px_meta)
+  tabell_variabler <- pxvarlist(list(title = NULL, variables = px_meta_enkel_list))
   
   # om det finns år och månader så sorterar vi dessa i listan så det blir snyggare när de listas som möjliga värden i parameterlistan
   if ("tid" %in% tolower(tabell_variabler$koder)) {
@@ -1019,11 +1019,11 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
   # i skriptraderna som gör om klartextvariabler till koder
   if ("alder" %in% names(varlist_giltiga_varden)) {
     if (length(varlist_giltiga_varden$alder) > 90) {
-      var_klartext_alder_skriptrader <- '  alder_vekt <- if (all(!is.na(alder_koder))) alder_koder %>% as.character() %>% ifelse(. == "100", "-100+", .) %>% ifelse(. == "tot", "totalt ålder", .) else NA'
+      var_klartext_alder_skriptrader <- '  alder_vekt <- if (all(!is.na(alder_koder))) alder_koder %>% as.character() %>% ifelse(. == "100", "-100+", .) %>% ifelse(. == "tot", "totalt ålder", .) else NA\n'
     } else {
-      var_klartext_alder_skriptrader <- '  alder_vekt <- if (!all(is.na(alder_klartext))) hamta_kod_med_klartext(px_meta, alder_klartext, skickad_fran_variabel = "alder") else NA'
+      var_klartext_alder_skriptrader <- '  alder_vekt <- if (!all(is.na(alder_klartext))) hamta_kod_med_klartext(px_meta, alder_klartext, skickad_fran_variabel = "alder") else NA\n'
     }
-  } else var_klartext_alder_skriptrader <- ""            # om inte ålder är med i tabellen
+  } else var_klartext_alder_skriptrader <- NULL            # om inte ålder är med i tabellen
 
   
   # skapa skriptrader för klartext-variabler som kan elimineras om de är NA
@@ -1071,7 +1071,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
            '  # pivoterar vi om till long-format, dock ej om det bara finns en innehållsvariabel\n',
            '  if (long_format & !wide_om_en_contvar) px_df <- px_df %>% konvertera_till_long_for_contentscode_variabler(url_uttag)\n\n')
       
-    } else "" # slut if-sats som kontrollera om vi vill ha df i long-format, blir "" om vi inte har fler än en cont_variabler i tabellen
+    } else NULL # slut if-sats som kontrollera om vi vill ha df i long-format, blir "" om vi inte har fler än en cont_variabler i tabellen
   
   
   variabler_med_kod <- varlist_koder[str_detect(tolower(varlist_koder), "region") & !str_detect(tolower(varlist_koder), "fodel")]
@@ -1083,9 +1083,9 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
   if (length(variabler_med_kod) > 0) {
     names(variabler_med_kod) <- paste0(tolower(variabler_med_kod), "kod")
     variabler_med_klartext <- tabell_variabler$klartext[match(variabler_med_kod, tabell_variabler$koder)]
-    var_vektor_skriptdel <- glue(
-    '\tvar_vektor <- ', capture.output(dput(variabler_med_kod))%>% paste0(collapse = ""), '\n',
-    '  var_vektor_klartext <- ', capture.output(dput(variabler_med_klartext)) %>% paste0(collapse = ""), '\n',
+    var_vektor_skriptdel <- paste0(
+    '  var_vektor <- ', capture.output(dput(variabler_med_kod))%>% paste0(collapse = ""), '\n',
+    '  var_vektor_klartext <- ', capture.output(dput(variabler_med_klartext)) %>% paste0(collapse = ""), '\n'
     )
   } else {                                    # om det inte finns någon kolumn som vi vill ta med koder för
     var_vektor_skriptdel <- glue(
@@ -1109,7 +1109,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
     
     # här skapas url_uttag <- eller url_list <- beroende på om vi har en eller flera url:er
     url_list <- paste0('"', url_scb, '"', collapse = (",\n\t\t\t\t\t\t"))
-    url_txt <- paste0('  url_list <- c(', url_list, ')\n')
+    url_txt <- paste0('  url_list <- c(', url_list, ')')
     
     # om vi har flera url:er måste vi skapa en funktion som hämtar data från varje url och sätter ihop med map
     hamta_funktion_txt <- "\n\n hamta_data <- function(url_uttag) {\n\n"
@@ -1159,7 +1159,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
     '  varlist_bada <- pxvarlist(px_meta)\n\n',
     '  # Gör om från klartext till kod som databasen förstår\n',
     var_klartext_skriptrader, '\n',
-    var_klartext_alder_skriptrader, '\n',
+    var_klartext_alder_skriptrader,
     cont_skriptrader, '\n',
     '  # Hantera tid-koder\n',
     tid_skriptrader, '\n',
@@ -1177,7 +1177,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
     '            select(any_of(var_vektor)))\n\n',
     '      px_df <- map2(names(var_vektor), var_vektor_klartext, ~ px_df %>% relocate(all_of(.x), .before = all_of(.y))) %>% list_rbind()\n',
     '  }\n\n',
-    long_format_skriptrader, '\n',
+    long_format_skriptrader,
     hamta_funktion_slut_txt,
     map_funktion_txt,
     '  # Om användaren vill spara data till en Excel-fil\n',
