@@ -1291,23 +1291,31 @@ kontrollera_scb_pxweb_url <- function(url_scb_lista) {
   return(slut_retur_url)
 }
 
-extrahera_funktionsnamn_ur_r_filer <- function(filsokvagar) {
+lista_funktioner_i_skript <- function(filsokvag_eller_github_url) {
   # funktion som extraherar funktionsnamn ur R-filer
   
   # Använder map för att iterera över filvägar och extrahera funktionsnamnen
-  retur_vekt <- map_chr(filsokvagar, ~ {
-    r_kod <- read_lines(.x)
+  retur_vekt <- map(filsokvag_eller_github_url, ~ {
+    # avgör om det är en url från github eller en sökväg till en fil lokalt
+    if (str_detect(filsokvag_eller_github_url, "^http")) {
+      response <- GET(.x)
+      text_content <- httr::content(response, "text", encoding = "UTF-8")
+      r_kod <- unlist(str_split(text_content, "\n"))
+    } else {
+      r_kod <- read_lines(.x)  
+    }
+    
     if (length(r_kod) > 0) {
       funktionsnamn <- str_extract_all(r_kod, "\\b\\w+\\s*(?=\\s*<-\\s*function)") %>% unlist()
-      unikaFunktionsnamn <- unique(funktionsnamn[funktionsnamn != ""])
+      unikaFunktionsnamn <- unique(funktionsnamn[funktionsnamn != ""]) %>% str_trim()
       
     } else {
       unikaFunktionsnamn <- NA
     }
     return(unikaFunktionsnamn)
-  })
+  }) %>% unlist()
   return(retur_vekt <- retur_vekt[!is.na(retur_vekt)])
-}
+} 
 
 extrahera_unika_varden_flera_scb_tabeller <- function(px_meta) {
   
