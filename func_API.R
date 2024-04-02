@@ -11,7 +11,7 @@ p_load(pxweb,
        git2r,
        glue) 
 
-
+ 
 hamtaregtab <- function(){
 
 # Hämta tabell med regioner
