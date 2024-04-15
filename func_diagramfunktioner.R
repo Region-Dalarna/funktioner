@@ -136,7 +136,8 @@ hitta_div_for_jamn_intervall <- function(
 
 Berakna_varden_stodlinjer <- function(min_varde, max_varde, y_borjar_pa_noll = TRUE, 
                                       procent_0_100_10intervaller = FALSE, 
-                                      avrunda_fem = FALSE) {
+                                      avrunda_fem = FALSE,
+                                      minus_plus_samma = FALSE) {
   # om både min- och maxvärde är mindre än noll (dvs. bara negativa tal)
   if (min_varde < 0 & max_varde < 0) min_och_max_mindre_an_noll <- TRUE else min_och_max_mindre_an_noll <- FALSE
   if (min_och_max_mindre_an_noll) {
@@ -149,6 +150,7 @@ Berakna_varden_stodlinjer <- function(min_varde, max_varde, y_borjar_pa_noll = T
     }
   }
   
+
   if (procent_0_100_10intervaller) {
     stodlinjer <- list("min_yvar" = 0, "max_yvar" = 100, "min_by_yvar" = 2, "maj_by_yvar" = 10)
   } else {
@@ -238,6 +240,15 @@ Berakna_varden_stodlinjer <- function(min_varde, max_varde, y_borjar_pa_noll = T
         temp <- min_yvar
         min_yvar <- max_yvar
         max_yvar <- temp
+      }
+    }
+    
+    # om vi vill att minus- och plusskalan ska vara lika stor (= största absolutvärdet) när vi har värden större och mindre än noll
+    if ((min_yvar < 0 & max_yvar > 0) & minus_plus_samma) {
+      if (abs(min_yvar) > max_yvar) {
+        max_yvar <- abs(min_yvar)            # för att ge maxvärdet ett positivt värde lika stort som minvärdet
+      } else {
+        min_yvar <- max_yvar * -1            # för att ge minvärdet ett negativt värde lika stort som maxvärdet
       }
     }
     

@@ -57,6 +57,7 @@ SkapaStapelDiagram <- function(skickad_df,
                                x_var_fokus = NA,                  # lägg fokus på någon kategori i den variabel som skickas med denna parameter (alltså kolumnnamnet på den variabel som skickas med %>% %>% %>% %>% )
                                y_axis_100proc = FALSE,            # om man har ett diagram med procentvärden och vill visa hela skalan upp till 100 %, och inte sluta på en lägre procentsats kör man TRUE
                                y_axis_borjar_pa_noll = TRUE,      # man kan stänga av att diagrammet börjar på noll om man sätter detta till FALSE, då blir minvärdet högre än 0, annars börjar det alltid på 0
+                               y_axis_minus_plus_samma_axel = FALSE, # om man vill ha lika stort avstånd från 0 till min och maxvärde på y-axeln - gäller endast när man har min-värde < 0 och max-värde > 0
                                x_axis_visa_var_xe_etikett = NA,   # möjlighet att bara visa var x:e etikett. X bestäms av det värde man skickar med (kan vara ex. 3 för att visa var tredje etikett på x-axeln)
                                inkludera_sista_vardet_var_xe_etikett = TRUE,              # om man vill ha med sista värdet när man kör x_axis_visa_var_xe_etikett
                                procent_0_100_10intervaller = FALSE,  # om TRUE, så går y-axeln mellan 0 och 100, med tjocka stödlinjer med 10 enheters mellanrum, passar bra med procent 
@@ -170,7 +171,7 @@ SkapaStapelDiagram <- function(skickad_df,
     min_varde_plot_df <- min(plot_df["total"])
   }
   if (min_varde_plot_df < 0 & max_varde_plot_df < 0) min_och_max_negativa <- TRUE else min_och_max_negativa <- FALSE
-  stodlinjer_list <- Berakna_varden_stodlinjer(min_varde =  min_varde_plot_df, max_varde = max_varde_plot_df, y_borjar_pa_noll = y_axis_borjar_pa_noll, procent_0_100_10intervaller = procent_0_100_10intervaller, avrunda_fem = stodlinjer_avrunda_fem)
+  stodlinjer_list <- Berakna_varden_stodlinjer(min_varde =  min_varde_plot_df, max_varde = max_varde_plot_df, y_borjar_pa_noll = y_axis_borjar_pa_noll, procent_0_100_10intervaller = procent_0_100_10intervaller, avrunda_fem = stodlinjer_avrunda_fem, minus_plus_samma = y_axis_minus_plus_samma_axel)
   
   min_yvar <- stodlinjer_list$min_yvar
   max_yvar <- stodlinjer_list$max_yvar

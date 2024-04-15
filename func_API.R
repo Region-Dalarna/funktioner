@@ -11,6 +11,8 @@ p_load(pxweb,
        git2r,
        glue) 
 
+# ================================================= pxweb-funktioner ========================================================
+
  
 hamtaregtab <- function(){
 
@@ -435,21 +437,23 @@ kontrollera_pxweb_variabelvarden <- function(api_url,                           
   return(retur_list)
 }
 
-# en funktion för att sätta ett komma mellan varje element i en vektor
-# samt ett och mellan näst sista och sista elementet
-list_komma_och <- function(skickad_vektor){
-  if (length(skickad_vektor)>1){
-    nystrang <- skickad_vektor[1]
-    for (elem in 2:length(skickad_vektor)){
-      if (elem == length(skickad_vektor)){
-        nystrang <- paste0(nystrang, " och ", skickad_vektor[elem])
-      } else {
-        nystrang <- paste0(nystrang, ", ", skickad_vektor[elem])
-      }
-    }
-  } else nystrang <- skickad_vektor[1]
-  return(nystrang)
-}
+# finns i func_text.R istället
+
+# # en funktion för att sätta ett komma mellan varje element i en vektor
+# # samt ett och mellan näst sista och sista elementet
+# list_komma_och <- function(skickad_vektor){
+#   if (length(skickad_vektor)>1){
+#     nystrang <- skickad_vektor[1]
+#     for (elem in 2:length(skickad_vektor)){
+#       if (elem == length(skickad_vektor)){
+#         nystrang <- paste0(nystrang, " och ", skickad_vektor[elem])
+#       } else {
+#         nystrang <- paste0(nystrang, ", ", skickad_vektor[elem])
+#       }
+#     }
+#   } else nystrang <- skickad_vektor[1]
+#   return(nystrang)
+# }
 
 korrigera_kolnamn_supercross <- function(skickad_fil, teckenkodstabell = "latin1"){
   kon_korr <- readLines(skickad_fil, encoding = teckenkodstabell)                          # läs in fil
@@ -460,23 +464,23 @@ korrigera_kolnamn_supercross <- function(skickad_fil, teckenkodstabell = "latin1
   }
 }
 
-
-ar_alla_kommuner_i_ett_lan <- function(regionkoder, acceptera_lanets_kod = TRUE, acceptera_riket_kod = TRUE) {
-  retur_resp <- TRUE
-  
-  lanskoder <- regionkoder %>% str_sub(1,2) %>% unique() %>% .[!str_detect(., "00")]
-  if (length(unique(lanskoder)) > 1) retur_resp <- FALSE else {                  # testa om det finns fler län i skickade regionkoder
-  
-    kommuner_i_lan <- hamtakommuner(lanskoder, F, F)                             # hämta alla kommuner i aktuellt län
-    if (!all(kommuner_i_lan %in% regionkoder)) retur_resp <- FALSE               # testa om alla kommuner i länet finns i regionkoder
-    if (lanskoder %in% regionkoder & !acceptera_lanets_kod) retur_resp <- FALSE  # om man inte accepterar länets kod och den finns i regionkoder så returneras FALSE
-    if ("00" %in% regionkoder & !acceptera_riket_kod) retur_resp <- FALSE        # om man inte accepterar riket-kod och den finns i regionkoder så returneras FALSE
-  
-  } # slut if-sats som testar om det finns flera län = returnerar FALSE
-  
-  return(retur_resp)
-  
-} # slut funktion
+# gammal version
+# ar_alla_kommuner_i_ett_lan <- function(regionkoder, acceptera_lanets_kod = TRUE, acceptera_riket_kod = TRUE) {
+#   retur_resp <- TRUE
+#   
+#   lanskoder <- regionkoder %>% str_sub(1,2) %>% unique() %>% .[!str_detect(., "00")]
+#   if (length(unique(lanskoder)) > 1) retur_resp <- FALSE else {                  # testa om det finns fler län i skickade regionkoder
+#   
+#     kommuner_i_lan <- hamtakommuner(lanskoder, F, F)                             # hämta alla kommuner i aktuellt län
+#     if (!all(kommuner_i_lan %in% regionkoder)) retur_resp <- FALSE               # testa om alla kommuner i länet finns i regionkoder
+#     if (lanskoder %in% regionkoder & !acceptera_lanets_kod) retur_resp <- FALSE  # om man inte accepterar länets kod och den finns i regionkoder så returneras FALSE
+#     if ("00" %in% regionkoder & !acceptera_riket_kod) retur_resp <- FALSE        # om man inte accepterar riket-kod och den finns i regionkoder så returneras FALSE
+#   
+#   } # slut if-sats som testar om det finns flera län = returnerar FALSE
+#   
+#   return(retur_resp)
+#   
+# } # slut funktion
 
 # ================================================= kolada-funktioner ========================================================
 
@@ -541,7 +545,7 @@ hamta_kolada_df <- function(kpi_id, valda_kommuner, valda_ar = NA, konsuppdelat 
   return(retur_df)
 }
 
-# ====================================================================================================
+# =========================================== Bra generella funktioner =========================================================
 
 ladda_funk_parametrar <- function(funktion) {
   
@@ -556,6 +560,31 @@ ladda_funk_parametrar <- function(funktion) {
   
 } # slut funktion
 
+lista_funktioner_i_skript <- function(filsokvag_eller_github_url) {
+  # funktion som extraherar funktionsnamn ur R-filer
+  
+  # Använder map för att iterera över filvägar och extrahera funktionsnamnen
+  retur_vekt <- map(filsokvag_eller_github_url, ~ {
+    # avgör om det är en url från github eller en sökväg till en fil lokalt
+    if (str_detect(filsokvag_eller_github_url, "^http")) {
+      response <- GET(.x)
+      text_content <- httr::content(response, "text", encoding = "UTF-8")
+      r_kod <- unlist(str_split(text_content, "\n"))
+    } else {
+      r_kod <- read_lines(.x)  
+    }
+    
+    if (length(r_kod) > 0) {
+      funktionsnamn <- str_extract_all(r_kod, "\\b\\w+\\s*(?=\\s*<-\\s*function)") %>% unlist()
+      unikaFunktionsnamn <- unique(funktionsnamn[funktionsnamn != ""]) %>% str_trim()
+      
+    } else {
+      unikaFunktionsnamn <- NA
+    }
+    return(unikaFunktionsnamn)
+  }) %>% unlist()
+  return(retur_vekt <- retur_vekt[!is.na(retur_vekt)])
+} 
 
 ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_rikskod = TRUE, returnera_text = FALSE, returtext = NA) {
   
@@ -667,8 +696,44 @@ skapa_aldersgrupper <- function(alder, aldergrupp_vekt, konv_fran_txt = TRUE) {
   cut(alder, breaks = aldergrupp_vekt, labels = labels, right = FALSE, include.lowest = TRUE)
 }
 
+# returnera rätt sökväg till vår utskriftsmapp där vi sparar diagram- och kartfiler som inte har någon särskild
+# målmapp
+utskriftsmapp <- function(){ return("G:/Samhällsanalys/API/Fran_R/Utskrift/")}
 
-github_lista_repos <- function(owner = "Region-Dalarna") {
+mapp_hamtadata_peter <- function(){ return("C:/gh/hamta_data/")}
+
+manader_bearbeta_scbtabeller <- function(skickad_df) {
+  # funktion för att skapa kolumnerna år, månad, månad_år samt år_månad av kolumnen månad som 
+  # ligger i flera scb-tabeller och är strukturerad som år, bokstaven "M" och sedan månads-
+  # nummer med två tecken (nolla framför på årets första 9 månader), alltså "2023M11" för 
+  # november 2023.
+  
+  retur_df <- skickad_df %>% 
+    rename(tid = månad) %>% 
+    mutate(år = str_sub(tid, 1, 4) %>% as.integer(),
+           månad_nr = parse_integer(str_sub(tid, 6,7)),
+           månad = format(as.Date(paste(år, str_sub(tid, 6,7), "1", sep = "-")), "%B"),
+           år_månad = paste0(år, " - ", månad),
+           månad_år = paste0(månad, " ", år)) 
+  
+  manad_sort <- retur_df %>% group_by(månad_nr) %>% summarise(antal = n(), månad_sort = max(månad)) %>% select(månad_sort) %>% dplyr::pull()
+  
+  retur_df <- retur_df %>% 
+    mutate(månad_år = factor(månad_år, levels = unique(månad_år[order(år, månad_nr)])),
+           år_månad = factor(år_månad, levels = unique(år_månad[order(år, månad_nr)])),
+           år = factor(år),
+           månad = factor(månad, levels = manad_sort)) %>%
+    select(-månad_nr) %>%                                                           # ta bort sort-kolumnen när vi använt den för att sortera tids-kolumnerna
+    relocate(år, .after = tid) %>%                                              # vi sorterar om kolumnerna så att innehållsvariabeler alltid ligger sist
+    relocate(månad, .after = år) %>% 
+    relocate(år_månad, .after = månad) %>% 
+    relocate(månad_år, .after = år_månad)
+  return(retur_df)
+}
+
+# ================================================= github-funktioner ========================================================
+
+github_lista_repos <- function(owner = "Region-Dalarna", skriv_ut_reponamn_i_konsol = TRUE) {
   # En funktion för att lista alla repositories som finns hos en github-användare
   # Användaren "Region-Dalarna" är standardinställing så körs funktionen utan 
   # parametrar så listas alla repos för Region-Dalarna
@@ -681,11 +746,17 @@ github_lista_repos <- function(owner = "Region-Dalarna") {
     stop("API-förfrågan misslyckades")
   }
   
-  tibble::tibble(
+  retur_lista <- tibble::tibble(
     namn = map_chr(content, "name"),
     url = map_chr(content, "html_url"),
     url_clone = paste0(url, ".git")
   )
+  
+  if (skriv_ut_reponamn_i_konsol){ 
+    cat("Repositories hos github-användaren", owner, ":\n", retur_lista$namn %>% paste0(., "\n"))
+    invisible(retur_lista)
+  } else return(retur_lista)
+  
 }
 
 github_lista_repo_filer <- function(owner = "Region-Dalarna",                     # användaren vars repos vi ska lista
@@ -852,42 +923,7 @@ github_commit_push <- function(
 } # slut funktion
 
 
-
-# returnera rätt sökväg till vår utskriftsmapp där vi sparar diagram- och kartfiler som inte har någon särskild
-# målmapp
-utskriftsmapp <- function(){ return("G:/Samhällsanalys/API/Fran_R/Utskrift/")}
-
-mapp_hamtadata_peter <- function(){ return("C:/gh/hamta_data/")}
-
-manader_bearbeta_scbtabeller <- function(skickad_df) {
-  # funktion för att skapa kolumnerna år, månad, månad_år samt år_månad av kolumnen månad som 
-  # ligger i flera scb-tabeller och är strukturerad som år, bokstaven "M" och sedan månads-
-  # nummer med två tecken (nolla framför på årets första 9 månader), alltså "2023M11" för 
-  # november 2023.
-  
-  retur_df <- skickad_df %>% 
-    rename(tid = månad) %>% 
-    mutate(år = str_sub(tid, 1, 4) %>% as.integer(),
-           månad_nr = parse_integer(str_sub(tid, 6,7)),
-           månad = format(as.Date(paste(år, str_sub(tid, 6,7), "1", sep = "-")), "%B"),
-           år_månad = paste0(år, " - ", månad),
-           månad_år = paste0(månad, " ", år)) 
-  
-  manad_sort <- retur_df %>% group_by(månad_nr) %>% summarise(antal = n(), månad_sort = max(månad)) %>% select(månad_sort) %>% dplyr::pull()
-  
-  retur_df <- retur_df %>% 
-    mutate(månad_år = factor(månad_år, levels = unique(månad_år[order(år, månad_nr)])),
-           år_månad = factor(år_månad, levels = unique(år_månad[order(år, månad_nr)])),
-           år = factor(år),
-           månad = factor(månad, levels = manad_sort)) %>%
-    select(-månad_nr) %>%                                                           # ta bort sort-kolumnen när vi använt den för att sortera tids-kolumnerna
-    relocate(år, .after = tid) %>%                                              # vi sorterar om kolumnerna så att innehållsvariabeler alltid ligger sist
-    relocate(månad, .after = år) %>% 
-    relocate(år_månad, .after = månad) %>% 
-    relocate(månad_år, .after = år_månad)
-  return(retur_df)
-}
-
+# ================================================= skapa skript-funktioner ========================================================
 
 skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb, 
                                               tabell_namn, 
@@ -930,22 +966,6 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
   
   varlist_giltiga_varden <- map(varlist_koder, ~ pxvardelist(px_meta, .x)$klartext) %>% set_names(tolower(varlist_koder) %>% unique())
   varlist_giltiga_varden_koder <- map(varlist_koder, ~ pxvardelist(px_meta, .x)$kod) %>% set_names(tolower(varlist_koder))
-  
-  # =========================== gammal lösning då det bara gick att skicka en url till funktionen ===============================
-  # px_meta <- pxweb_get(url_scb[1])
-  # 
-  # # Använd en befintlig funktion för att hämta variabellistan från SCB
-  # tabell_variabler <- pxvarlist(px_meta)
-  # 
-  # # Skapa en liststruktur för varlistan
-  # # hämta vektor med variabelkoder
-  # varlist_koder <- tabell_variabler$koder
-  # 
-  # # hämta lista med giltiga värden som vektorer för varje variabel
-  # varlist_giltiga_varden <- map(varlist_koder, ~ pxvardelist(px_meta, .x)$klartext) %>% set_names(tolower(varlist_koder))
-  # varlist_giltiga_varden_koder <- map(varlist_koder, ~ pxvardelist(px_meta, .x)$kod) %>% set_names(tolower(varlist_koder))
-  # 
-  
   
   # kolla om det finns åldrar i tabellen och hur många det är i så fall
   if ("alder" %in% names(varlist_giltiga_varden)) alder_txt <- if (length(varlist_giltiga_varden$alder) > 90) "_koder" else "_klartext" else alder_txt <- ""
@@ -1103,7 +1123,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
                         #   '  if (length(variabler_med_kod) > 0) variabler_med_klartext <- varlist_bada$klartext[match(variabler_med_kod, varlist_bada$koder)]\n\n'
                         # )
   
-  # ============== lösning för om man skickar med flera url:er, funkar bara om tabellerna innehåller samma variabler =================
+  # lösning för om man skickar med flera url:er, funkar bara om tabellerna innehåller samma variabler
   # skapa en url-sträng utifrån om vi har en eller flera url:er
   if (length(url_scb) > 1) {
     
@@ -1127,7 +1147,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
     
   } 
   
-  # ================================================ Skapar själva strängen med skriptet för att hämta data med pxweb =======================================
+  # Skapar själva strängen med skriptet för att hämta data med pxweb
   query_code <- paste0(
     'hamta_', funktion_namn, ' <- function(\n',
     funktion_parametrar, '\n',
@@ -1291,31 +1311,6 @@ kontrollera_scb_pxweb_url <- function(url_scb_lista) {
   return(slut_retur_url)
 }
 
-lista_funktioner_i_skript <- function(filsokvag_eller_github_url) {
-  # funktion som extraherar funktionsnamn ur R-filer
-  
-  # Använder map för att iterera över filvägar och extrahera funktionsnamnen
-  retur_vekt <- map(filsokvag_eller_github_url, ~ {
-    # avgör om det är en url från github eller en sökväg till en fil lokalt
-    if (str_detect(filsokvag_eller_github_url, "^http")) {
-      response <- GET(.x)
-      text_content <- httr::content(response, "text", encoding = "UTF-8")
-      r_kod <- unlist(str_split(text_content, "\n"))
-    } else {
-      r_kod <- read_lines(.x)  
-    }
-    
-    if (length(r_kod) > 0) {
-      funktionsnamn <- str_extract_all(r_kod, "\\b\\w+\\s*(?=\\s*<-\\s*function)") %>% unlist()
-      unikaFunktionsnamn <- unique(funktionsnamn[funktionsnamn != ""]) %>% str_trim()
-      
-    } else {
-      unikaFunktionsnamn <- NA
-    }
-    return(unikaFunktionsnamn)
-  }) %>% unlist()
-  return(retur_vekt <- retur_vekt[!is.na(retur_vekt)])
-} 
 
 extrahera_unika_varden_flera_scb_tabeller <- function(px_meta) {
   
