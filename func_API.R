@@ -763,6 +763,7 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
                                     repo = "hamta_data",                          # repot vars filer vi ska lista
                                     url_vekt_enbart = TRUE,                       # om TRUE returneras en vektor med url:er, annars en dataframe med både filnamn och url
                                     skriv_source_konsol = TRUE,                   # om TRUE returneras färdiga source-satser som man kan klistra in i sin kod
+                                    till_urklipp = TRUE,                          # om TRUE skrivs source-satserna till urklipp om skriv_source_konsol är TRUE
                                     filtrera = NA) {                                # om man vill filtrera filer på specifika sökord så gör man det här, kan vara ett eller en vektor med flera (som körs med OR och inte AND)
   # En funktion för att lista filer i ett repository som finns hos en github-användare
   # Användaren "Region-Dalarna" är standardinställing och standardinställning för repo
@@ -790,6 +791,7 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
   }
   if (skriv_source_konsol) {
     cat(retur_df$source)
+    if (till_urklipp) writeLines(text = retur_df$source, con = "clipboard", sep = "")
   } else if (url_vekt_enbart) return(retur_df$url) else return(retur_df %>% select(-source))
 }
 
@@ -877,22 +879,22 @@ github_commit_push <- function(
     
     uppdatering_txt <- case_when(length(filer_uppdatering) > 0 & length(filer_nya) > 0 ~ 
                                    paste0(length(filer_nya), " ", ifelse(length(filer_nya) == 1, "fil", "filer"), " har lagts till och ", length(filer_uppdatering), 
-                                          " ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har uppdaterats."),
+                                          " ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github"),
                                  length(filer_uppdatering) > 0 & length(filer_nya) == 0 ~
-                                   paste0(length(filer_uppdatering), " ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har uppdaterats."),
+                                   paste0(length(filer_uppdatering), " ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github"),
                                  length(filer_uppdatering) == 0 & length(filer_nya) > 0 ~
-                                   paste0(length(filer_nya), " ", ifelse(length(filer_nya) == 1, "fil", "filer"),  " har lagts till."))
+                                   paste0(length(filer_nya), " ", ifelse(length(filer_nya) == 1, "fil", "filer"),  " har skickats upp till github."))
     
     filer_uppdatering_txt <- filer_uppdatering %>% paste0(collapse = "\n")
     filer_nya_txt <- filer_nya %>% paste0(collapse = "\n")
     
     konsolmeddelande <- case_when(length(filer_uppdatering) > 0 & length(filer_nya) > 0 ~ 
                                     paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har lagts till:\n", filer_nya_txt, 
-                                           "\n\n och följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har uppdaterats:\n", filer_uppdatering_txt),
+                                           "\n\n och följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github:\n", filer_uppdatering_txt),
                                   length(filer_uppdatering) > 0 & length(filer_nya) == 0 ~
-                                    paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har uppdaterats:\n", filer_uppdatering_txt),
+                                    paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github:\n", filer_uppdatering_txt),
                                   length(filer_uppdatering) == 0 & length(filer_nya) > 0 ~
-                                    paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har lagts till:\n", filer_nya_txt))
+                                    paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github:\n", filer_nya_txt))
     
     if (is.na(commit_txt)) {
       commit_txt <- uppdatering_txt  
