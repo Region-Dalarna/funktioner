@@ -702,6 +702,8 @@ utskriftsmapp <- function(){ return("G:/Samhällsanalys/API/Fran_R/Utskrift/")}
 
 mapp_hamtadata_peter <- function(){ return("C:/gh/hamta_data/")}
 
+mapp_temp_peter <- function(){ return("g:/skript/peter/temp/")}
+
 manader_bearbeta_scbtabeller <- function(skickad_df) {
   # funktion för att skapa kolumnerna år, månad, månad_år samt år_månad av kolumnen månad som 
   # ligger i flera scb-tabeller och är strukturerad som år, bokstaven "M" och sedan månads-
@@ -927,9 +929,10 @@ github_commit_push <- function(
 
 # ================================================= skapa skript-funktioner ========================================================
 
-skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb, 
-                                              tabell_namn, 
-                                              output_mapp, 
+
+skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_pxweb = NA, 
+                                              tabell_namn = NA, 
+                                              output_mapp = NA, 
                                               var_med_koder = NA, 
                                               oppna_nya_skriptfilen = TRUE,
                                               skapa_temp_test_fil = TRUE,
@@ -945,8 +948,14 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
   # output_mapp = mapp där skriptet ska sparas när det är klart
   # var_med_koder = man kan skicka med variabler som ska få med sin kod i uttaget. Variabeln skrivs med sin kod, t.ex. "yrke2012" för att få ssyk-koder till yrkesvariabeln 
   
-  webb_url <- skickad_url_scb %>% paste0(., collapse = "\n  #\t\t\t\t\t\t\t\t\t\t\t\t")
-  url_scb <- kontrollera_pxweb_url(skickad_url_scb)
+  # säkerställ att det finns värden för dessa parametrar
+  if (is.na(skickad_url_pxweb)) stop("Parametrarna 'skickad_url_pxweb', 'tabell_namn' och 'utmapp' måste vara med för att funktionen ska kunna köras.\n'skickad_url_pxweb' är url till den pxweb-tabell som man vill hämta data från.\n'tabell_namn' är ett namn som beskriver tabellen. Det bör vara så kort som möjligt och inte innehålla mellanslag. Det kan t.ex. vara 'rmi' för de regionala matchningsindikatorerna.\n'utmapp' är en sökväg till den mapp som man vill spara det nya skriptet i.")  
+  if (is.na(tabell_namn)) stop("Parametrarna 'skickad_url_pxweb', 'tabell_namn' och 'utmapp' måste vara med för att funktionen ska kunna köras.\n'skickad_url_pxweb' är url till den pxweb-tabell som man vill hämta data från.\n'tabell_namn' är ett namn som beskriver tabellen. Det bör vara så kort som möjligt och inte innehålla mellanslag. Det kan t.ex. vara 'rmi' för de regionala matchningsindikatorerna.\n'utmapp' är en sökväg till den mapp som man vill spara det nya skriptet i.")  
+  if (is.na(utmapp)) stop("Parametrarna 'skickad_url_pxweb', 'tabell_namn' och 'utmapp' måste vara med för att funktionen ska kunna köras.\n'skickad_url_pxweb' är url till den pxweb-tabell som man vill hämta data från.\n'tabell_namn' är ett namn som beskriver tabellen. Det bör vara så kort som möjligt och inte innehålla mellanslag. Det kan t.ex. vara 'rmi' för de regionala matchningsindikatorerna.\n'utmapp' är en sökväg till den mapp som man vill spara det nya skriptet i.")  
+  
+  # bearbeta url:en så att vi kan använda den i funktionen
+  webb_url <- skickad_url_pxweb %>% paste0(., collapse = "\n  #\t\t\t\t\t\t\t\t\t\t\t\t")
+  url_scb <- kontrollera_pxweb_url(skickad_url_pxweb)
   
   org_namn <- case_when(str_detect(url_scb, "http://www.statistikdatabasen.scb.se") ~ "SCB:s",
                         str_detect(url_scb, "http://fohm-app.folkhalsomyndigheten.se") ~ "Folkhälsomyndighetens")
