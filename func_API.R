@@ -946,7 +946,10 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
   # var_med_koder = man kan skicka med variabler som ska få med sin kod i uttaget. Variabeln skrivs med sin kod, t.ex. "yrke2012" för att få ssyk-koder till yrkesvariabeln 
   
   webb_url <- skickad_url_scb %>% paste0(., collapse = "\n  #\t\t\t\t\t\t\t\t\t\t\t\t")
-  url_scb <- kontrollera_scb_pxweb_url(skickad_url_scb)
+  url_scb <- kontrollera_pxweb_url(skickad_url_scb)
+  
+  org_namn <- case_when(str_detect(url_scb, "http://www.statistikdatabasen.scb.se") ~ "SCB:s",
+                        str_detect(url_scb, "http://fohm-app.folkhalsomyndigheten.se") ~ "Folkhälsomyndighetens")
   
   if (!require("pacman")) install.packages("pacman")
   #source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R")
@@ -961,6 +964,10 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
     px_meta_enkel_list <- sortera_px_variabler(px_meta_enkel_list, sorterings_vars = "tid", sortera_pa_kod = TRUE)
   }
   
+  if ("år" %in% tolower(tabell_variabler$koder) & str_detect(url_scb, "http://fohm-app.folkhalsomyndigheten.se")) {
+    px_meta_enkel_list <- sortera_px_variabler(px_meta_enkel_list, sorterings_vars = "år", sortera_pa_kod = TRUE)
+  }
+  
   # vi skapar en lista som heter px_meta som liknar en lista man får med en vanlig pxweb_get()-funktion
   px_meta <- list(title = px_meta_list[[1]]$title, variables = px_meta_enkel_list)
 
@@ -971,7 +978,9 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
   
   # kolla om det finns åldrar i tabellen och hur många det är i så fall
   if ("alder" %in% names(varlist_giltiga_varden)) alder_txt <- if (length(varlist_giltiga_varden$alder) > 90) "_koder" else "_klartext" else alder_txt <- ""
-
+  # special för hlv
+  if ("ålder" %in% names(varlist_giltiga_varden)) alder_txt <- if (length(varlist_giltiga_varden$ålder) > 90) "_koder" else "_klartext" else alder_txt <- ""
+  
   # Kombinera allt till en dataframe
   varlista_info <- tibble(kod = map_chr(px_meta$variables, ~ .x$code),
                           namn = map_chr(px_meta$variables, ~ .x$text),
@@ -985,12 +994,12 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
     ar_elimination <- varlista_info$elimination[varlista_info$kod == .x]            # hämta information om aktuell variabel kan elimineras ur tabellen
     elim_info_txt <- if(ar_elimination) " NA = tas inte med i uttaget, " else ""    # skapa text som används som förklaring vid parametrarna i funktionen
     
-    retur_txt <- case_when(str_detect(tolower(.x), "fodel") ~ paste0(tolower(.x), '_klartext = "*",\t\t\t# ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")),
+    retur_txt <- case_when(str_detect(tolower(.x), "fodel") ~ paste0(tolower(.x) %>% str_replace_all(" ", "_"), '_klartext = "*",\t\t\t# ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")),
                            str_detect(tolower(.x), "region") ~ paste0(tolower(.x), '_vekt = "20",\t\t\t# Val av region.'),
                            tolower(.x) %in% c("tid") ~ paste0(tolower(.x), '_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', .y, '"', collapse = ", ")),
                            # Funktion för att ta lägsta och högsta värde i ålder är borttagen genom att jag satt length(.y) > 0, ska vara typ kanske 90. Större än 0 = alla så därför är den i praktiken avstängd. 
                            tolower(.x) %in% c("alder") ~ paste0(tolower(.x), alder_txt,' = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")),                                                 # gammalt: if (length(.y) < 0) paste0(tolower(.x), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")) else paste0(tolower(.x), '_koder = "*",\t\t\t # Finns: ', min(.y), " - ", max(.y)),
-                           TRUE ~ paste0(tolower(.x), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y %>% unique(), '"', collapse = ", ")) %>% str_replace("contentscode", "cont")) 
+                           TRUE ~ paste0(tolower(.x) %>% str_replace_all(" ", "_"), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y %>% unique(), '"', collapse = ", ")) %>% str_replace("contentscode", "cont")) 
     
   }) %>% 
     c(., if (antal_contvar > 1) 'long_format = TRUE,\t\t\t# TRUE = konvertera innehållsvariablerna i datasetet till long-format \n\t\t\twide_om_en_contvar = TRUE,\t\t\t# TRUE = om man vill behålla wide-format om det bara finns en innehållsvariabel, FALSE om man vill konvertera till long-format även om det bara finns en innehållsvariabel' else "") %>%
@@ -1010,7 +1019,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
   
   # skapa variabel-lista för queryn
   varlist_skriptrader <- paste0("list(\n", 
-                                paste(map_chr(varlist_koder, ~paste0("  \"", .x, "\" = ", str_c(tolower(.x), "_vekt"))), collapse = ",\n"), 
+                                paste(map_chr(varlist_koder, ~paste0("  \"", .x, "\" = ", str_c(tolower(.x) %>% str_replace_all(" ", "_"), "_vekt"))), collapse = ",\n"), 
                                 ")") %>% 
     str_replace("contentscode_vekt", "cont_vekt") %>% 
     str_replace("tid_vekt", "tid_koder")
@@ -1025,10 +1034,10 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
           first()) {
         
           # variabler som går att eliminera (dvs. inte ha med i uttaget)
-          paste0("  ", tolower(var_kod), '_vekt <- if (!all(is.na(', tolower(var_kod), '_klartext))) hamta_kod_med_klartext(px_meta, ', tolower(var_kod), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '") else NA\n')
+          paste0("  ", tolower(var_kod) %>% str_replace_all(" ", "_"), '_vekt <- if (!all(is.na(', tolower(var_kod), '_klartext))) hamta_kod_med_klartext(px_meta, ', tolower(var_kod) %>% str_replace_all(" ", "_"), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '") else NA\n')
           
       } else {    # variabler som inte går att eliminera (göra uttag utan) men som är klartext till kod
-        if (!str_detect(tolower(var_kod), "alder") | str_detect(tolower(var_kod), "grupp")) paste0("  ", tolower(var_kod), '_vekt <- hamta_kod_med_klartext(px_meta, ', tolower(var_kod), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '")\n')
+        if (!str_detect(tolower(var_kod), "alder") | str_detect(tolower(var_kod), "grupp")) paste0("  ", tolower(var_kod) %>% str_replace_all(" ", "_"), '_vekt <- hamta_kod_med_klartext(px_meta, ', tolower(var_kod) %>% str_replace_all(" ", "_"), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '")\n')
       }
     } else NA           # om det är koder för region eller ålder så ska de inte med på dessa rader
        
@@ -1064,7 +1073,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
     str_c(collapse = "\n")
   
   # om vi har 1-årsgrupper för åldrar så ändrar vi från alder_klartext till alder_koder i elimineringsraderna
-  if ("alder" %in% names(varlist_giltiga_varden)) {
+  if (any(c("alder", "ålder") %in% names(varlist_giltiga_varden))) {
     if (length(varlist_giltiga_varden$alder) > 90) {
       var_klartext_tabort_NA_skriptrader <- str_replace_all(var_klartext_tabort_NA_skriptrader, "alder_klartext", "alder_koder")
     }
@@ -1075,16 +1084,29 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
   if (nchar(tabell_id) > 40) tabell_id <- ""
   
   # skapa filnamn-suffix som vi använder till filnamnet för hämta data-funktionen
-  filnamn_suffix <- map_chr(varlist_koder, ~ tolower(.x)) %>% .[. != "contentscode"] %>% c(tabell_namn, ., tabell_id, "scb") %>% str_c(collapse = "_")
+  filnamn_suffix <- map_chr(varlist_koder, ~ tolower(.x) %>% str_replace_all(" ", "_")) %>% .[. != "contentscode"] %>% c(tabell_namn, ., tabell_id, "scb") %>% str_c(collapse = "_")
   
   # skapa ett namn för själva funktionen där inte tabell-id är med
   funktion_namn <- filnamn_suffix %>% str_remove(paste0("_", tabell_id))
   
-  tid_skriptrader <- paste0('  giltiga_ar <- hamta_giltiga_varden_fran_tabell(px_meta, "tid")\n',
-                            '  if (all(tid_koder != "*")) tid_koder <- tid_koder %>% as.character() %>% str_replace("9999", max(giltiga_ar)) %>% .[. %in% giltiga_ar] %>% unique()\n')
+  # hantera tid-variabler (heter år i hlv)
+  tid_skriptrader <- NULL             # om ingadera finns så blir det NULL
   
-  cont_skriptrader <- paste0('  cont_vekt <-  hamta_kod_med_klartext(px_meta, cont_klartext, "contentscode")\n',
+  tid_skriptrader <- if ("år" %in% tolower(names(varlist_giltiga_varden))) {                      # hlv
+    paste0('  giltiga_ar <- hamta_giltiga_varden_fran_tabell(px_meta, "år")\n',
+           '  if (all(tid_koder != "*")) tid_koder <- tid_koder %>% as.character() %>% str_replace("9999", max(giltiga_ar)) %>% .[. %in% giltiga_ar] %>% unique()\n')
+  }
+  
+  tid_skriptrader <- if ("tid" %in% tolower(names(varlist_giltiga_varden))) {                     # scb
+   paste0('  giltiga_ar <- hamta_giltiga_varden_fran_tabell(px_meta, "tid")\n',
+                            '  if (all(tid_koder != "*")) tid_koder <- tid_koder %>% as.character() %>% str_replace("9999", max(giltiga_ar)) %>% .[. %in% giltiga_ar] %>% unique()\n')
+  }
+  
+  
+  cont_skriptrader <- if ("contentscode" %in% tolower(names(varlist_giltiga_varden))) {
+    paste0('  cont_vekt <-  hamta_kod_med_klartext(px_meta, cont_klartext, "contentscode")\n',
                              '  if (length(cont_vekt) > 1) wide_om_en_contvar <- FALSE\n')
+  } else NULL
   
   # skapa skript där användaren kan konvertera datasetet till long_format om det finns mer än en innehållsvariabel
   long_format_skriptrader <- if (antal_contvar > 1){
@@ -1157,7 +1179,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
     paste0(c("  # ", rep("=", times = 100)), collapse = ""),
     "\n",
     "  #\n",
-    "  # Funktion för att hämta data från SCB:s API med hjälp av pxweb-paketet\n",
+    "  # Funktion för att hämta data från ", org_namn, " API med hjälp av pxweb-paketet\n",
     "  # Automatgenererat av en funktion i R som skrivits av Peter Möller, Region Dalarna\n",
     "  #\n",
     "  # Skapad av: ", Sys.info()["user"], " den ", format(Sys.Date(), "%d %B %Y"), "\n",
@@ -1236,29 +1258,33 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
     tid_txt <- if("tid" %in% names(varlist_giltiga_varden)) {
       tid_varnamn <- varlista_info$namn[tolower(varlista_info$kod) == "tid"]
       paste0(' ', tid_varnamn, ' {min(', tabell_namn, '_df$', tid_varnamn, ')} - {max(', tabell_namn, '_df$', tid_varnamn, ')}')
+    } else if ("år" %in% tolower(names(varlist_giltiga_varden))) {
+        tid_varnamn <- varlista_info$namn[tolower(varlista_info$kod) == "år"]
+        paste0(' ', tid_varnamn, ' {min(', tabell_namn, '_df$', tid_varnamn, ')} - {max(', tabell_namn, '_df$', tid_varnamn, ')}')
     } else ""
-    tid_filnamn_txt <- if("tid" %in% names(varlist_giltiga_varden)) paste0('_ar{min(', tabell_namn, '_df$', tid_varnamn, ')}_{max(', tabell_namn, '_df$', tid_varnamn, ')}')
+    tid_filnamn_txt <- if(any(c("tid", "år") %in% names(varlist_giltiga_varden))) paste0('_ar{min(', tabell_namn, '_df$', tid_varnamn, ')}_{max(', tabell_namn, '_df$', tid_varnamn, ')}')
       
     testfil_skript <- glue('if (!require("pacman")) install.packages("pacman")\n',
                            'p_load(tidyverse,\n',
                            '   \t\t\tglue)\n\n',
                            'source("', paste0(output_mapp, "hamta_", filnamn_suffix, ".R"), '")\n',
                            'source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_SkapaDiagram.R", encoding = "utf-8")\n\n',
-                           'diagram_capt <- "Källa: SCB:s öppna statistikdatabas\\nBearbetning: Samhällsanalys, Region Dalarna"\n',
+                           'diagram_capt <- "Källa: {org_namn} öppna statistikdatabas\\nBearbetning: Samhällsanalys, Region Dalarna"\n',
                            'output_mapp <- utskriftsmapp()\n',
                            'visa_dataetiketter <- FALSE\n',
                            'gg_list <- list()\n\n',
                            '{tabell_namn}_df <- hamta_{funktion_namn}(\n',
                            '{funktion_parametrar}\n\n)')
     
+    y_var_txt <- if (length(varlist_giltiga_varden$contentscode) < 1) glue("names({tabell_namn}_df)[length(names({tabell_namn}_df))]") else "varlist_giltiga_varden$contentscode[1]"        # om det inte finns någon contents-variabel, kör sista variabeln som y-variabel istället
     testfil_diagram <- glue('\n\ndiagramtitel <- glue("', auto_diag_titel, '{region_txt}{tid_txt}")\n',
-                           'diagramfil <- glue("{tabell_namn}_{regionkod_txt}{tid_filnamn_txt}.png")\n\n',
+                           'diagramfil <- glue("{tabell_namn}_{regionkod_txt}{tid_filnamn_txt}.png") %>% str_replace_all("__", "_")\n\n',
                            'if ("variabel" %in% names({tabell_namn}_df)) {{\n',
                            '   if (length(unique({tabell_namn}_df$variabel)) > 6) chart_df <- {tabell_namn}_df %>% filter(variabel == unique({tabell_namn}_df$variabel)[1]) else chart_df <- {tabell_namn}_df\n',
                            '}} else chart_df <- {tabell_namn}_df\n\n',
                            'gg_obj <- SkapaStapelDiagram(skickad_df = chart_df,\n',
                            '\t\t\t skickad_x_var = "', tid_varnamn, '",\n',
-                           '\t\t\t skickad_y_var = if ("varde" %in% names(chart_df)) "varde" else "', varlist_giltiga_varden$contentscode[1], '",\n',
+                           '\t\t\t skickad_y_var = if ("varde" %in% names(chart_df)) "varde" else ', y_var_txt, ',\n',
                            '\t\t\t skickad_x_grupp = if ("variabel" %in% names(chart_df) & length(unique(chart_df$variabel)) > 1) "variabel" else NA,\n',
                            '\t\t\t x_axis_sort_value = FALSE,\n',
                            '\t\t\t diagram_titel = diagramtitel,\n',
@@ -1290,7 +1316,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_scb,
   
 }
 
-kontrollera_scb_pxweb_url <- function(url_scb_lista) {
+kontrollera_pxweb_url <- function(url_scb_lista) {
   # Kontrollera att url:en är en giltig pxweb-url - om det är en webb-url från SCB:s öppna statstikdatabas på webben 
   # så konverterar vi den till en API-url, annars returnerar vi den som den är
   slut_retur_url <- map_chr(url_scb_lista, ~ {
@@ -1306,54 +1332,115 @@ kontrollera_scb_pxweb_url <- function(url_scb_lista) {
       str_c(start_url, .) #%>% str_sub(., 1, nchar(.)-1)
     
     return(retur_url)
-  } else {
+  } else if (str_detect(.x, "http://fohm-app.folkhalsomyndigheten.se/Folkhalsodata/pxweb")) {
+      
+      api_url <- .x %>%
+        str_replace("pxweb", "api/v1")                             # byt ut 
+      pos_revstart <- str_locate(api_url, "/sv/")[2]+1           # hitta slutet på start-delen av url:en
+      start_url <- str_sub(api_url, 1, pos_revstart-2)           # ta ut start-url:en, dvs. den del som är likadan för alla url:er i Folkhälsomyndighetens tabeller
+      rev_delar <- str_sub(api_url, pos_revstart) %>% str_split("/") %>% unlist() %>% .[. != ""]         # dela upp den del av url:en som vi ska revidera
+      rev_nya <- rev_delar[2] %>% str_remove(rev_delar[1]) %>% str_split("__") %>% unlist() %>% .[. != ""] %>% paste0(collapse = "/")        # här skapar vi mellandelen i den reviderade delen av url:en
+      retur_url <- paste(start_url, rev_delar[1], rev_nya, rev_delar[3], sep = "/")             # hela den reviderade url:en
+
+      return(retur_url)
+    } else {
     return(.x)
   }
   })
   return(slut_retur_url)
 }
 
-
 extrahera_unika_varden_flera_scb_tabeller <- function(px_meta) {
+  # En funktion för att skapa en tibble från 'values' och 'valueTexts'
+  create_value_pairs <- function(variable) {
+    tibble(values = variable$values, valueTexts = variable$valueTexts)
+  }
   
-  # funktion för att skapa en lista som innehåller alla variabler i skickade listor (en för varje scb-tabell)
-  # och samtliga unika värden i alla listor (en för varje scb_tabell)
+  # En funktion för att uppdatera en lista med unika variabler med nya värden och valueTexts
+  update_unique_variables <- function(unique_vars, new_var) {
+    # Skapar en tibble för nya värden och texter
+    new_pairs <- create_value_pairs(new_var)
+    
+    # Kontrollerar om variabeln redan finns i listan av unika variabler
+    if (any(map_chr(unique_vars, "code") == new_var$code)) {
+      existing_index <- which(map_chr(unique_vars, "code") == new_var$code)
+      existing_var <- unique_vars[[existing_index]]
+      existing_pairs <- create_value_pairs(existing_var)
+      
+      # Sammanslå de existerande och nya paren, och ta bort dubbletter
+      combined_pairs <- distinct(bind_rows(existing_pairs, new_pairs))
+      
+      # Uppdatera den existerande variabeln med de kombinerade paren
+      unique_vars[[existing_index]] <- list(
+        code = new_var$code,
+        text = new_var$text,
+        elimination = new_var$elimination,
+        values = combined_pairs$values,
+        valueTexts = combined_pairs$valueTexts
+      )
+    } else {
+      # Om variabeln inte finns, lägg till den nya variabeln till listan
+      unique_vars <- append(unique_vars, list(new_var))
+    }
+    unique_vars
+  }
   
-  # funktionen används i skapa hämta-data-skriptet men kan användas fristående också om man vill ha en lista med alla variabler
-  # i flera scb-tabeller och samtliga unika värden för varje variabel
-  
-  # Hämta namnen i kod, klartext samt elimination för variablerna från den första listan
-  variabel_namn <- map_chr(px_meta[[1]]$variables, 'code')
-  variabel_namn_klartext <- map_chr(px_meta[[1]]$variables, 'text')
-  variabel_namn_elim <- map(px_meta[[1]]$variables, 'elimination')
-  
-  # Skapa en lista för att hålla de unika värdena för varje variabel
-  unika_variabler <- pmap(list(variabel_namn, variabel_namn_klartext, variabel_namn_elim), function(namn, klartext, elim) {
-    
-    # Hitta rätt variabel baserat på 'code' och extrahera 'values'
-    alla_values <- map(px_meta, ~ .x$variables %>% 
-                         keep(~ .x$code == namn) %>% 
-                         map('values') %>% 
-                         unlist()) %>% 
-      unlist() %>% 
-      unique()
-    
-    # Hitta rätt variabel baserat på 'code' och extrahera 'valueTexts'
-    alla_valueTexts <- map(px_meta, ~ .x$variables %>% 
-                             keep(~ .x$code == namn) %>% 
-                             map('valueTexts') %>% 
-                             unlist()) %>% 
-      unlist() %>% 
-      unique()
-    
-    #if (tolower(.x$code) == "tid") alla_valueTexts <- alla_valueTexts %>% sort()
-    
-    # Skapa en lista med 'code', unika 'values' och 'valueTexts'
-    list(code = namn, text = klartext, elimination = elim, values = alla_values, valueTexts = alla_valueTexts)
-  })
+  # Använd 'reduce' för att iterera över 'px_meta' och uppdatera unika variabler
+  unika_variabler <- reduce(px_meta, function(ack_variabler, px) {
+    map(px$variables, function(variabel) {
+      update_unique_variables(ack_variabler, variabel)
+    }) %>% 
+      flatten() %>% 
+      # Använd en anpassad funktion för att endast behålla unika 'code'
+      { 
+        existing_codes <- map_chr(., "code")
+        .[!duplicated(existing_codes)]
+      }
+  }, .init = list())
   
   return(unika_variabler)
 }
+
+# extrahera_unika_varden_flera_scb_tabeller <- function(px_meta) {
+#   
+#   # funktion för att skapa en lista som innehåller alla variabler i skickade listor (en för varje scb-tabell)
+#   # och samtliga unika värden i alla listor (en för varje scb_tabell)
+#   
+#   # funktionen används i skapa hämta-data-skriptet men kan användas fristående också om man vill ha en lista med alla variabler
+#   # i flera scb-tabeller och samtliga unika värden för varje variabel
+#   
+#   # Hämta namnen i kod, klartext samt elimination för variablerna från den första listan
+#   variabel_namn <- map_chr(px_meta[[1]]$variables, 'code')
+#   variabel_namn_klartext <- map_chr(px_meta[[1]]$variables, 'text')
+#   variabel_namn_elim <- map(px_meta[[1]]$variables, 'elimination')
+#   
+#   # Skapa en lista för att hålla de unika värdena för varje variabel
+#   unika_variabler <- pmap(list(variabel_namn, variabel_namn_klartext, variabel_namn_elim), function(namn, klartext, elim) {
+#     
+#     # Hitta rätt variabel baserat på 'code' och extrahera 'values'
+#     alla_values <- map(px_meta, ~ .x$variables %>% 
+#                          keep(~ .x$code == namn) %>% 
+#                          map('values') %>% 
+#                          unlist()) %>% 
+#       unlist() %>% 
+#       unique()
+#     
+#     # Hitta rätt variabel baserat på 'code' och extrahera 'valueTexts'
+#     alla_valueTexts <- map(px_meta, ~ .x$variables %>% 
+#                              keep(~ .x$code == namn) %>% 
+#                              map('valueTexts') %>% 
+#                              unlist()) %>% 
+#       unlist() %>% 
+#       unique()
+#     
+#     #if (tolower(.x$code) == "tid") alla_valueTexts <- alla_valueTexts %>% sort()
+#     
+#     # Skapa en lista med 'code', unika 'values' och 'valueTexts'
+#     list(code = namn, text = klartext, elimination = elim, values = alla_values, valueTexts = alla_valueTexts)
+#   })
+#   
+#   return(unika_variabler)
+# }
 
 sortera_px_variabler <- function(lista, sorterings_vars = c("Tid"), sortera_pa_kod = TRUE) {
   
