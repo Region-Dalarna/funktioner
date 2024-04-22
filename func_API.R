@@ -393,7 +393,7 @@ hamta_kod_eller_klartext_fran_lista <- function(lista, klartext_eller_kod_varde,
 # används för att konvertera dataset som returneras i pxweb där innehållsvariabler ligger i 
 # wideformat, vilket sker om man laddar hem fler än en innehållsvariabel. Denna funktion kör en
 # pivot_longer på alla innehållsvariabler
-konvertera_till_long_for_contentscode_variabler <- function(skickad_df, api_url, content_var = "variabelkategori", 
+konvertera_till_long_for_contentscode_variabler <- function(skickad_df, api_url, content_var = "vardekategori", 
                                                             varde_var = "varde") {
   pivot_kol <- hamta_giltiga_varden_fran_tabell(api_url, "contentscode", klartext = TRUE)
   retur_df <- skickad_df %>% 
@@ -607,6 +607,9 @@ ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_
   returtext_na <- if (is.na(returtext)) TRUE else FALSE       # om man skickat med returtext så returneras den om inte regionkoderna är alla kommuner i ett län, annars om man inte skickat med någon returtext  returneras FALSE
   
   if (length(unique(str_sub(reg_koder[reg_koder != "00"], 1, 2))) > 1) retur_varde <- FALSE else {                      # om det finns flera län eller kommuner från flera län med i reg_koder så blir det FALSE                      
+    
+    # unika_ej_kommunkoder <- unique(c("00", str_sub(reg_koder, 1, 2)))
+    # if (length(unika_ej_kommunkoder > 0) & !any(reg_koder %in% unika_ej_kommunkoder)) retur_varde <- FALSE     # om det finns någon annan kod än kommunkod i reg_koder så blir det FALSE)
     if (any(nchar(reg_koder) < 4 & !reg_koder %in% unique(c("00", str_sub(reg_koder, 1, 2))))) retur_varde <- FALSE     # finns kod som inte är kommunkod och inte heller läns- eller rikskod så blir det FALSE
     kommuner_akt_lan <- hamtakommuner(unique(str_sub(reg_koder[reg_koder != "00"], 1, 2)), F, F)         # här hämtar vi alla kommuner i aktuellt län
     reg_koder_bara_komm <- reg_koder[!reg_koder %in% unique(c("00", str_sub(reg_koder, 1, 2)))]
@@ -1287,14 +1290,15 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_pxweb = NA,
     regionkod_txt <- if("region" %in% names(varlist_giltiga_varden)) paste0('{unique(', tabell_namn, '_df$regionkod) %>% paste0(collapse = \'_\')}') else ""
     # testar om medskickade regioner är samtliga kommuner i ett län eller samtliga län i Sverige
     
-    regionfix_txt <- if("region" %in% names(varlist_giltiga_varden)) paste0('\n\nregion_start <- unique(', tabell_namn, '_df$region) %>% skapa_kortnamn_lan() %>% list_komma_och()\n',
+    regionfix_txt <- if("region" %in% names(varlist_giltiga_varden)) paste0('\n\n# om regioner är alla kommuner i ett län eller alla län i Sverige görs revidering, annars inte\n',
+                                                                            'region_start <- unique(', tabell_namn, '_df$region) %>% skapa_kortnamn_lan() %>% list_komma_och()\n',
                                                                             'region_txt <- ar_alla_kommuner_i_ett_lan(unique(', tabell_namn, '_df$regionkod), returnera_text = TRUE, returtext = region_start)\n',
                                                                             'region_txt <- ar_alla_lan_i_sverige(unique(', tabell_namn, '_df$regionkod), returnera_text = TRUE, returtext = region_txt)\n',
                                                                             'regionfil_txt <- region_txt\n',
                                                                             'region_txt <- paste0(" i ", region_txt)\n',
                                                                             'regionkod_txt <- if (region_start == region_txt) unique(', tabell_namn, '_df$regionkod) %>% paste0(collapse = "_") else region_txt') else ""
     region_i_glue <- if("region" %in% names(varlist_giltiga_varden)) "{region_txt}" else ""
-    
+    regionkod_i_glue <- if("region" %in% names(varlist_giltiga_varden)) "{regionfil_txt}" else "" 
     
     tid_txt <- if("tid" %in% names(varlist_giltiga_varden)) {
       tid_varnamn <- varlista_info$namn[tolower(varlista_info$kod) == "tid"]
@@ -1320,14 +1324,14 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_pxweb = NA,
     
     y_var_txt <- if (length(varlist_giltiga_varden$contentscode) < 1) glue("names({tabell_namn}_df)[length(names({tabell_namn}_df))]") else varlist_giltiga_varden$contentscode[1]        # om det inte finns någon contents-variabel, kör sista variabeln som y-variabel istället
     testfil_diagram <- glue('{regionfix_txt}\n\ndiagramtitel <- glue("', auto_diag_titel, '{region_i_glue}{tid_txt}")\n',
-                           'diagramfil <- glue("{tabell_namn}_{regionkod_txt}{tid_filnamn_txt}.png") %>% str_replace_all("__", "_")\n\n',
-                           'if ("variabelkategori" %in% names({tabell_namn}_df)) {{\n',
-                           '   if (length(unique({tabell_namn}_df$variabelkategori)) > 6) chart_df <- {tabell_namn}_df %>% filter(variabelkategori == unique({tabell_namn}_df$variabelkategori)[1]) else chart_df <- {tabell_namn}_df\n',
+                           'diagramfil <- glue("{tabell_namn}_{regionkod_i_glue}{tid_filnamn_txt}.png") %>% str_replace_all("__", "_")\n\n',
+                           'if ("vardekategori" %in% names({tabell_namn}_df)) {{\n',
+                           '   if (length(unique({tabell_namn}_df$vardekategori)) > 6) chart_df <- {tabell_namn}_df %>% filter(vardekategori == unique({tabell_namn}_df$vardekategori)[1]) else chart_df <- {tabell_namn}_df\n',
                            '}} else chart_df <- {tabell_namn}_df\n\n',
                            'gg_obj <- SkapaStapelDiagram(skickad_df = chart_df,\n',
                            '\t\t\t skickad_x_var = "', tid_varnamn, '",\n',
                            '\t\t\t skickad_y_var = if ("varde" %in% names(chart_df)) "varde" else "', y_var_txt, '",\n',
-                           '\t\t\t skickad_x_grupp = if ("variabelkategori" %in% names(chart_df) & length(unique(chart_df$variabelkategori)) > 1) "variabelkategori" else NA,\n',
+                           '\t\t\t skickad_x_grupp = if ("vardekategori" %in% names(chart_df) & length(unique(chart_df$vardekategori)) > 1) "vardekategori" else NA,\n',
                            '\t\t\t x_axis_sort_value = FALSE,\n',
                            '\t\t\t diagram_titel = diagramtitel,\n',
                            '\t\t\t diagram_capt = diagram_capt,\n',
@@ -1337,7 +1341,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_pxweb = NA,
                            '\t\t\t manual_y_axis_title = "",\n',
                            '\t\t\t manual_x_axis_text_vjust = 1,\n',
                            '\t\t\t manual_x_axis_text_hjust = 1,\n',
-                           '\t\t\t manual_color = if ("variabelkategori" %in% names(chart_df) & length(unique(chart_df$variabelkategori)) > 1) diagramfarger("rus_sex") else diagramfarger("rus_sex")[1],\n',
+                           '\t\t\t manual_color = if ("vardekategori" %in% names(chart_df) & length(unique(chart_df$vardekategori)) > 1) diagramfarger("rus_sex") else diagramfarger("rus_sex")[1],\n',
                            '\t\t\t output_mapp = output_mapp,\n',
                            '\t\t\t diagram_facet = FALSE,\n',
                            '\t\t\t facet_grp = NA,\n',
