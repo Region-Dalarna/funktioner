@@ -1010,9 +1010,14 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_pxweb = NA,
   varlist_giltiga_varden_koder <- map(varlist_koder, ~ pxvardelist(px_meta, .x)$kod) %>% set_names(tolower(varlist_koder))
   
   # kolla om det finns åldrar i tabellen och hur många det är i så fall
-  if ("alder" %in% names(varlist_giltiga_varden)) alder_txt <- if (length(varlist_giltiga_varden$alder) > 90) "_koder" else "_klartext" else alder_txt <- ""
+  if ("alder" %in% names(varlist_giltiga_varden)) {
+    alder_txt <- if (length(varlist_giltiga_varden$alder) > 90) "_koder" else "_klartext"
+  } else alder_txt <- ""
+  
   # special för hlv
-  if ("ålder" %in% names(varlist_giltiga_varden)) alder_txt <- if (length(varlist_giltiga_varden$ålder) > 90) "_koder" else "_klartext" else alder_txt <- ""
+  if ("ålder" %in% names(varlist_giltiga_varden)) {
+    alder_txt <- if (length(varlist_giltiga_varden$ålder) > 90) "_koder" else "_klartext"
+  } else alder_txt <- ""
   
   # Kombinera allt till en dataframe
   varlista_info <- tibble(kod = map_chr(px_meta$variables, ~ .x$code),
