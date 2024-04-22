@@ -598,7 +598,7 @@ ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_
   # tillat_rikskod    - här tillåter vi även att vektorn innehåller rikskoden ("00"), om inte blir det FALSE om den är med
   # returnera_text    - istället för att returnera TRUE eller FALSE huruvida reg_koder innehåller alla kommuner i ett län
   #                     så kan vi returnera textsträngen "Dalarnas kommuner" (om det är Dalarna som är länet)
-  # returtext      - om man kör TRUE på returnera_text och inte alla reg_koder är från alla kommuner i ett län
+  # returtext         - om man kör TRUE på returnera_text och inte alla reg_koder är från alla kommuner i ett län
   #                     så returneras NA, alternativt returneras returtext om det skickas med. På så sätt kan man
   #                     testa om reg_koder är alla kommuner i ett län och få tillbaka den textsträng man hade från 
   #                     början om det inte är det.
@@ -926,6 +926,24 @@ github_commit_push <- function(
   } # slut if-sats som testar om det finns filer att committa
 } # slut funktion
 
+github_pull_lokalt_repo_fran_github <- function(
+    sokvag_lokal_repo = "c:/gh/",
+    repo = "hamta_data",
+    repo_org = "Region-Dalarna"
+    ) {
+
+  lokal_sokvag_repo <- paste0(sokvag_lokal_repo, repo)
+  
+  push_repo <- git2r::init(lokal_sokvag_repo)
+  #repo_status <- git2r::status(push_repo)
+  
+  git2r::pull( repo = push_repo,                 
+               credentials = cred_user_pass( username = key_list(service = "github")$username, 
+                                             password = key_get("github", key_list(service = "github")$username)))
+  
+  
+  }
+
 
 # ================================================= skapa skript-funktioner ========================================================
 
@@ -949,9 +967,9 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_pxweb = NA,
   # var_med_koder = man kan skicka med variabler som ska få med sin kod i uttaget. Variabeln skrivs med sin kod, t.ex. "yrke2012" för att få ssyk-koder till yrkesvariabeln 
   
   # säkerställ att det finns värden för dessa parametrar
-  if (is.na(skickad_url_pxweb)) stop("Parametrarna 'skickad_url_pxweb', 'tabell_namn' och 'utmapp' måste vara med för att funktionen ska kunna köras.\n'skickad_url_pxweb' är url till den pxweb-tabell som man vill hämta data från.\n'tabell_namn' är ett namn som beskriver tabellen. Det bör vara så kort som möjligt och inte innehålla mellanslag. Det kan t.ex. vara 'rmi' för de regionala matchningsindikatorerna.\n'utmapp' är en sökväg till den mapp som man vill spara det nya skriptet i.")  
-  if (is.na(tabell_namn)) stop("Parametrarna 'skickad_url_pxweb', 'tabell_namn' och 'utmapp' måste vara med för att funktionen ska kunna köras.\n'skickad_url_pxweb' är url till den pxweb-tabell som man vill hämta data från.\n'tabell_namn' är ett namn som beskriver tabellen. Det bör vara så kort som möjligt och inte innehålla mellanslag. Det kan t.ex. vara 'rmi' för de regionala matchningsindikatorerna.\n'utmapp' är en sökväg till den mapp som man vill spara det nya skriptet i.")  
-  if (is.na(utmapp)) stop("Parametrarna 'skickad_url_pxweb', 'tabell_namn' och 'utmapp' måste vara med för att funktionen ska kunna köras.\n'skickad_url_pxweb' är url till den pxweb-tabell som man vill hämta data från.\n'tabell_namn' är ett namn som beskriver tabellen. Det bör vara så kort som möjligt och inte innehålla mellanslag. Det kan t.ex. vara 'rmi' för de regionala matchningsindikatorerna.\n'utmapp' är en sökväg till den mapp som man vill spara det nya skriptet i.")  
+  if (is.na(skickad_url_pxweb)) stop("Parametrarna 'skickad_url_pxweb', 'tabell_namn' och 'output_mapp' måste vara med för att funktionen ska kunna köras.\n'skickad_url_pxweb' är url till den pxweb-tabell som man vill hämta data från.\n'tabell_namn' är ett namn som beskriver tabellen. Det bör vara så kort som möjligt och inte innehålla mellanslag. Det kan t.ex. vara 'rmi' för de regionala matchningsindikatorerna.\n'utmapp' är en sökväg till den mapp som man vill spara det nya skriptet i.")  
+  if (is.na(tabell_namn)) stop("Parametrarna 'skickad_url_pxweb', 'tabell_namn' och 'output_mapp' måste vara med för att funktionen ska kunna köras.\n'skickad_url_pxweb' är url till den pxweb-tabell som man vill hämta data från.\n'tabell_namn' är ett namn som beskriver tabellen. Det bör vara så kort som möjligt och inte innehålla mellanslag. Det kan t.ex. vara 'rmi' för de regionala matchningsindikatorerna.\n'utmapp' är en sökväg till den mapp som man vill spara det nya skriptet i.")  
+  if (is.na(output_mapp)) stop("Parametrarna 'skickad_url_pxweb', 'tabell_namn' och 'output_mapp' måste vara med för att funktionen ska kunna köras.\n'skickad_url_pxweb' är url till den pxweb-tabell som man vill hämta data från.\n'tabell_namn' är ett namn som beskriver tabellen. Det bör vara så kort som möjligt och inte innehålla mellanslag. Det kan t.ex. vara 'rmi' för de regionala matchningsindikatorerna.\n'utmapp' är en sökväg till den mapp som man vill spara det nya skriptet i.")  
   
   # bearbeta url:en så att vi kan använda den i funktionen
   webb_url <- skickad_url_pxweb %>% paste0(., collapse = "\n  #\t\t\t\t\t\t\t\t\t\t\t\t")
@@ -1264,6 +1282,15 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_pxweb = NA,
     # testa om vissa variabler finns med i datasetet
     region_txt <- if("region" %in% names(varlist_giltiga_varden)) paste0(' i {unique(', tabell_namn, '_df$region) %>% skapa_kortnamn_lan() %>% list_komma_och()}') else ""
     regionkod_txt <- if("region" %in% names(varlist_giltiga_varden)) paste0('{unique(', tabell_namn, '_df$regionkod) %>% paste0(collapse = \'_\')}') else ""
+    # testar om medskickade regioner är samtliga kommuner i ett län eller samtliga län i Sverige
+    
+    regionfix_txt <- if("region" %in% names(varlist_giltiga_varden)) paste0('region_start <- unique(', tabell_namn, '_df$region) %>% skapa_kortnamn_lan() %>% list_komma_och()\n',
+                                                                            'region_txt <- ar_alla_kommuner_i_ett_lan(unique(', tabell_namn, '_df$regionkod), returnera_text = TRUE, returtext = region_start)\n',
+                                                                            'region_txt <- ar_alla_lan_i_sverige(unique(', tabell_namn, '_df$regionkod), returnera_text = TRUE, returtext = region_txt)\n',
+                                                                            'regionfil_txt <- region_txt\n',
+                                                                            'region_txt <- paste0(" i ", region_txt)\n',
+                                                                            'regionkod_txt <- if (region_start == region_txt) unique(', tabell_namn, '_df$regionkod) %>% paste0(collapse = "_") else region_txt') else NULL
+    
     tid_txt <- if("tid" %in% names(varlist_giltiga_varden)) {
       tid_varnamn <- varlista_info$namn[tolower(varlista_info$kod) == "tid"]
       paste0(' ', tid_varnamn, ' {min(', tabell_namn, '_df$', tid_varnamn, ')} - {max(', tabell_namn, '_df$', tid_varnamn, ')}')
@@ -1278,6 +1305,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_pxweb = NA,
                            '   \t\t\tglue)\n\n',
                            'source("', paste0(output_mapp, "hamta_", filnamn_suffix, ".R"), '")\n',
                            'source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_SkapaDiagram.R", encoding = "utf-8")\n\n',
+                           'source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_text.R", encoding = "utf-8")\n\n',
                            'diagram_capt <- "Källa: {org_namn} öppna statistikdatabas\\nBearbetning: Samhällsanalys, Region Dalarna"\n',
                            'output_mapp <- utskriftsmapp()\n',
                            'visa_dataetiketter <- FALSE\n',
@@ -1285,15 +1313,15 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_pxweb = NA,
                            '{tabell_namn}_df <- hamta_{funktion_namn}(\n',
                            '{funktion_parametrar}\n\n)')
     
-    y_var_txt <- if (length(varlist_giltiga_varden$contentscode) < 1) glue("names({tabell_namn}_df)[length(names({tabell_namn}_df))]") else "varlist_giltiga_varden$contentscode[1]"        # om det inte finns någon contents-variabel, kör sista variabeln som y-variabel istället
-    testfil_diagram <- glue('\n\ndiagramtitel <- glue("', auto_diag_titel, '{region_txt}{tid_txt}")\n',
+    y_var_txt <- if (length(varlist_giltiga_varden$contentscode) < 1) glue("names({tabell_namn}_df)[length(names({tabell_namn}_df))]") else varlist_giltiga_varden$contentscode[1]        # om det inte finns någon contents-variabel, kör sista variabeln som y-variabel istället
+    testfil_diagram <- glue('{regionfix_txt}\n\ndiagramtitel <- glue("', auto_diag_titel, '{{region_txt}}{tid_txt}")\n',
                            'diagramfil <- glue("{tabell_namn}_{regionkod_txt}{tid_filnamn_txt}.png") %>% str_replace_all("__", "_")\n\n',
                            'if ("variabel" %in% names({tabell_namn}_df)) {{\n',
                            '   if (length(unique({tabell_namn}_df$variabel)) > 6) chart_df <- {tabell_namn}_df %>% filter(variabel == unique({tabell_namn}_df$variabel)[1]) else chart_df <- {tabell_namn}_df\n',
                            '}} else chart_df <- {tabell_namn}_df\n\n',
                            'gg_obj <- SkapaStapelDiagram(skickad_df = chart_df,\n',
                            '\t\t\t skickad_x_var = "', tid_varnamn, '",\n',
-                           '\t\t\t skickad_y_var = if ("varde" %in% names(chart_df)) "varde" else ', y_var_txt, ',\n',
+                           '\t\t\t skickad_y_var = if ("varde" %in% names(chart_df)) "varde" else "', y_var_txt, '",\n',
                            '\t\t\t skickad_x_grupp = if ("variabel" %in% names(chart_df) & length(unique(chart_df$variabel)) > 1) "variabel" else NA,\n',
                            '\t\t\t x_axis_sort_value = FALSE,\n',
                            '\t\t\t diagram_titel = diagramtitel,\n',
