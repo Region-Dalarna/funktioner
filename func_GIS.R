@@ -386,7 +386,7 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
     i_within <- sf::st_within(cx, x, sparse = TRUE) %>%
       as.data.frame() %>%
       filter(row.id == col.id) %>%
-      pull(row.id)
+      dplyr::pull(row.id)
     
     i_nwithin <- setdiff(seq(1, nrow(x)), i_within)
     
