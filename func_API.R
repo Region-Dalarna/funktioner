@@ -956,7 +956,7 @@ github_pull_lokalt_repo_fran_github <- function(
 
 # ================================================= skapa skript-funktioner ========================================================
 
-skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_pxweb = NA, 
+skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA, 
                                               tabell_namn = NA, 
                                               output_mapp = NA, 
                                               var_med_koder = NA, 
