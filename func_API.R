@@ -1037,7 +1037,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     elim_info_txt <- if(ar_elimination) " NA = tas inte med i uttaget, " else ""    # skapa text som används som förklaring vid parametrarna i funktionen
     
     retur_txt <- case_when(str_detect(tolower(.x), "fodel") ~ paste0(tolower(.x) %>% str_replace_all(" ", "_"), '_klartext = "*",\t\t\t# ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")),
-                           str_detect(tolower(.x), "region") ~ paste0(tolower(.x), '_vekt = "20",\t\t\t# Val av region.'),
+                           str_detect(tolower(.x), "region") ~ paste0(tolower(.x), '_vekt = {default_region},\t\t\t# Val av region.'),
                            tolower(.x) %in% c("tid") ~ paste0(tolower(.x), '_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', .y, '"', collapse = ", ")),
                            # Funktion för att ta lägsta och högsta värde i ålder är borttagen genom att jag satt length(.y) > 0, ska vara typ kanske 90. Större än 0 = alla så därför är den i praktiken avstängd. 
                            tolower(.x) %in% c("alder") ~ paste0(tolower(.x), alder_txt,' = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")),                                                 # gammalt: if (length(.y) < 0) paste0(tolower(.x), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")) else paste0(tolower(.x), '_koder = "*",\t\t\t # Finns: ', min(.y), " - ", max(.y)),
@@ -1051,8 +1051,8 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   
   # om inte inte län finns som region, byt ut "20" mot "00" eller "*" i funktion_parametrar
   if ("region" %in% tolower(varlist_koder)){
-    if (!"20" %in% varlist_giltiga_varden_koder$region) {
-      funktion_parametrar <- str_replace(funktion_parametrar, "region_vekt = \"20\"", "region_vekt = \"00\"")
+    if (!default_region %in% varlist_giltiga_varden_koder$region) {
+      funktion_parametrar <- str_replace(funktion_parametrar, glue('"region_vekt = \"{default_region}\""'), "region_vekt = \"00\"")
       if (!"00" %in% varlist_giltiga_varden_koder$region) {
         funktion_parametrar <- str_replace(funktion_parametrar, "region_vekt = \"00\"", "region_vekt = \"*\"")
       }
@@ -1325,7 +1325,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
                            'source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_SkapaDiagram.R", encoding = "utf-8")\n',
                            'source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_text.R", encoding = "utf-8")\n\n',
                            'diagram_capt <- "Källa: {org_namn} öppna statistikdatabas\\nBearbetning: Samhällsanalys, Region Dalarna"\n',
-                           'output_mapp <- {output_mapp}\n',
+                           'output_mapp <- "{output_mapp}"\n',
                            'visa_dataetiketter <- FALSE\n',
                            'gg_list <- list()\n\n',
                            '{tabell_namn}_df <- hamta_{funktion_namn}(\n',
