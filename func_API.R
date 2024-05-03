@@ -1019,14 +1019,10 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   
   # kolla om det finns åldrar i tabellen och hur många det är i så fall med eller utan å, dvs. alder eller ålder
   if ("alder" %in% tolower(names(varlist_giltiga_varden)) | "ålder" %in% tolower(names(varlist_giltiga_varden))) {
-    alder_txt <- if (length(varlist_giltiga_varden$alder) > 60) "_koder" else "_klartext"
+    alder_ar_klartext <- if (length(varlist_giltiga_varden$alder) < 90) TRUE else FALSE
+    alder_txt <- if(alder_ar_klartext) "_klartext" else "_koder"
   } else alder_txt <- ""
-  
-  # # special för hlv
-  # if ("ålder" %in% tolower(names(varlist_giltiga_varden))) {
-  #   alder_txt <- if (length(varlist_giltiga_varden$ålder) > 60) "_koder" else "_klartext"
-  # } else alder_txt <- ""
-  # 
+
   # Kombinera allt till en dataframe
   varlista_info <- tibble(kod = map_chr(px_meta$variables, ~ .x$code),
                           namn = map_chr(px_meta$variables, ~ .x$text),
@@ -1035,17 +1031,18 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   # kontrollera hur många contentsvariabler som finns i databasen
   antal_contvar <- length(varlist_giltiga_varden$contentscode)
   
-  funktion_parametrar <- map2_chr(varlist_koder, varlist_giltiga_varden, ~ {
+  funktion_parametrar <- pmap_chr(list(varlist_koder, varlist_giltiga_varden, varlist_giltiga_varden_koder), 
+                                  function(var_koder, varden_klartext, varden_koder) {
     
-    ar_elimination <- varlista_info$elimination[varlista_info$kod == .x]            # hämta information om aktuell variabel kan elimineras ur tabellen
+    ar_elimination <- varlista_info$elimination[varlista_info$kod == var_koder]            # hämta information om aktuell variabel kan elimineras ur tabellen
     elim_info_txt <- if(ar_elimination) " NA = tas inte med i uttaget, " else ""    # skapa text som används som förklaring vid parametrarna i funktionen
     
-    retur_txt <- case_when(str_detect(tolower(.x), "fodel") ~ paste0(tolower(.x) %>% str_replace_all(" ", "_"), '_klartext = "*",\t\t\t# ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")),
-                           str_detect(tolower(.x), "region") ~ paste0(tolower(.x), '_vekt = "', default_region, '",\t\t\t# Val av region.'),
-                           tolower(.x) %in% c("tid") ~ paste0(tolower(.x), '_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', .y, '"', collapse = ", ")),
-                           # Funktion för att ta lägsta och högsta värde i ålder är borttagen genom att jag satt length(.y) > 0, ska vara typ kanske 90. Större än 0 = alla så därför är den i praktiken avstängd. 
-                           tolower(.x) %in% c("alder") ~ paste0(tolower(.x), alder_txt,' = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")),                                                 # gammalt: if (length(.y) < 0) paste0(tolower(.x), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")) else paste0(tolower(.x), '_koder = "*",\t\t\t # Finns: ', min(.y), " - ", max(.y)),
-                           TRUE ~ paste0(tolower(.x) %>% str_replace_all(" ", "_"), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y %>% unique(), '"', collapse = ", ")) %>% str_replace("contentscode", "cont")) 
+    retur_txt <- case_when(str_detect(tolower(var_koder), "fodel") ~ paste0(tolower(var_koder) %>% str_replace_all(" ", "_"), '_klartext = "*",\t\t\t# ', elim_info_txt, ' Finns: ', paste0('"', varden_klartext, '"', collapse = ", ")),
+                           str_detect(tolower(var_koder), "region") ~ paste0(tolower(var_koder), '_vekt = "', default_region, '",\t\t\t# Val av region. Finns: ', paste0('"', varden_koder, '"', collapse = ", ")),
+                           tolower(var_koder) %in% c("tid") ~ paste0(tolower(var_koder), '_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', varden_klartext, '"', collapse = ", ")),
+                           # Funktion för att ta lägsta och högsta värde i ålder är borttagen genom att jag satt length(varden_klartext) > 0, ska vara typ kanske 90. Större än 0 = alla så därför är den i praktiken avstängd. 
+                           tolower(var_koder) %in% c("alder", "ålder") ~ paste0(tolower(var_koder), alder_txt,' = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', if(alder_ar_klartext) varden_klartext else varden_koder , '"', collapse = ", ")),                                                 # gammalt: if (length(varden_klartext) < 0) paste0(tolower(var_koder), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', varden_klartext, '"', collapse = ", ")) else paste0(tolower(var_koder), '_koder = "*",\t\t\t # Finns: ', min(varden_klartext), " - ", max(varden_klartext)),
+                           TRUE ~ paste0(tolower(var_koder) %>% str_replace_all(" ", "_"), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', varden_klartext %>% unique(), '"', collapse = ", ")) %>% str_replace("contentscode", "cont")) 
     
   }) %>% 
     c(., if (antal_contvar > 1) 'long_format = TRUE,\t\t\t# TRUE = konvertera innehållsvariablerna i datasetet till long-format \n\t\t\twide_om_en_contvar = TRUE,\t\t\t# TRUE = om man vill behålla wide-format om det bara finns en innehållsvariabel, FALSE om man vill konvertera till long-format även om det bara finns en innehållsvariabel' else "") %>%
@@ -1072,8 +1069,8 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   
   # skapa skriptrader för klartext-variabler som måste omvandlas till koder till query-listan, dvs. "vekt_" och sedan variabelnamnet
   var_klartext_skriptrader <- map(varlist_koder, function(var_kod) {
-    # koda klartext till vekt för variabler som inte innehåller region, alder, tid, contentscode eller som innehåller "fodel"
-    if (!str_detect(tolower(var_kod), "region|alder|tid|contentscode") | str_detect(tolower(var_kod), "fodel|grupp")) {
+    # koda klartext till vekt för variabler som inte innehåller region, tid, contentscode eller som innehåller "fodel"
+    if (!str_detect(tolower(var_kod), "region|tid|contentscode") | str_detect(tolower(var_kod), "fodel|grupp")) {
       if (px_meta$variables %>%
           keep(~ .x$code == var_kod) %>% 
           map_lgl(~ .x$elimination) %>%
@@ -1083,7 +1080,8 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
           paste0("  ", tolower(var_kod) %>% str_replace_all(" ", "_"), '_vekt <- if (!all(is.na(', tolower(var_kod), '_klartext))) hamta_kod_med_klartext(px_meta, ', tolower(var_kod) %>% str_replace_all(" ", "_"), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '") else NA\n')
           
       } else {    # variabler som inte går att eliminera (göra uttag utan) men som är klartext till kod
-        if (!str_detect(tolower(var_kod), "alder") | str_detect(tolower(var_kod), "grupp")) paste0("  ", tolower(var_kod) %>% str_replace_all(" ", "_"), '_vekt <- hamta_kod_med_klartext(px_meta, ', tolower(var_kod) %>% str_replace_all(" ", "_"), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '")\n')
+        #if (!str_detect(tolower(var_kod), "alder|ålder") | str_detect(tolower(var_kod), "grupp")) paste0("  ", tolower(var_kod) %>% str_replace_all(" ", "_"), '_vekt <- hamta_kod_med_klartext(px_meta, ', tolower(var_kod) %>% str_replace_all(" ", "_"), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '")\n')
+        if (!(str_detect(tolower(var_kod), "alder|ålder") & !alder_ar_klartext) | str_detect(tolower(var_kod), "grupp")) paste0("  ", tolower(var_kod) %>% str_replace_all(" ", "_"), '_vekt <- hamta_kod_med_klartext(px_meta, ', tolower(var_kod) %>% str_replace_all(" ", "_"), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '")\n')
       }
     } else NA           # om det är koder för region eller ålder så ska de inte med på dessa rader
        
