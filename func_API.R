@@ -1322,8 +1322,12 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     } else ""
     tid_filnamn_txt <- if(any(c("tid", "år") %in% names(varlist_giltiga_varden))) paste0('_ar{min(', tabell_namn, '_df$', tid_varnamn, ')}_{max(', tabell_namn, '_df$', tid_varnamn, ')}')
     
+    # om skriptet skapas på Regionala utvecklingsförvaltningen på Region Dalarna så 
+    #         läggs '\nBearbetning: Samhällsanalys, Region Dalarna"' till i diagram_capt, ananrs inte
     bearbetad_txt <- if (dir.exists(utskriftsmapp())) '\\nBearbetning: Samhällsanalys, Region Dalarna"' else '"'
-      
+    #         blir "G:/Samhällsanalys/API/Fran_R/Utskrift/" utskriftsmapp, annars blir det samma mapp som hämta-skriptet skapas i
+    utskrift_mapp <- if (dir.exists(utskriftsmapp())) utskriftsmapp() else output_mapp
+    
     testfil_skript <- glue('if (!require("pacman")) install.packages("pacman")\n',
                            'p_load(tidyverse,\n',
                            '   \t\t\tglue)\n\n',
@@ -1331,7 +1335,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
                            'source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_SkapaDiagram.R", encoding = "utf-8")\n',
                            'source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_text.R", encoding = "utf-8")\n\n',
                            'diagram_capt <- "Källa: {org_namn} öppna statistikdatabas{bearbetad_txt}\n',
-                           'output_mapp <- "{output_mapp}"\n',
+                           'output_mapp <- "{utskrift_mapp}"\n',
                            'visa_dataetiketter <- FALSE\n',
                            'gg_list <- list()\n\n',
                            '{tabell_namn}_df <- hamta_{funktion_namn}(\n',
