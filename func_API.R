@@ -1012,16 +1012,16 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_pxweb = NA,
   varlist_giltiga_varden <- map(varlist_koder, ~ pxvardelist(px_meta, .x)$klartext) %>% set_names(tolower(varlist_koder) %>% unique())
   varlist_giltiga_varden_koder <- map(varlist_koder, ~ pxvardelist(px_meta, .x)$kod) %>% set_names(tolower(varlist_koder))
   
-  # kolla om det finns åldrar i tabellen och hur många det är i så fall
-  if ("alder" %in% names(varlist_giltiga_varden)) {
-    alder_txt <- if (length(varlist_giltiga_varden$alder) > 90) "_koder" else "_klartext"
+  # kolla om det finns åldrar i tabellen och hur många det är i så fall med eller utan å, dvs. alder eller ålder
+  if ("alder" %in% tolower(names(varlist_giltiga_varden)) | "ålder" %in% tolower(names(varlist_giltiga_varden))) {
+    alder_txt <- if (length(varlist_giltiga_varden$alder) > 60) "_koder" else "_klartext"
   } else alder_txt <- ""
   
-  # special för hlv
-  if ("ålder" %in% names(varlist_giltiga_varden)) {
-    alder_txt <- if (length(varlist_giltiga_varden$ålder) > 90) "_koder" else "_klartext"
-  } else alder_txt <- ""
-  
+  # # special för hlv
+  # if ("ålder" %in% tolower(names(varlist_giltiga_varden))) {
+  #   alder_txt <- if (length(varlist_giltiga_varden$ålder) > 60) "_koder" else "_klartext"
+  # } else alder_txt <- ""
+  # 
   # Kombinera allt till en dataframe
   varlista_info <- tibble(kod = map_chr(px_meta$variables, ~ .x$code),
                           namn = map_chr(px_meta$variables, ~ .x$text),
@@ -1333,13 +1333,13 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_pxweb = NA,
     y_var_txt <- if (length(varlist_giltiga_varden$contentscode) < 1) glue("names({tabell_namn}_df)[length(names({tabell_namn}_df))]") else varlist_giltiga_varden$contentscode[1]        # om det inte finns någon contents-variabel, kör sista variabeln som y-variabel istället
     testfil_diagram <- glue('{regionfix_txt}\n\ndiagramtitel <- glue("', auto_diag_titel, '{region_i_glue}{tid_txt}")\n',
                            'diagramfil <- glue("{tabell_namn}_{regionkod_i_glue}{tid_filnamn_txt}.png") %>% str_replace_all("__", "_")\n\n',
-                           'if ("vardekategori" %in% names({tabell_namn}_df)) {{\n',
-                           '   if (length(unique({tabell_namn}_df$vardekategori)) > 6) chart_df <- {tabell_namn}_df %>% filter(vardekategori == unique({tabell_namn}_df$vardekategori)[1]) else chart_df <- {tabell_namn}_df\n',
+                           'if ("variabel" %in% names({tabell_namn}_df)) {{\n',
+                           '   if (length(unique({tabell_namn}_df$variabel)) > 6) chart_df <- {tabell_namn}_df %>% filter(variabel == unique({tabell_namn}_df$variabel)[1]) else chart_df <- {tabell_namn}_df\n',
                            '}} else chart_df <- {tabell_namn}_df\n\n',
                            'gg_obj <- SkapaStapelDiagram(skickad_df = chart_df,\n',
                            '\t\t\t skickad_x_var = "', tid_varnamn, '",\n',
                            '\t\t\t skickad_y_var = if ("varde" %in% names(chart_df)) "varde" else "', y_var_txt, '",\n',
-                           '\t\t\t skickad_x_grupp = if ("vardekategori" %in% names(chart_df) & length(unique(chart_df$vardekategori)) > 1) "vardekategori" else NA,\n',
+                           '\t\t\t skickad_x_grupp = if ("variabel" %in% names(chart_df) & length(unique(chart_df$variabel)) > 1) "variabel" else NA,\n',
                            '\t\t\t x_axis_sort_value = FALSE,\n',
                            '\t\t\t diagram_titel = diagramtitel,\n',
                            '\t\t\t diagram_capt = diagram_capt,\n',
@@ -1349,7 +1349,7 @@ skapa_hamta_data_skript_pxweb_scb <- function(skickad_url_pxweb = NA,
                            '\t\t\t manual_y_axis_title = "",\n',
                            '\t\t\t manual_x_axis_text_vjust = 1,\n',
                            '\t\t\t manual_x_axis_text_hjust = 1,\n',
-                           '\t\t\t manual_color = if ("vardekategori" %in% names(chart_df) & length(unique(chart_df$vardekategori)) > 1) diagramfarger("rus_sex") else diagramfarger("rus_sex")[1],\n',
+                           '\t\t\t manual_color = if ("variabel" %in% names(chart_df) & length(unique(chart_df$variabel)) > 1) diagramfarger("rus_sex") else diagramfarger("rus_sex")[1],\n',
                            '\t\t\t output_mapp = output_mapp,\n',
                            '\t\t\t diagram_facet = FALSE,\n',
                            '\t\t\t facet_grp = NA,\n',
