@@ -982,7 +982,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   
   # bearbeta url:en så att vi kan använda den i funktionen
   webb_url <- skickad_url_pxweb %>% paste0(., collapse = "\n  #\t\t\t\t\t\t\t\t\t\t\t\t")
-  url_scb <- kontrollera_pxweb_url(skickad_url_pxweb)
+  url_scb <- kontrollera_pxweb_url(skickad_url_pxweb) 
   
   org_namn <- case_when(str_detect(skickad_url_pxweb, "https://www.statistikdatabasen.scb.se") ~ "SCB:s",
                         str_detect(skickad_url_pxweb, "https://api.scb.se") ~ "SCB:s",
