@@ -953,7 +953,6 @@ github_pull_lokalt_repo_fran_github <- function(
   
   }
 
-
 # ================================================= skapa skript-funktioner ========================================================
 
 skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA, 
@@ -974,6 +973,11 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   # tabell_namn = namn på tabellen, t.ex. "yrke", kommer att ligga först i filnamnet
   # output_mapp = mapp där skriptet ska sparas när det är klart
   # var_med_koder = man kan skicka med variabler som ska få med sin kod i uttaget. Variabeln skrivs med sin kod, t.ex. "yrke2012" för att få ssyk-koder till yrkesvariabeln 
+  
+  # kontrollera att output_mapp slutar med "/" eller "\", annars lägger vi till det
+  if (!str_sub(output_mapp, nchar(output_mapp)) %in% c("/", "\\")) {
+    output_mapp <- paste0(output_mapp, "/")
+  }
   
   # säkerställ att det finns värden för dessa parametrar
   if (is.na(skickad_url_pxweb)) stop("Parametrarna 'skickad_url_pxweb', 'tabell_namn' och 'output_mapp' måste vara med för att funktionen ska kunna köras.\n'skickad_url_pxweb' är url till den pxweb-tabell som man vill hämta data från.\n'tabell_namn' är ett namn som beskriver tabellen. Det bör vara så kort som möjligt och inte innehålla mellanslag. Det kan t.ex. vara 'rmi' för de regionala matchningsindikatorerna.\n'output_mapp' är en sökväg till den mapp som man vill spara det nya skriptet i.")  
@@ -1037,7 +1041,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     elim_info_txt <- if(ar_elimination) " NA = tas inte med i uttaget, " else ""    # skapa text som används som förklaring vid parametrarna i funktionen
     
     retur_txt <- case_when(str_detect(tolower(.x), "fodel") ~ paste0(tolower(.x) %>% str_replace_all(" ", "_"), '_klartext = "*",\t\t\t# ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")),
-                           str_detect(tolower(.x), "region") ~ paste0(tolower(.x), '_vekt = {default_region},\t\t\t# Val av region.'),
+                           str_detect(tolower(.x), "region") ~ paste0(tolower(.x), '_vekt = "', default_region, '",\t\t\t# Val av region.'),
                            tolower(.x) %in% c("tid") ~ paste0(tolower(.x), '_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', .y, '"', collapse = ", ")),
                            # Funktion för att ta lägsta och högsta värde i ålder är borttagen genom att jag satt length(.y) > 0, ska vara typ kanske 90. Större än 0 = alla så därför är den i praktiken avstängd. 
                            tolower(.x) %in% c("alder") ~ paste0(tolower(.x), alder_txt,' = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")),                                                 # gammalt: if (length(.y) < 0) paste0(tolower(.x), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', .y, '"', collapse = ", ")) else paste0(tolower(.x), '_koder = "*",\t\t\t # Finns: ', min(.y), " - ", max(.y)),
@@ -1052,7 +1056,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   # om inte inte län finns som region, byt ut "20" mot "00" eller "*" i funktion_parametrar
   if ("region" %in% tolower(varlist_koder)){
     if (!default_region %in% varlist_giltiga_varden_koder$region) {
-      funktion_parametrar <- str_replace(funktion_parametrar, glue('"region_vekt = \"{default_region}\""'), "region_vekt = \"00\"")
+      funktion_parametrar <- str_replace(funktion_parametrar, glue('region_vekt = "{default_region}"'), "region_vekt = \"00\"")
       if (!"00" %in% varlist_giltiga_varden_koder$region) {
         funktion_parametrar <- str_replace(funktion_parametrar, "region_vekt = \"00\"", "region_vekt = \"*\"")
       }
@@ -1317,6 +1321,8 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
         paste0(' ', tid_varnamn, ' {min(', tabell_namn, '_df$', tid_varnamn, ')} - {max(', tabell_namn, '_df$', tid_varnamn, ')}')
     } else ""
     tid_filnamn_txt <- if(any(c("tid", "år") %in% names(varlist_giltiga_varden))) paste0('_ar{min(', tabell_namn, '_df$', tid_varnamn, ')}_{max(', tabell_namn, '_df$', tid_varnamn, ')}')
+    
+    bearbetad_txt <- if (dir.exists(utskriftsmapp())) '\\nBearbetning: Samhällsanalys, Region Dalarna"' else '"'
       
     testfil_skript <- glue('if (!require("pacman")) install.packages("pacman")\n',
                            'p_load(tidyverse,\n',
@@ -1324,7 +1330,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
                            'source("', paste0(output_mapp, "hamta_", filnamn_suffix, ".R"), '")\n',
                            'source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_SkapaDiagram.R", encoding = "utf-8")\n',
                            'source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_text.R", encoding = "utf-8")\n\n',
-                           'diagram_capt <- "Källa: {org_namn} öppna statistikdatabas\\nBearbetning: Samhällsanalys, Region Dalarna"\n',
+                           'diagram_capt <- "Källa: {org_namn} öppna statistikdatabas{bearbetad_txt}\n',
                            'output_mapp <- "{output_mapp}"\n',
                            'visa_dataetiketter <- FALSE\n',
                            'gg_list <- list()\n\n',

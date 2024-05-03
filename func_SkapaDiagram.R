@@ -120,6 +120,11 @@ SkapaStapelDiagram <- function(skickad_df,
   # legendfix
   #if (legend_rader > 1) legend_radbryt = TRUE else legend_radbryt = FALSE
   
+  # kontrollera att output_mapp har "/" eller "\\" som sista tecken
+  if (!str_sub(output_mapp, nchar(output_mapp)) %in% c("/", "\\")) {
+    output_mapp <- paste0(output_mapp, "/")
+  }
+  
   # speciallösning, om vi vill visa sista värdet med x_var_visa_var_xe_etikett så ökar vi avståndet mellan facet-diagram
   if (inkludera_sista_vardet_var_xe_etikett) facet_space_diag_horisont <- facet_space_diag_horisont + facet_oka_avstand_vid_visa_sista_vardet
   
@@ -589,6 +594,11 @@ SkapaLinjeDiagram <- function(skickad_df,
   filter_or <- paste0("'", filter_or, "'") #%>%             # Lägg till ' runt värdena som ska filtreras ut
   filter_or <- paste0(filter_or_var, " == ", filter_or)     # Sätt ihop variabeln som de tillhör, likamedtecken samt variabelvärdena (från raden ovan) 
   filter_or <- paste(filter_or, collapse = " | ")           # Sätt ihop alla värden till en OR-sats
+  
+  # kontrollera att output_mapp har "/" eller "\\" som sista tecken
+  if (!str_sub(output_mapp, nchar(output_mapp)) %in% c("/", "\\")) {
+    output_mapp <- paste0(output_mapp, "/")
+  }
   
   # speciallösning, om vi vill visa sista värdet med x_var_visa_var_xe_etikett så ökar vi avståndet mellan facet-diagram
   if (inkludera_sista_vardet_var_xe_etikett) facet_space_diag_horisont <- facet_space_diag_horisont + facet_oka_avstand_vid_visa_sista_vardet
