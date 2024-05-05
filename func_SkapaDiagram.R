@@ -60,6 +60,7 @@ SkapaStapelDiagram <- function(skickad_df,
                                y_axis_minus_plus_samma_axel = FALSE, # om man vill ha lika stort avstånd från 0 till min och maxvärde på y-axeln - gäller endast när man har min-värde < 0 och max-värde > 0
                                x_axis_visa_var_xe_etikett = NA,   # möjlighet att bara visa var x:e etikett. X bestäms av det värde man skickar med (kan vara ex. 3 för att visa var tredje etikett på x-axeln)
                                inkludera_sista_vardet_var_xe_etikett = TRUE,              # om man vill ha med sista värdet när man kör x_axis_visa_var_xe_etikett
+                               x_axis_var_xe_etikett_ta_bort_nast_sista_vardet = FALSE, # tar bort näst sista värdet i visa_var_xe_etikett
                                procent_0_100_10intervaller = FALSE,  # om TRUE, så går y-axeln mellan 0 och 100, med tjocka stödlinjer med 10 enheters mellanrum, passar bra med procent 
                                legend_titel = NA,                 # om man vill ha en titel på teckenförklaringen kan man skicka med det som text här
                                legend_tabort = FALSE,             # om man vill tvinga bort legenden så kan man göra det här med TRUE
@@ -419,7 +420,7 @@ SkapaStapelDiagram <- function(skickad_df,
     }} +
     # funktion för att bara visa var x:e etikett på x-axeln
     { if (!is.na(x_axis_visa_var_xe_etikett)) {  
-      scale_x_discrete(expand = c(0,0), breaks = every_nth(n = x_axis_visa_var_xe_etikett, sista_vardet = inkludera_sista_vardet_var_xe_etikett))
+      scale_x_discrete(expand = c(0,0), breaks = every_nth(n = x_axis_visa_var_xe_etikett, sista_vardet = inkludera_sista_vardet_var_xe_etikett, ta_bort_nast_sista = x_axis_var_xe_etikett_ta_bort_nast_sista_vardet))
     }} +
     
     
@@ -557,6 +558,7 @@ SkapaLinjeDiagram <- function(skickad_df,
                               facet_legend_bottom = FALSE,
                               x_axis_visa_var_xe_etikett = NA,
                               inkludera_sista_vardet_var_xe_etikett = TRUE,              # om man vill ha med sista värdet när man kör x_axis_visa_var_xe_etikett
+                              x_axis_var_xe_etikett_ta_bort_nast_sista_vardet = FALSE, # tar bort näst sista värdet i visa_var_xe_etikett
                               AF_special = FALSE,
                               
                               legend_titel = NA,                 # om man vill ha en titel på teckenförklaringen kan man skicka med det som text här
@@ -762,7 +764,7 @@ SkapaLinjeDiagram <- function(skickad_df,
       scale_x_continuous(expand = c(0,.3), breaks = seq(1,53, by = 1))
     }} +
     { if (!is.na(x_axis_visa_var_xe_etikett)) {  
-      scale_x_discrete(expand = c(0,0), breaks = every_nth(n = x_axis_visa_var_xe_etikett, sista_vardet = inkludera_sista_vardet_var_xe_etikett))
+      scale_x_discrete(expand = c(0,0), breaks = every_nth(n = x_axis_visa_var_xe_etikett, sista_vardet = inkludera_sista_vardet_var_xe_etikett, ta_bort_nast_sista = x_axis_var_xe_etikett_ta_bort_nast_sista_vardet))
     }} +
     # scale_y_continuous(breaks = seq(min_yvar, max_yvar, 
     #                                 by = round(max_yvar / 6, (nchar(trunc(max_yvar/6))-1)*-1)),
@@ -850,7 +852,7 @@ skriv_till_diagramfil <- function(ggplot_objekt,
 #   return(function(x) {x[c(TRUE, rep(FALSE, n - 1))]})
 # }
 
-every_nth <- function(n, sista_vardet) {
+every_nth <- function(n, sista_vardet, ta_bort_nast_sista = FALSE) {
   return(function(x) {
     # Skapar en logisk vektor med var n:te element satt till TRUE
     vec <- c(TRUE, rep(FALSE, n - 1))
@@ -858,6 +860,9 @@ every_nth <- function(n, sista_vardet) {
     repeated_vec <- rep(vec, length.out = length(x))
     # Säkerställer att det sista värdet alltid är TRUE
     if (sista_vardet) repeated_vec[length(x)] <- TRUE
+    # Om ta_bort_nast_sista är TRUE, sätt näst sista elementet till FALSE
+    if (ta_bort_nast_sista && length(x) > 1) repeated_vec[length(x) - 1] <- FALSE
+    
     return(x[repeated_vec])
   })
 }
