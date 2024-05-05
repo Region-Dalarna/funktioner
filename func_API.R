@@ -1017,6 +1017,8 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   varlist_giltiga_varden <- map(varlist_koder, ~ pxvardelist(px_meta, .x)$klartext) %>% set_names(tolower(varlist_koder) %>% unique())
   varlist_giltiga_varden_koder <- map(varlist_koder, ~ pxvardelist(px_meta, .x)$kod) %>% set_names(tolower(varlist_koder))
   
+  alder_ar_klartext <- FALSE
+  
   # kolla om det finns åldrar i tabellen och hur många det är i så fall med eller utan å, dvs. alder eller ålder
   if ("alder" %in% tolower(names(varlist_giltiga_varden)) | "ålder" %in% tolower(names(varlist_giltiga_varden))) {
     alder_ar_klartext <- if (length(varlist_giltiga_varden$alder) < 90) TRUE else FALSE
@@ -1038,7 +1040,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     elim_info_txt <- if(ar_elimination) " NA = tas inte med i uttaget, " else ""    # skapa text som används som förklaring vid parametrarna i funktionen
     
     retur_txt <- case_when(str_detect(tolower(var_koder), "fodel") ~ paste0(tolower(var_koder) %>% str_replace_all(" ", "_"), '_klartext = "*",\t\t\t# ', elim_info_txt, ' Finns: ', paste0('"', varden_klartext, '"', collapse = ", ")),
-                           str_detect(tolower(var_koder), "region") ~ paste0(tolower(var_koder), '_vekt = "', default_region, '",\t\t\t# Val av region. Finns: ', paste0('"', varden_koder, '"', collapse = ", ")),
+                           str_detect(tolower(var_koder), "region|lan") ~ paste0(tolower(var_koder), '_vekt = "', default_region, '",\t\t\t# Val av region. Finns: ', paste0('"', varden_koder, '"', collapse = ", ")),
                            tolower(var_koder) %in% c("tid") ~ paste0(tolower(var_koder), '_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', varden_klartext, '"', collapse = ", ")),
                            # Funktion för att ta lägsta och högsta värde i ålder är borttagen genom att jag satt length(varden_klartext) > 0, ska vara typ kanske 90. Större än 0 = alla så därför är den i praktiken avstängd. 
                            tolower(var_koder) %in% c("alder", "ålder") ~ paste0(tolower(var_koder), alder_txt,' = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', if(alder_ar_klartext) varden_klartext else varden_koder , '"', collapse = ", ")),                                                 # gammalt: if (length(varden_klartext) < 0) paste0(tolower(var_koder), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', varden_klartext, '"', collapse = ", ")) else paste0(tolower(var_koder), '_koder = "*",\t\t\t # Finns: ', min(varden_klartext), " - ", max(varden_klartext)),
@@ -1051,11 +1053,12 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     str_remove("\t\t\t\n")
   
   # om inte inte län finns som region, byt ut "20" mot "00" eller "*" i funktion_parametrar
-  if ("region" %in% tolower(varlist_koder)){
-    if (!default_region %in% varlist_giltiga_varden_koder$region) {
-      funktion_parametrar <- str_replace(funktion_parametrar, glue('region_vekt = "{default_region}"'), "region_vekt = \"00\"")
-      if (!"00" %in% varlist_giltiga_varden_koder$region) {
-        funktion_parametrar <- str_replace(funktion_parametrar, "region_vekt = \"00\"", "region_vekt = \"*\"")
+  if (any(c("region", "lan") %in% tolower(varlist_koder))){
+    region_variabel <- varlist_koder[str_detect(tolower(varlist_koder), "region|lan")]
+    if (!default_region %in% varlist_giltiga_varden_koder[[region_variabel]]) {
+      funktion_parametrar <- str_replace(funktion_parametrar, glue('{tolower(region_variabel)}_vekt = "{default_region}"'), "{tolower(region_variabel)}_vekt = \"00\"")
+      if (!"00" %in% varlist_giltiga_varden_koder[[region_variabel]]) {
+        funktion_parametrar <- str_replace(funktion_parametrar, "{tolower(region_variabel)}_vekt = \"00\"", "{tolower(region_variabel)}_vekt = \"*\"")
       }
     }
   } # slut test om Dalarna finns med i tabellen, annars byt ut till riket (00), om inte finns så byt till "*"
@@ -1070,7 +1073,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   # skapa skriptrader för klartext-variabler som måste omvandlas till koder till query-listan, dvs. "vekt_" och sedan variabelnamnet
   var_klartext_skriptrader <- map(varlist_koder, function(var_kod) {
     # koda klartext till vekt för variabler som inte innehåller region, tid, contentscode eller som innehåller "fodel"
-    if (!str_detect(tolower(var_kod), "region|tid|contentscode") | str_detect(tolower(var_kod), "fodel|grupp")) {
+    if ((!str_detect(tolower(var_kod), "region|lan|contentscode") | str_detect(tolower(var_kod), "fodel|grupp")) & !tolower(var_kod) %in% c("tid")) {
       if (px_meta$variables %>%
           keep(~ .x$code == var_kod) %>% 
           map_lgl(~ .x$elimination) %>%
@@ -1107,7 +1110,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
         keep(~ .x$code == var_kod) %>% 
         map_lgl(~ .x$elimination) %>%
         first()) {
-      if (tolower(var_kod) != "region") {  
+      if (!tolower(var_kod) %in% c("region", "lan")) {  
         paste0('  if (all(is.na(', tolower(var_kod), '_klartext))) varlista <- varlista[names(varlista) != "', var_kod, '"]')
       } else NA
     }  else NA 
@@ -1162,7 +1165,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     } else NULL # slut if-sats som kontrollera om vi vill ha df i long-format, blir "" om vi inte har fler än en cont_variabler i tabellen
   
   
-  variabler_med_kod <- varlist_koder[str_detect(tolower(varlist_koder), "region") & !str_detect(tolower(varlist_koder), "fodel")]
+  variabler_med_kod <- varlist_koder[str_detect(tolower(varlist_koder), "region|lan") & !str_detect(tolower(varlist_koder), "fodel")]
   
   if (!all(is.na(var_med_koder))) {
     #var_med_koder <- var_med_koder %>% paste0('"', ., '"', collapse = ", ")   
