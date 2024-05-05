@@ -1379,7 +1379,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   
   # returnera sökväg till den skapade filen
   return(paste0(output_mapp, "hamta_", filnamn_suffix, ".R"))
-  
+   
 } 
 
 kontrollera_pxweb_url <- function(url_scb_lista) {
