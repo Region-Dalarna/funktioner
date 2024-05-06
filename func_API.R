@@ -794,7 +794,13 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
   
   if (!any(is.na(filtrera))) {
    if (length(filtrera) > 1) filtrera <- paste0(filtrera, collapse = "|")
-    retur_df <- retur_df %>% filter(str_detect(tolower(namn), tolower(filtrera))) 
+   if (length(filtrera) > 0 & str_detect(filtrera, "\\&")) {        # om filtrera innehåller ett eller flera &-tecken
+     sok_vekt <- str_split(filtrera, "\\&") %>% unlist()            # ta isär söksträngen på &-tecken och lägg i en vektor
+     retur_df <- retur_df %>% filter(reduce(sok_vekt, ~ .x & str_detect(namn, .y), .init = TRUE))    # använd reduce för att behålla alla rader som innehåller samtliga elelment i sok__vekt
+   } else {                                                         # om filtrera inte innehåller &-tecken
+     retur_df <- retur_df %>% filter(str_detect(tolower(namn), tolower(filtrera)))  
+   }
+    
    if (nrow(retur_df) == 0) stop("Inga filer hittades som matchade sökorden.")
   }
   if (skriv_source_konsol) {
@@ -1058,7 +1064,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     if (!default_region %in% varlist_giltiga_varden_koder[[region_variabel]]) {
       funktion_parametrar <- str_replace(funktion_parametrar, glue('{tolower(region_variabel)}_vekt = "{default_region}"'), "{tolower(region_variabel)}_vekt = \"00\"")
       if (!"00" %in% varlist_giltiga_varden_koder[[region_variabel]]) {
-        funktion_parametrar <- str_replace(funktion_parametrar, "{tolower(region_variabel)}_vekt = \"00\"", "{tolower(region_variabel)}_vekt = \"*\"")
+        funktion_parametrar <- str_replace(funktion_parametrar, glue('{tolower(region_variabel)}_vekt = \"00\"'), glue('{tolower(region_variabel)}_vekt = \"*\"'))
       }
     }
   } # slut test om Dalarna finns med i tabellen, annars byt ut till riket (00), om inte finns så byt till "*"
