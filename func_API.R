@@ -979,6 +979,9 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   # tabell_namn = namn på tabellen, t.ex. "yrke", kommer att ligga först i filnamnet
   # output_mapp = mapp där skriptet ska sparas när det är klart
   # var_med_koder = man kan skicka med variabler som ska få med sin kod i uttaget. Variabeln skrivs med sin kod, t.ex. "yrke2012" för att få ssyk-koder till yrkesvariabeln 
+  #                 regionkoder (kommun- eller länskoder) kommer i regel med, men inte bransch- och yrkeskoder tex. Eller andra koder som man kan vilja ha med. 
+  #                 Gör så här: 1. Ta reda på vad koden är för din variabel genom att köra funktionen pxvarlist(<url till tabellen>)
+  #                             2. Lägg in det som sträng eller vektor (om det är fler) för parametern var_med_koder, alltså tex. var_med_koder = "SNI2007" eller var_med_koder = c("SNI2007", "SSYK4") om det är fler variabler man vill ha med koder för
   
   # kontrollera att output_mapp slutar med "/" eller "\", annars lägger vi till det
   if (!str_sub(output_mapp, nchar(output_mapp)) %in% c("/", "\\")) {
@@ -1268,11 +1271,16 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     '  px_uttag <- pxweb_get(url = url_uttag, query = varlista)\n\n',
     var_vektor_skriptdel, '\n',
     '  px_df <- as.data.frame(px_uttag)\n',
-    '  if (!is.na(var_vektor)) {',
+    '  if (!all(is.na(var_vektor))) {\n',
+    '      # om man vill ha med koder också för variabler utöver klartext så läggs de på här (om det finns värden i var_vektor)\n',
     '      px_df <- px_df %>%\n',
     '            cbind(as.data.frame(px_uttag, column.name.type = "code", variable.value.type = "code") %>%\n',
     '            select(any_of(var_vektor)))\n\n',
-    '      px_df <- map2(names(var_vektor), var_vektor_klartext, ~ px_df %>% relocate(all_of(.x), .before = all_of(.y))) %>% list_rbind()\n',
+    '      # kolumnerna med koder läggs framför motsvarande kolumner med klartext\n',
+    '      for (varflytt_index in 1:length(var_vektor)) {\n',
+    '        px_df <- px_df %>%\n',
+    '            relocate(all_of(names(var_vektor)[varflytt_index]), .before = all_of(var_vektor_klartext[varflytt_index]))\n',
+    '      }\n',
     '  }\n\n',
     long_format_skriptrader,
     hamta_funktion_slut_txt,
