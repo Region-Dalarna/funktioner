@@ -1060,11 +1060,11 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   
   # om inte inte län finns som region, byt ut "20" mot "00" eller "*" i funktion_parametrar
   if (any(c("region", "lan") %in% tolower(varlist_koder))){
-    region_variabel <- varlist_koder[str_detect(tolower(varlist_koder), "region|lan")]
+    region_variabel <- varlist_koder[str_detect(tolower(varlist_koder), "region|lan")] %>% tolower()
     if (!default_region %in% varlist_giltiga_varden_koder[[region_variabel]]) {
-      funktion_parametrar <- str_replace(funktion_parametrar, glue('{tolower(region_variabel)}_vekt = "{default_region}"'), "{tolower(region_variabel)}_vekt = \"00\"")
+      funktion_parametrar <- str_replace(funktion_parametrar, glue('{region_variabel}_vekt = "{default_region}"'), glue('{region_variabel}_vekt = \"00\"'))
       if (!"00" %in% varlist_giltiga_varden_koder[[region_variabel]]) {
-        funktion_parametrar <- str_replace(funktion_parametrar, glue('{tolower(region_variabel)}_vekt = \"00\"'), glue('{tolower(region_variabel)}_vekt = \"*\"'))
+        funktion_parametrar <- str_replace(funktion_parametrar, glue('{region_variabel}_vekt = \"00\"'), glue('{region_variabel}_vekt = \"*\"'))
       }
     }
   } # slut test om Dalarna finns med i tabellen, annars byt ut till riket (00), om inte finns så byt till "*"
