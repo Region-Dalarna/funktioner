@@ -66,13 +66,13 @@ skapa_linje_langs_med_punkter <- function(skickad_sf,                   # skicka
                                           kol_ord,                      # kol_ord = den kolumn som innehåller nummer som rangordnar mellan vilka punkter som linjen ska dras, den dras i samma ordning som i denna kolumn
                                           names,                        # namn på punkterna om man vill ha med det (oklart om vi vill det)
                                           names_bara_startpunkt = TRUE  # om man bara vill ha namn från startpunkten, annars blir namnet "startnamn - slutnamn"
-                                          ) {
+) {
   
   skickad_sf_crs <- st_crs(skickad_sf)
   
   skickad_sf <- skickad_sf %>% arrange(!!as.symbol(kol_ord))
- 
-   # dataframe med ordningsföljd utifrån en kolumn (sorteras så linjer mellan punkter dras alltid i nummer ordning)
+  
+  # dataframe med ordningsföljd utifrån en kolumn (sorteras så linjer mellan punkter dras alltid i nummer ordning)
   idx <- data.frame(start = c(1:(nrow(skickad_sf)-1)),
                     end = c(2:nrow(skickad_sf))) 
   
@@ -176,15 +176,15 @@ unzip_zipfil_med_zipfiler <- function(skickad_url){
 # funktion för att skapa en gpkg-fil från ett uttag ur supercross där rutid är en kolumn
 
 skapa_sf_fran_csv_eller_excel_supercross <- function(fil_med_sokvag,               # fil som ska bearbetas, dvs. ett uttag från Supercross 
-                                                       rutid_kol = NA,               # finns en funktion för att hitta rutid-kolumnen men man kan skicka med den här
-                                                       rutstorlek = NA,              # om man vill ange själv, annars kontrolleras för det automatiskt.
-                                                       vald_crs = 3006) {
+                                                     rutid_kol = NA,               # finns en funktion för att hitta rutid-kolumnen men man kan skicka med den här
+                                                     rutstorlek = NA,              # om man vill ange själv, annars kontrolleras för det automatiskt.
+                                                     vald_crs = 3006) {
   
   rut_df <- import(fil_med_sokvag)
   
   # kolla om bara en kolumn heter något med rut, i så fall är det rutid-kolumnen
   if (is.na(rutid_kol[1]) & sum(str_detect(tolower(names(rut_df)), "rut")) == 1) rutid_kol <- names(rut_df)[str_which(tolower(names(rut_df)), "rut")]
-
+  
   # om det inte bara är en kolumn som heter något med "rut", välj den första kolumnen i rut_df som rutid-kolumn
   if (is.na(rutid_kol[1])) rutid_kol <- names(rut_df)[1]
   
@@ -220,7 +220,7 @@ spatial_join_med_ovrkat <- function(gislager_grunddata,
                                     ovrig_varde = "Övriga områden") {
   # gör en spatial join
   retur_gis <- st_join(gislager_grunddata, gislager_omr)
-    
+  
   # koda de som inte är inom gislager_omr med värde från ovrig_varde
   # retur_gis <- retur_gis %>% 
   #   mutate({{omrade_kol}} := ifelse(is.na(!!sym(omrade_kol)), ovrig_varde, !!sym(omrade_kol)))
@@ -325,7 +325,7 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
 #'
 #' @seealso sf:::largest_ring()
 #'
- st_largest_ring <- function(x) {
+st_largest_ring <- function(x) {
   if (nrow(x) < 1)
     return(x)
   
@@ -344,7 +344,7 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
 
 
 
- st_centroid_within_geo <- function(
+st_centroid_within_geo <- function(
     x
     , ensure_within = TRUE                   # tvingar centroiden att vara innanför polygonen
     , of_largest_polygon = TRUE              # säkerställer att centroiden är i den största polygonen om det finns fler (om det är en multipolygon)
@@ -393,7 +393,7 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
     sf::st_geometry(cx[i_nwithin, ]) <- (
       x[i_nwithin, ] %>% {
         if (of_largest_polygon == TRUE)
-           st_largest_ring(.)
+          st_largest_ring(.)
         else
           .
       } %>%
@@ -407,515 +407,515 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
 
 # =======================================================================================================
 # Här börjar postgis funktionen
- 
- las_in_rutor_xlsx_till_postgis_skapa_pgr_graf <- 
-   function(inlas_mapp = "G:/Samhällsanalys/GIS/rutor/",
-            inlas_filer,        # enbart filnamnen på filerna som ska läsas in
-            inlas_tabellnamn,   # de tabellnamn de nya filerna ska få i postgis
-            rutstorlek = 100,
-            schema_rut = "rutor",
-            schema_natverk = "nvdb",
-            tabell_natverk = "nvdb20buff30") {
-     
-     # =================== Läs in och bearbeta excelfiler med rutdata ======================
-     
-     df_list <- map(inlas_filer, ~read.xlsx(paste0(inlas_mapp, .x)))
-     gis_list <- list()
-     
-     # loopa igenom listan med df:s som ska läsas in till postgis
-     for (df_item in 1:length(df_list)){
-       
-       # om inte rutid finns som kolumnnamn, skapa ett rutid från x- och y-koordinaterna som sätts ihop
-       if (!"rutid" %in% names(df_list[[df_item]])) df_list[[df_item]]$rutid <- paste0(df_list[[df_item]]$ruta_x, df_list[[df_item]]$ruta_y) 
-       # flytta rutid så att den ligger först av kolumnerna
-       df_list[[df_item]] <- df_list[[df_item]] %>% relocate(rutid, .before = ruta_x)
-       
-       # beräkna mittpunkt för varje ruta (halva rutstorlekten adderas x- och y-koordinaten, som är nedre vänstra hörnet i SCB-rutor)
-       df_list[[df_item]] <- berakna_mittpunkter(df_list[[df_item]], "ruta_x", "ruta_y", rutstorlek)
-       
-       # skapa geometrikolumn för (mitt)punkter
-       gis_list[[df_item]] <- st_as_sf(df_list[[df_item]], coords = c("mitt_y", "mitt_x"), crs = 3006)
-       names(gis_list[[df_item]])[names(gis_list[[df_item]]) == "geometry"] <- "geom_point"        # döp om geom-kolumnen
-       st_geometry(gis_list[[df_item]]) <- "geom_point"         # man måste tala om igen att den omdöpta kolumnen är geom-kolumn
-       
-       # skapa en andra geometrikolumn där vi skapar polygoner runt mittpunkten som utgör själva rutan
-       gis_list[[df_item]]$geom_polygon <- st_buffer(gis_list[[df_item]]$geom_point,(rutstorlek/2), endCapStyle = "SQUARE")
-       
-       # säkerställ att alla kolumnnamn är i gemener, ställer inte till problem i postigis då
-       names(df_list[[df_item]]) <- tolower(names(df_list[[df_item]]))
-       
-       # =================== lägg över till postgis =======================
-       
-       con <- dbConnect(          # use in other settings
-         RPostgres::Postgres(),
-         # without the previous and next lines, some functions fail with bigint data 
-         #   so change int64 to integer
-         bigint = "integer",  
-         user = Sys.getenv("userid_postgres_adm"),
-         password = Sys.getenv("pwd_postgres_adm"),
-         host = "WFALTSTVS427.ltdalarna.se",
-         port = 5432,
-         dbname = "postgis_31_db",
-         options="-c search_path=public")
-       
-       # kör sql-kod för att skapa ett nytt schema med namn definierat ovan
-       dbExecute(con, paste0("create schema if not exists ", schema_rut, ";"))
-       
-       # ================== skriv rut-lagren till postgis 
-       starttid = Sys.time()
-       st_write(obj = gis_list[[df_item]],
-                dsn = con,
-                Id(schema=schema_rut, table = inlas_tabellnamn[df_item]))
-       print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "sec"),1), " sekunder att läsa in ", inlas_tabellnamn[df_item], " till postgis."))
-       
-       # skapa spatialt index, finns det sedan tidigare, ta bort
-       dbExecute(con, paste0("DROP INDEX IF EXISTS ", schema_rut, ".geom_point_idx;")) 
-       dbExecute(con, paste0("CREATE INDEX geom_point_idx ON ", schema_rut, ".", inlas_tabellnamn[df_item], " USING GIST (geom_point);"))
-       dbExecute(con, paste0("DROP INDEX IF EXISTS ", schema_rut, ".geom_polygon_idx;")) 
-       dbExecute(con, paste0("CREATE INDEX geom_polygon_idx ON ", schema_rut, ".", inlas_tabellnamn[df_item], " USING GIST (geom_polygon);"))
-       
-       # gör rutid till id-kolumn i tabellen
-       dbExecute(con, paste0("ALTER TABLE ", schema_rut, ".", inlas_tabellnamn[df_item], " ADD PRIMARY KEY (rutid);"))
-       
-       # gör en spatial join för mittpunkten i rutorna till nvdb ====================
-       
-       # vi börjar med att skapa en ny kolumn i den nya tabellen
-       dbExecute(con, paste0("ALTER TABLE ", schema_rut, ".", inlas_tabellnamn[df_item],
-                             " ADD COLUMN IF NOT EXISTS toponode_id bigint;"))
-       
-       # därefter gör vi en spatial join från mittpunkten till noderna i nvdb
-       dbExecute(con, paste0("UPDATE ", schema_rut, ".", inlas_tabellnamn[df_item],
-                             " SET toponode_id = (",
-                             "SELECT ", schema_natverk, ".", tabell_natverk, "_vertices_pgr.id ",
-                             "FROM ", schema_natverk, ".", tabell_natverk, "_vertices_pgr ",
-                             "ORDER BY ", schema_rut, ".", inlas_tabellnamn[df_item], ".geom_point <-> ",
-                             schema_natverk, ".", tabell_natverk, "_vertices_pgr.the_geom ASC NULLS LAST ",
-                             "LIMIT 1);"))
-       
-       dbDisconnect(con)           # stäng postgis-anslutningen igen
-     } # slut for-loop som loopar igenom inläsningsfiler
-   } # slut funktion
- 
- 
- las_in_fil_skapa_punkter_till_postgis_skapa_pgr_graf <- 
-   function(inlas_mapp,
-            inlas_filer,        # enbart filnamnen på filerna som ska läsas in
-            inlas_tabellnamn,   # de tabellnamn de nya filerna ska få i postgis
-            schema_malpunkter,
-            malpunkter_id_kol,
-            malpunkter_x_koord_kol,
-            malpunkter_y_koord_kol,
-            malpunkter_crs = 3006,
-            malpunkter_till_crs = 3006,
-            schema_natverk = "nvdb",
-            tabell_natverk = "nvdb20buff30",
-            pg_db_user = Sys.getenv("userid_postgres_adm"),
-            pg_db_pwd = Sys.getenv("pwd_postgres_adm"),
-            pg_db_host = "WFALTSTVS427.ltdalarna.se",
-            pg_db_port = 5432,
-            pg_db_name_db = "postgis_31_db") {
-     
-     # Skript för att läsa in en tabell som innehåller målpunkter som man vill göra beräkningar mot 
-     # företrädelsevis från boenderutor på avstånd eller restid med kortaste eller snabbaste resväg
-     # från rutor (eller annan geografi som punkter) till närmaste målpunkt i denna tabell.
-     # Det kan vara restid till närmaste skola, vårdcentral eller busshållplats från samtliga 
-     # boenderutor i en geografi
-     #
-     # Följande parametrar skickas med funktionen:
-     # inlas_mapp = mapp i vilken tabellen finns som innehåller målpunkterna, måste innehålla kolumner
-     #              för x- och y- koordinat
-     # inlas_filer = en vektor med den eller de filer som ska läsas in, måste finnas i inlas_mapp
-     # inlas_tabellnamn = en textsträng eller vektor om det finns flera filer med tabellnamnet som 
-     #                    målpunkterna ska ha i postgisdatabasen (bör vara gemener och utan konstiga tecken)
-     # schema_malpunkter = det schema i postgisdatabasen som målpunktstabellen ska ligga under
-     # malpunkter_id_kol = den kolumn som innehåller ett unikt ID och görs till primärnyckelkolumn, måste finnas!
-     # malpunkter_id
-     # schema_natverk = det schema där nätverket mot vilket vi ska koppla målpunkterna finns 
-     # tabell_natverk = den tabell där nätverket mot vilket vi ska koppla målpunkterna finns, måste 
-     #                  finnas under schemat ovan
-     # pg_db_user = användare för den postgisdatabas man ansluter till
-     # pg_db_pwd = lösenord för användaren ovan, OBS! Aldrig i klartext!
-     # pg_db_host = adress till den server där postgis-databasen finns
-     # pg_db_port = den port som databasen ansluts via
-     # pg_db_name_db = den databas i postgis som man ansluter till
-     
-     # =================== Läs in och bearbeta excelfiler med punktkoordinater ======================
-     
-     df_list <- map(inlas_filer, ~read.xlsx(paste0(inlas_mapp, .x)))
-     gis_list <- list()
-     
-     # loopa igenom listan med df:s som ska läsas in till postgis
-     for (df_item in 1:length(df_list)){
-       
-       # skapa geometrikolumn för punkter utifrån koordinat-kolumner
-       gis_list[[df_item]] <- st_as_sf(df_list[[df_item]], coords = c(malpunkter_x_koord_kol, malpunkter_y_koord_kol), crs = malpunkter_crs)
-       names(gis_list[[df_item]])[names(gis_list[[df_item]]) == "geometry"] <- "geom"        # döp om geom-kolumnen
-       st_geometry(gis_list[[df_item]]) <- "geom"         # man måste tala om igen att den omdöpta kolumnen är geom-kolumn
-       
-       # säkerställ att alla kolumnnamn är i gemener, ställer inte till problem i postigis då
-       names(gis_list[[df_item]]) <- tolower(names(gis_list[[df_item]]))
-       
-       # om data inte är i rätt projektionssystem, konvertera till rätt
-       if (malpunkter_crs != malpunkter_till_crs) gis_list[[df_item]] <- st_transform(gis_list[[df_item]], crs = malpunkter_till_crs)
-       
-       # =================== lägg över till postgis =======================
-       
-       con <- dbConnect(          # use in other settings
-         RPostgres::Postgres(),
-         # without the previous and next lines, some functions fail with bigint data 
-         #   so change int64 to integer
-         bigint = "integer",  
-         user = pg_db_user,
-         password = pg_db_pwd,
-         host = pg_db_host,
-         port = pg_db_port,
-         dbname = pg_db_name_db,
-         options="-c search_path=public")
-       
-       # kör sql-kod för att skapa ett nytt schema med namn definierat ovan
-       dbExecute(con, paste0("create schema if not exists ", schema_malpunkter, ";"))
-       
-       
-       # ================== skriv målpunkts-lagren till postgis 
-       starttid = Sys.time()
-       st_write(obj = gis_list[[df_item]],
-                dsn = con,
-                Id(schema=schema_malpunkter, table = inlas_tabellnamn[df_item]))
-       print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "sec"),1), " sekunder att läsa in ", inlas_tabellnamn[df_item], " till postgis."))
-       
-       # skapa spatialt index, finns det sedan tidigare, ta bort
-       dbExecute(con, paste0("DROP INDEX IF EXISTS ", schema_malpunkter, ".geom_idx;")) 
-       dbExecute(con, paste0("CREATE INDEX geom_idx ON ", schema_malpunkter, ".", inlas_tabellnamn[df_item], " USING GIST (geom);"))
-       
-       # gör skickad id-kolumn till primärnyckelkolumn i tabellen
-       dbExecute(con, paste0("ALTER TABLE ", schema_malpunkter, ".", inlas_tabellnamn[df_item], " ADD PRIMARY KEY (", malpunkter_id_kol, ");"))
-       
-       # vi börjar med att skapa en ny kolumn i den nya tabellen
-       dbExecute(con, paste0("ALTER TABLE ", schema_malpunkter, ".", inlas_tabellnamn[df_item],
-                             " ADD COLUMN IF NOT EXISTS toponode_id bigint;"))
-       
-       # därefter gör vi en spatial join från punkterna till noderna i nvdb
-       dbExecute(con, paste0("UPDATE ", schema_malpunkter, ".", inlas_tabellnamn[df_item],
-                             " SET toponode_id = (",
-                             "SELECT ", schema_natverk, ".", tabell_natverk, "_vertices_pgr.id ",
-                             "FROM ", schema_natverk, ".", tabell_natverk, "_vertices_pgr ",
-                             "ORDER BY ", schema_malpunkter, ".", inlas_tabellnamn[df_item], ".geom <-> ",
-                             schema_natverk, ".", tabell_natverk, "_vertices_pgr.the_geom ASC NULLS LAST ",
-                             "LIMIT 1);"))
-       
-       dbDisconnect(con)           # stäng postgis-anslutningen igen
-     } # slut for-loop som loopar igenom inläsningsfiler
-   } # slut funktion
- 
- 
- las_in_geosf_skapa_punkter_till_postgis_skapa_pgr_graf <- 
-   function(inlas_df,
-            inlas_tabellnamn,   # de tabellnamn de nya filerna ska få i postgis
-            schema_malpunkter = "malpunkter",
-            malpunkter_id_kol,
-            malpunkter_geo_kol,
-            malpunkter_till_crs,
-            schema_natverk = "nvdb",
-            tabell_natverk = "nvdb20buff30",
-            pg_db_user = Sys.getenv("userid_postgres_adm"),
-            pg_db_pwd = Sys.getenv("pwd_postgres_adm"),
-            pg_db_host = "WFALTSTVS427.ltdalarna.se",
-            pg_db_port = 5432,
-            pg_db_name_db = "postgis_31_db") {
-     
-     # Skript för att läsa in en tabell som innehåller målpunkter som man vill göra beräkningar mot 
-     # företrädelsevis från boenderutor på avstånd eller restid med kortaste eller snabbaste resväg
-     # från rutor (eller annan geografi som punkter) till närmaste målpunkt i denna tabell.
-     # Det kan vara restid till närmaste skola, vårdcentral eller busshållplats från samtliga 
-     # boenderutor i en geografi
-     #
-     # Följande parametrar skickas med funktionen:
-     # inlas_mapp = mapp i vilken tabellen finns som innehåller målpunkterna, måste innehålla kolumner
-     #              för x- och y- koordinat
-     # inlas_filer = en vektor med den eller de filer som ska läsas in, måste finnas i inlas_mapp
-     # inlas_tabellnamn = en textsträng eller vektor om det finns flera filer med tabellnamnet som 
-     #                    målpunkterna ska ha i postgisdatabasen (bör vara gemener och utan konstiga tecken)
-     # schema_malpunkter = det schema i postgisdatabasen som målpunktstabellen ska ligga under
-     # malpunkter_id_kol = den kolumn som innehåller ett unikt ID och görs till primärnyckelkolumn, måste finnas!
-     # malpunkter_geo_kol = geometry-kolumnen
-     # schema_natverk = det schema där nätverket mot vilket vi ska koppla målpunkterna finns 
-     # tabell_natverk = den tabell där nätverket mot vilket vi ska koppla målpunkterna finns, måste 
-     #                  finnas under schemat ovan
-     # pg_db_user = användare för den postgisdatabas man ansluter till
-     # pg_db_pwd = lösenord för användaren ovan, OBS! Aldrig i klartext!
-     # pg_db_host = adress till den server där postgis-databasen finns
-     # pg_db_port = den port som databasen ansluts via
-     # pg_db_name_db = den databas i postgis som man ansluter till
-     
-     # =================== Läs in och bearbeta excelfiler med rutdata ======================
-     
-     
-     # säkerställ att alla kolumnnamn är i gemener, ställer inte till problem i postigis då
-     names(inlas_df) <- tolower(names(inlas_df))
-     
-     # =================== lägg över till postgis =======================
-     
-     con <- dbConnect(          # use in other settings
-       RPostgres::Postgres(),
-       # without the previous and next lines, some functions fail with bigint data 
-       #   so change int64 to integer
-       bigint = "integer",  
-       user = pg_db_user,
-       password = pg_db_pwd,
-       host = pg_db_host,
-       port = pg_db_port,
-       dbname = pg_db_name_db,
-       options="-c search_path=public")
-     
-     # kör sql-kod för att skapa ett nytt schema med namn definierat ovan
-     dbExecute(con, paste0("create schema if not exists ", schema_malpunkter, ";"))
-     
-     # ================== skriv rut-lagren till postgis 
-     starttid = Sys.time()
-     st_write(obj = inlas_df,
-              dsn = con,
-              Id(schema=schema_malpunkter, table = inlas_tabellnamn))
-     print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "sec"),1), " sekunder att läsa in ", inlas_tabellnamn, " till postgis."))
-     
-     # skapa spatialt index, finns det sedan tidigare, ta bort
-     dbExecute(con, paste0("DROP INDEX IF EXISTS ", schema_malpunkter, ".", malpunkter_geo_kol, "_idx;")) 
-     dbExecute(con, paste0("CREATE INDEX ", malpunkter_geo_kol, "_idx ON ", schema_malpunkter, ".", inlas_tabellnamn, " USING GIST (", malpunkter_geo_kol, ");"))
-     
-     # gör rutid till id-kolumn i tabellen
-     dbExecute(con, paste0("ALTER TABLE ", schema_malpunkter, ".", inlas_tabellnamn, " ADD PRIMARY KEY (", malpunkter_id_kol ,");"))
-     
-     # gör en spatial join för mittpunkten i rutorna till nvdb ====================
-     
-     # vi börjar med att skapa en ny kolumn i den nya tabellen
-     dbExecute(con, paste0("ALTER TABLE ", schema_malpunkter, ".", inlas_tabellnamn,
-                           " ADD COLUMN IF NOT EXISTS toponode_id bigint;"))
-     
-     # därefter gör vi en spatial join från mittpunkten till noderna i nvdb
-     dbExecute(con, paste0("UPDATE ", schema_malpunkter, ".", inlas_tabellnamn,
-                           " SET toponode_id = (",
-                           "SELECT ", schema_natverk, ".", tabell_natverk, "_vertices_pgr.id ",
-                           "FROM ", schema_natverk, ".", tabell_natverk, "_vertices_pgr ",
-                           "ORDER BY ", schema_malpunkter, ".", inlas_tabellnamn, ".", malpunkter_geo_kol, " <-> ",
-                           schema_natverk, ".", tabell_natverk, "_vertices_pgr.the_geom ASC NULLS LAST ",
-                           "LIMIT 1);"))
-     
-     dbDisconnect(con)           # stäng postgis-anslutningen igen
-     
-   } # slut funktion
- 
- 
- koppla_punkter_postgis_tabell_till_pgr_graf <- 
-   function(punkter_schema,
-            punkter_tabellnamn,   
-            punkter_geo_kol,
-            schema_natverk = "nvdb",
-            tabell_natverk = "nvdb20buff30",
-            pg_db_user,
-            pg_db_pwd ,
-            pg_db_host,
-            pg_db_port = 5432,
-            pg_db_name_db) {
-     
-     # Skript för att läsa in en postgis-tabell som innehåller målpunkter som man vill göra beräkningar mot 
-     # företrädelsevis från boenderutor på avstånd eller restid med kortaste eller snabbaste resväg
-     # från rutor (eller annan geografi som punkter) till närmaste målpunkt i denna tabell.
-     # Det kan vara restid till närmaste skola, vårdcentral eller busshållplats från samtliga 
-     # boenderutor i en geografi
-     #
-     # Följande parametrar skickas med funktionen:
-     # malpunkter_tabellnamn = en textsträng eller vektor om det finns flera filer med tabellnamnet som 
-     #                    målpunkterna ska ha i postgisdatabasen (bör vara gemener och utan konstiga tecken)
-     # schema_malpunkter = det schema i postgisdatabasen som målpunktstabellen ska ligga under
-     # malpunkter_id_kol = den kolumn som innehåller ett unikt ID och görs till primärnyckelkolumn, måste finnas!
-     # malpunkter_geo_kol = geometry-kolumnen
-     # schema_natverk = det schema där nätverket mot vilket vi ska koppla målpunkterna finns 
-     # tabell_natverk = den tabell där nätverket mot vilket vi ska koppla målpunkterna finns, måste 
-     #                  finnas under schemat ovan
-     # pg_db_user = användare för den postgisdatabas man ansluter till
-     # pg_db_pwd = lösenord för användaren ovan, OBS! Aldrig i klartext!
-     # pg_db_host = adress till den server där postgis-databasen finns
-     # pg_db_port = den port som databasen ansluts via
-     # pg_db_name_db = den databas i postgis som man ansluter till
-     
-     # =================== Läs in och bearbeta excelfiler med rutdata ======================
-     
-     
-     con <- dbConnect(          # use in other settings
-       RPostgres::Postgres(),
-       # without the previous and next lines, some functions fail with bigint data 
-       #   so change int64 to integer
-       bigint = "integer",  
-       user = pg_db_user,
-       password = pg_db_pwd,
-       host = pg_db_host,
-       port = pg_db_port,
-       dbname = pg_db_name_db,
-       options="-c search_path=public")
-     
-     # gör en spatial join för mittpunkten i rutorna till nvdb ====================
-     
-     # vi börjar med att skapa en ny kolumn i den nya tabellen
-     dbExecute(con, paste0("ALTER TABLE ", punkter_schema, ".", punkter_tabellnamn,
-                           " ADD COLUMN IF NOT EXISTS toponode_id bigint;"))
-     
-     # därefter gör vi en spatial join från mittpunkten till noderna i nvdb
-     dbExecute(con, paste0("UPDATE ", punkter_schema, ".", punkter_tabellnamn,
-                           " SET toponode_id = (",
-                           "SELECT ", schema_natverk, ".", tabell_natverk, "_vertices_pgr.id ",
-                           "FROM ", schema_natverk, ".", tabell_natverk, "_vertices_pgr ",
-                           "ORDER BY ", punkter_schema, ".", punkter_tabellnamn, ".", punkter_geo_kol, " <-> ",
-                           schema_natverk, ".", tabell_natverk, "_vertices_pgr.the_geom ASC NULLS LAST ",
-                           "LIMIT 1);"))
-     
-     dbDisconnect(con)           # stäng postgis-anslutningen igen
-     
-   } # slut funktion
- 
- 
- skriv_geosf_till_postgis_skapa_spatialt_index <- 
-   function(inlas_sf,
-            inlas_tabellnamn,   # de tabellnamn de nya filerna ska få i postgis
-            schema_karta = "karta",
-            postgistabell_id_kol,
-            postgistabell_geo_kol,
-            postgistabell_till_crs,
-            pg_db_user = key_list(service = "rd_geodata")$username,
-            pg_db_pwd = key_get("rd_geodata", key_list(service = "rd_geodata")$username),
-            pg_db_host = "WFALMITVS526.ltdalarna.se",
-            pg_db_port = 5432,
-            pg_db_name_db = "geodata") {
-     
-     # Skript för att läsa in ett sf-objekt till en postgistabell 
-     #
-     # Följande parametrar skickas med funktionen:
-     # inlas_mapp = mapp i vilken tabellen finns som innehåller målpunkterna, måste innehålla kolumner
-     #              för x- och y- koordinat
-     # inlas_filer = en vektor med den eller de filer som ska läsas in, måste finnas i inlas_mapp
-     # inlas_tabellnamn = en textsträng eller vektor om det finns flera filer med tabellnamnet som 
-     #                    målpunkterna ska ha i postgisdatabasen (bör vara gemener och utan konstiga tecken)
-     # schema_karta = det schema i postgisdatabasen som målpunktstabellen ska ligga under
-     # postgistabell_id_kol = den kolumn som innehåller ett unikt ID och görs till primärnyckelkolumn, måste finnas!
-     # postgistabell_geo_kol = geometry-kolumnen
-     # pg_db_user = användare för den postgisdatabas man ansluter till
-     # pg_db_pwd = lösenord för användaren ovan, OBS! Aldrig i klartext!
-     # pg_db_host = adress till den server där postgis-databasen finns
-     # pg_db_port = den port som databasen ansluts via
-     # pg_db_name_db = den databas i postgis som man ansluter till
-     
-     # =================== Läs in och bearbeta excelfiler med rutdata ======================
-     
-     
-     # säkerställ att alla kolumnnamn är i gemener, ställer inte till problem i postgis då
-     names(inlas_sf) <- tolower(names(inlas_sf))
-     
-     # =================== lägg över till postgis =======================
-     
-     con <- dbConnect(          # use in other settings
-       RPostgres::Postgres(),
-       # without the previous and next lines, some functions fail with bigint data 
-       #   so change int64 to integer
-       bigint = "integer",  
-       user = pg_db_user,
-       password = pg_db_pwd,
-       host = pg_db_host,
-       port = pg_db_port,
-       dbname = pg_db_name_db,
-       timezone = "UTC",
-       options="-c search_path=public")
-     
-     # kör sql-kod för att skapa ett nytt schema med namn definierat ovan
-     dbExecute(con, paste0("create schema if not exists ", schema_karta, ";"))
-     
-     # ================== skriv rut-lagren till postgis 
-     starttid = Sys.time()
-     st_write(obj = inlas_sf,
-              dsn = con,
-              Id(schema=schema_karta, table = inlas_tabellnamn))
-     print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "sec"),1), " sekunder att läsa in ", inlas_tabellnamn, " till postgis."))
-     
-     # skapa spatialt index, finns det sedan tidigare, ta bort - loopa så att man kan skicka fler geokolumner
-     for (geokol in 1:length(postgistabell_geo_kol)) {
-       dbExecute(con, paste0("DROP INDEX IF EXISTS ", schema_karta, ".", postgistabell_geo_kol[geokol], "_idx;")) 
-       dbExecute(con, paste0("CREATE INDEX ", postgistabell_geo_kol[geokol], "_idx ON ", schema_karta, ".", inlas_tabellnamn, " USING GIST (", postgistabell_geo_kol[geokol], ");"))
-     }  
-     # gör rutid till id-kolumn i tabellen
-     dbExecute(con, paste0("ALTER TABLE ", schema_karta, ".", inlas_tabellnamn, " ADD PRIMARY KEY (", postgistabell_id_kol ,");"))
-     
-     dbDisconnect(con)           # stäng postgis-anslutningen igen
-     
-   } # slut funktion
- 
- 
- 
- kopiera_tabell_postgis <- function(schema_fran, 
-                                    tabell_fran,
-                                    schema_till,
-                                    tabell_till,
-                                    pg_db_user,
-                                    pg_db_pwd,
-                                    pg_db_host,
-                                    pg_db_port,
-                                    pg_db_name_db){
-   
-   # funktion för att kopiera en tabell i en postgisdatabas till en annan tabell
-   # i samma schema eller under ett annat schema
-   
-   con_kop <- dbConnect(          # use in other settings
-     RPostgres::Postgres(),
-     # without the previous and next lines, some functions fail with bigint data 
-     #   so change int64 to integer
-     bigint = "integer",  
-     user = pg_db_user,
-     password = pg_db_pwd,
-     host = pg_db_host,
-     port = pg_db_port,
-     dbname = pg_db_name_db,
-     options="-c search_path=public")  
-   
-   
-   # skapa tabell som har samma struktur som den tabell vi ska kopiera
-   dbExecute(con_kop, paste0("CREATE TABLE ", schema_till, ".", tabell_till, " (LIKE ", schema_fran, ".", tabell_fran, " INCLUDING ALL);"))
-   
-   # fyll på den nya tabellen med data från tabellen vi kopierar från
-   dbExecute(con_kop, paste0("INSERT INTO ", schema_till, ".", tabell_till, " SELECT * ",  
-                             "FROM ", schema_fran, ".", tabell_fran, ";"))
-   
-   dbDisconnect(con_kop)           # stäng postgis-anslutningen igen
- }                      
- 
- byt_schema_for_tabell_postgis <- function(schema_fran, 
-                                           tabell_fran,
-                                           schema_till,
-                                           pg_db_user,
-                                           pg_db_pwd,
-                                           pg_db_host,
-                                           pg_db_port,
-                                           pg_db_name_db){
-   
-   # funktion för att flytta en tabell från ett schema till ett annat
-   
-   con_flytt <- dbConnect(          # use in other settings
-     RPostgres::Postgres(),
-     # without the previous and next lines, some functions fail with bigint data 
-     #   so change int64 to integer
-     bigint = "integer",  
-     user = pg_db_user,
-     password = pg_db_pwd,
-     host = pg_db_host,
-     port = pg_db_port,
-     dbname = pg_db_name_db,
-     options="-c search_path=public")  
-   
-   # byt schema för en tabell
-   dbExecute(con_flytt, paste0("ALTER TABLE ", schema_fran, ".", tabell_fran, " SET SCHEMA ", schema_till, ";"))
-   
-   dbDisconnect(con_flytt)           # stäng postgis-anslutningen igen
-   
- }
- 
- # beräkna n närmaste malpunkter till varje ruta 
- 
- skapa_n_narmaste_malpunkter_tabell <- function(
+
+las_in_rutor_xlsx_till_postgis_skapa_pgr_graf <- 
+  function(inlas_mapp = "G:/Samhällsanalys/GIS/rutor/",
+           inlas_filer,        # enbart filnamnen på filerna som ska läsas in
+           inlas_tabellnamn,   # de tabellnamn de nya filerna ska få i postgis
+           rutstorlek = 100,
+           schema_rut = "rutor",
+           schema_natverk = "nvdb",
+           tabell_natverk = "nvdb20buff30") {
+    
+    # =================== Läs in och bearbeta excelfiler med rutdata ======================
+    
+    df_list <- map(inlas_filer, ~read.xlsx(paste0(inlas_mapp, .x)))
+    gis_list <- list()
+    
+    # loopa igenom listan med df:s som ska läsas in till postgis
+    for (df_item in 1:length(df_list)){
+      
+      # om inte rutid finns som kolumnnamn, skapa ett rutid från x- och y-koordinaterna som sätts ihop
+      if (!"rutid" %in% names(df_list[[df_item]])) df_list[[df_item]]$rutid <- paste0(df_list[[df_item]]$ruta_x, df_list[[df_item]]$ruta_y) 
+      # flytta rutid så att den ligger först av kolumnerna
+      df_list[[df_item]] <- df_list[[df_item]] %>% relocate(rutid, .before = ruta_x)
+      
+      # beräkna mittpunkt för varje ruta (halva rutstorlekten adderas x- och y-koordinaten, som är nedre vänstra hörnet i SCB-rutor)
+      df_list[[df_item]] <- berakna_mittpunkter(df_list[[df_item]], "ruta_x", "ruta_y", rutstorlek)
+      
+      # skapa geometrikolumn för (mitt)punkter
+      gis_list[[df_item]] <- st_as_sf(df_list[[df_item]], coords = c("mitt_y", "mitt_x"), crs = 3006)
+      names(gis_list[[df_item]])[names(gis_list[[df_item]]) == "geometry"] <- "geom_point"        # döp om geom-kolumnen
+      st_geometry(gis_list[[df_item]]) <- "geom_point"         # man måste tala om igen att den omdöpta kolumnen är geom-kolumn
+      
+      # skapa en andra geometrikolumn där vi skapar polygoner runt mittpunkten som utgör själva rutan
+      gis_list[[df_item]]$geom_polygon <- st_buffer(gis_list[[df_item]]$geom_point,(rutstorlek/2), endCapStyle = "SQUARE")
+      
+      # säkerställ att alla kolumnnamn är i gemener, ställer inte till problem i postigis då
+      names(df_list[[df_item]]) <- tolower(names(df_list[[df_item]]))
+      
+      # =================== lägg över till postgis =======================
+      
+      con <- dbConnect(          # use in other settings
+        RPostgres::Postgres(),
+        # without the previous and next lines, some functions fail with bigint data 
+        #   so change int64 to integer
+        bigint = "integer",  
+        user = Sys.getenv("userid_postgres_adm"),
+        password = Sys.getenv("pwd_postgres_adm"),
+        host = "WFALTSTVS427.ltdalarna.se",
+        port = 5432,
+        dbname = "postgis_31_db",
+        options="-c search_path=public")
+      
+      # kör sql-kod för att skapa ett nytt schema med namn definierat ovan
+      dbExecute(con, paste0("create schema if not exists ", schema_rut, ";"))
+      
+      # ================== skriv rut-lagren till postgis 
+      starttid = Sys.time()
+      st_write(obj = gis_list[[df_item]],
+               dsn = con,
+               Id(schema=schema_rut, table = inlas_tabellnamn[df_item]))
+      print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "sec"),1), " sekunder att läsa in ", inlas_tabellnamn[df_item], " till postgis."))
+      
+      # skapa spatialt index, finns det sedan tidigare, ta bort
+      dbExecute(con, paste0("DROP INDEX IF EXISTS ", schema_rut, ".geom_point_idx;")) 
+      dbExecute(con, paste0("CREATE INDEX geom_point_idx ON ", schema_rut, ".", inlas_tabellnamn[df_item], " USING GIST (geom_point);"))
+      dbExecute(con, paste0("DROP INDEX IF EXISTS ", schema_rut, ".geom_polygon_idx;")) 
+      dbExecute(con, paste0("CREATE INDEX geom_polygon_idx ON ", schema_rut, ".", inlas_tabellnamn[df_item], " USING GIST (geom_polygon);"))
+      
+      # gör rutid till id-kolumn i tabellen
+      dbExecute(con, paste0("ALTER TABLE ", schema_rut, ".", inlas_tabellnamn[df_item], " ADD PRIMARY KEY (rutid);"))
+      
+      # gör en spatial join för mittpunkten i rutorna till nvdb ====================
+      
+      # vi börjar med att skapa en ny kolumn i den nya tabellen
+      dbExecute(con, paste0("ALTER TABLE ", schema_rut, ".", inlas_tabellnamn[df_item],
+                            " ADD COLUMN IF NOT EXISTS toponode_id bigint;"))
+      
+      # därefter gör vi en spatial join från mittpunkten till noderna i nvdb
+      dbExecute(con, paste0("UPDATE ", schema_rut, ".", inlas_tabellnamn[df_item],
+                            " SET toponode_id = (",
+                            "SELECT ", schema_natverk, ".", tabell_natverk, "_vertices_pgr.id ",
+                            "FROM ", schema_natverk, ".", tabell_natverk, "_vertices_pgr ",
+                            "ORDER BY ", schema_rut, ".", inlas_tabellnamn[df_item], ".geom_point <-> ",
+                            schema_natverk, ".", tabell_natverk, "_vertices_pgr.the_geom ASC NULLS LAST ",
+                            "LIMIT 1);"))
+      
+      dbDisconnect(con)           # stäng postgis-anslutningen igen
+    } # slut for-loop som loopar igenom inläsningsfiler
+  } # slut funktion
+
+
+las_in_fil_skapa_punkter_till_postgis_skapa_pgr_graf <- 
+  function(inlas_mapp,
+           inlas_filer,        # enbart filnamnen på filerna som ska läsas in
+           inlas_tabellnamn,   # de tabellnamn de nya filerna ska få i postgis
+           schema_malpunkter,
+           malpunkter_id_kol,
+           malpunkter_x_koord_kol,
+           malpunkter_y_koord_kol,
+           malpunkter_crs = 3006,
+           malpunkter_till_crs = 3006,
+           schema_natverk = "nvdb",
+           tabell_natverk = "nvdb20buff30",
+           pg_db_user = Sys.getenv("userid_postgres_adm"),
+           pg_db_pwd = Sys.getenv("pwd_postgres_adm"),
+           pg_db_host = "WFALTSTVS427.ltdalarna.se",
+           pg_db_port = 5432,
+           pg_db_name_db = "postgis_31_db") {
+    
+    # Skript för att läsa in en tabell som innehåller målpunkter som man vill göra beräkningar mot 
+    # företrädelsevis från boenderutor på avstånd eller restid med kortaste eller snabbaste resväg
+    # från rutor (eller annan geografi som punkter) till närmaste målpunkt i denna tabell.
+    # Det kan vara restid till närmaste skola, vårdcentral eller busshållplats från samtliga 
+    # boenderutor i en geografi
+    #
+    # Följande parametrar skickas med funktionen:
+    # inlas_mapp = mapp i vilken tabellen finns som innehåller målpunkterna, måste innehålla kolumner
+    #              för x- och y- koordinat
+    # inlas_filer = en vektor med den eller de filer som ska läsas in, måste finnas i inlas_mapp
+    # inlas_tabellnamn = en textsträng eller vektor om det finns flera filer med tabellnamnet som 
+    #                    målpunkterna ska ha i postgisdatabasen (bör vara gemener och utan konstiga tecken)
+    # schema_malpunkter = det schema i postgisdatabasen som målpunktstabellen ska ligga under
+    # malpunkter_id_kol = den kolumn som innehåller ett unikt ID och görs till primärnyckelkolumn, måste finnas!
+    # malpunkter_id
+    # schema_natverk = det schema där nätverket mot vilket vi ska koppla målpunkterna finns 
+    # tabell_natverk = den tabell där nätverket mot vilket vi ska koppla målpunkterna finns, måste 
+    #                  finnas under schemat ovan
+    # pg_db_user = användare för den postgisdatabas man ansluter till
+    # pg_db_pwd = lösenord för användaren ovan, OBS! Aldrig i klartext!
+    # pg_db_host = adress till den server där postgis-databasen finns
+    # pg_db_port = den port som databasen ansluts via
+    # pg_db_name_db = den databas i postgis som man ansluter till
+    
+    # =================== Läs in och bearbeta excelfiler med punktkoordinater ======================
+    
+    df_list <- map(inlas_filer, ~read.xlsx(paste0(inlas_mapp, .x)))
+    gis_list <- list()
+    
+    # loopa igenom listan med df:s som ska läsas in till postgis
+    for (df_item in 1:length(df_list)){
+      
+      # skapa geometrikolumn för punkter utifrån koordinat-kolumner
+      gis_list[[df_item]] <- st_as_sf(df_list[[df_item]], coords = c(malpunkter_x_koord_kol, malpunkter_y_koord_kol), crs = malpunkter_crs)
+      names(gis_list[[df_item]])[names(gis_list[[df_item]]) == "geometry"] <- "geom"        # döp om geom-kolumnen
+      st_geometry(gis_list[[df_item]]) <- "geom"         # man måste tala om igen att den omdöpta kolumnen är geom-kolumn
+      
+      # säkerställ att alla kolumnnamn är i gemener, ställer inte till problem i postigis då
+      names(gis_list[[df_item]]) <- tolower(names(gis_list[[df_item]]))
+      
+      # om data inte är i rätt projektionssystem, konvertera till rätt
+      if (malpunkter_crs != malpunkter_till_crs) gis_list[[df_item]] <- st_transform(gis_list[[df_item]], crs = malpunkter_till_crs)
+      
+      # =================== lägg över till postgis =======================
+      
+      con <- dbConnect(          # use in other settings
+        RPostgres::Postgres(),
+        # without the previous and next lines, some functions fail with bigint data 
+        #   so change int64 to integer
+        bigint = "integer",  
+        user = pg_db_user,
+        password = pg_db_pwd,
+        host = pg_db_host,
+        port = pg_db_port,
+        dbname = pg_db_name_db,
+        options="-c search_path=public")
+      
+      # kör sql-kod för att skapa ett nytt schema med namn definierat ovan
+      dbExecute(con, paste0("create schema if not exists ", schema_malpunkter, ";"))
+      
+      
+      # ================== skriv målpunkts-lagren till postgis 
+      starttid = Sys.time()
+      st_write(obj = gis_list[[df_item]],
+               dsn = con,
+               Id(schema=schema_malpunkter, table = inlas_tabellnamn[df_item]))
+      print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "sec"),1), " sekunder att läsa in ", inlas_tabellnamn[df_item], " till postgis."))
+      
+      # skapa spatialt index, finns det sedan tidigare, ta bort
+      dbExecute(con, paste0("DROP INDEX IF EXISTS ", schema_malpunkter, ".geom_idx;")) 
+      dbExecute(con, paste0("CREATE INDEX geom_idx ON ", schema_malpunkter, ".", inlas_tabellnamn[df_item], " USING GIST (geom);"))
+      
+      # gör skickad id-kolumn till primärnyckelkolumn i tabellen
+      dbExecute(con, paste0("ALTER TABLE ", schema_malpunkter, ".", inlas_tabellnamn[df_item], " ADD PRIMARY KEY (", malpunkter_id_kol, ");"))
+      
+      # vi börjar med att skapa en ny kolumn i den nya tabellen
+      dbExecute(con, paste0("ALTER TABLE ", schema_malpunkter, ".", inlas_tabellnamn[df_item],
+                            " ADD COLUMN IF NOT EXISTS toponode_id bigint;"))
+      
+      # därefter gör vi en spatial join från punkterna till noderna i nvdb
+      dbExecute(con, paste0("UPDATE ", schema_malpunkter, ".", inlas_tabellnamn[df_item],
+                            " SET toponode_id = (",
+                            "SELECT ", schema_natverk, ".", tabell_natverk, "_vertices_pgr.id ",
+                            "FROM ", schema_natverk, ".", tabell_natverk, "_vertices_pgr ",
+                            "ORDER BY ", schema_malpunkter, ".", inlas_tabellnamn[df_item], ".geom <-> ",
+                            schema_natverk, ".", tabell_natverk, "_vertices_pgr.the_geom ASC NULLS LAST ",
+                            "LIMIT 1);"))
+      
+      dbDisconnect(con)           # stäng postgis-anslutningen igen
+    } # slut for-loop som loopar igenom inläsningsfiler
+  } # slut funktion
+
+
+las_in_geosf_skapa_punkter_till_postgis_skapa_pgr_graf <- 
+  function(inlas_df,
+           inlas_tabellnamn,   # de tabellnamn de nya filerna ska få i postgis
+           schema_malpunkter = "malpunkter",
+           malpunkter_id_kol,
+           malpunkter_geo_kol,
+           malpunkter_till_crs,
+           schema_natverk = "nvdb",
+           tabell_natverk = "nvdb20buff30",
+           pg_db_user = Sys.getenv("userid_postgres_adm"),
+           pg_db_pwd = Sys.getenv("pwd_postgres_adm"),
+           pg_db_host = "WFALTSTVS427.ltdalarna.se",
+           pg_db_port = 5432,
+           pg_db_name_db = "postgis_31_db") {
+    
+    # Skript för att läsa in en tabell som innehåller målpunkter som man vill göra beräkningar mot 
+    # företrädelsevis från boenderutor på avstånd eller restid med kortaste eller snabbaste resväg
+    # från rutor (eller annan geografi som punkter) till närmaste målpunkt i denna tabell.
+    # Det kan vara restid till närmaste skola, vårdcentral eller busshållplats från samtliga 
+    # boenderutor i en geografi
+    #
+    # Följande parametrar skickas med funktionen:
+    # inlas_mapp = mapp i vilken tabellen finns som innehåller målpunkterna, måste innehålla kolumner
+    #              för x- och y- koordinat
+    # inlas_filer = en vektor med den eller de filer som ska läsas in, måste finnas i inlas_mapp
+    # inlas_tabellnamn = en textsträng eller vektor om det finns flera filer med tabellnamnet som 
+    #                    målpunkterna ska ha i postgisdatabasen (bör vara gemener och utan konstiga tecken)
+    # schema_malpunkter = det schema i postgisdatabasen som målpunktstabellen ska ligga under
+    # malpunkter_id_kol = den kolumn som innehåller ett unikt ID och görs till primärnyckelkolumn, måste finnas!
+    # malpunkter_geo_kol = geometry-kolumnen
+    # schema_natverk = det schema där nätverket mot vilket vi ska koppla målpunkterna finns 
+    # tabell_natverk = den tabell där nätverket mot vilket vi ska koppla målpunkterna finns, måste 
+    #                  finnas under schemat ovan
+    # pg_db_user = användare för den postgisdatabas man ansluter till
+    # pg_db_pwd = lösenord för användaren ovan, OBS! Aldrig i klartext!
+    # pg_db_host = adress till den server där postgis-databasen finns
+    # pg_db_port = den port som databasen ansluts via
+    # pg_db_name_db = den databas i postgis som man ansluter till
+    
+    # =================== Läs in och bearbeta excelfiler med rutdata ======================
+    
+    
+    # säkerställ att alla kolumnnamn är i gemener, ställer inte till problem i postigis då
+    names(inlas_df) <- tolower(names(inlas_df))
+    
+    # =================== lägg över till postgis =======================
+    
+    con <- dbConnect(          # use in other settings
+      RPostgres::Postgres(),
+      # without the previous and next lines, some functions fail with bigint data 
+      #   so change int64 to integer
+      bigint = "integer",  
+      user = pg_db_user,
+      password = pg_db_pwd,
+      host = pg_db_host,
+      port = pg_db_port,
+      dbname = pg_db_name_db,
+      options="-c search_path=public")
+    
+    # kör sql-kod för att skapa ett nytt schema med namn definierat ovan
+    dbExecute(con, paste0("create schema if not exists ", schema_malpunkter, ";"))
+    
+    # ================== skriv rut-lagren till postgis 
+    starttid = Sys.time()
+    st_write(obj = inlas_df,
+             dsn = con,
+             Id(schema=schema_malpunkter, table = inlas_tabellnamn))
+    print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "sec"),1), " sekunder att läsa in ", inlas_tabellnamn, " till postgis."))
+    
+    # skapa spatialt index, finns det sedan tidigare, ta bort
+    dbExecute(con, paste0("DROP INDEX IF EXISTS ", schema_malpunkter, ".", malpunkter_geo_kol, "_idx;")) 
+    dbExecute(con, paste0("CREATE INDEX ", malpunkter_geo_kol, "_idx ON ", schema_malpunkter, ".", inlas_tabellnamn, " USING GIST (", malpunkter_geo_kol, ");"))
+    
+    # gör rutid till id-kolumn i tabellen
+    dbExecute(con, paste0("ALTER TABLE ", schema_malpunkter, ".", inlas_tabellnamn, " ADD PRIMARY KEY (", malpunkter_id_kol ,");"))
+    
+    # gör en spatial join för mittpunkten i rutorna till nvdb ====================
+    
+    # vi börjar med att skapa en ny kolumn i den nya tabellen
+    dbExecute(con, paste0("ALTER TABLE ", schema_malpunkter, ".", inlas_tabellnamn,
+                          " ADD COLUMN IF NOT EXISTS toponode_id bigint;"))
+    
+    # därefter gör vi en spatial join från mittpunkten till noderna i nvdb
+    dbExecute(con, paste0("UPDATE ", schema_malpunkter, ".", inlas_tabellnamn,
+                          " SET toponode_id = (",
+                          "SELECT ", schema_natverk, ".", tabell_natverk, "_vertices_pgr.id ",
+                          "FROM ", schema_natverk, ".", tabell_natverk, "_vertices_pgr ",
+                          "ORDER BY ", schema_malpunkter, ".", inlas_tabellnamn, ".", malpunkter_geo_kol, " <-> ",
+                          schema_natverk, ".", tabell_natverk, "_vertices_pgr.the_geom ASC NULLS LAST ",
+                          "LIMIT 1);"))
+    
+    dbDisconnect(con)           # stäng postgis-anslutningen igen
+    
+  } # slut funktion
+
+
+koppla_punkter_postgis_tabell_till_pgr_graf <- 
+  function(punkter_schema,
+           punkter_tabellnamn,   
+           punkter_geo_kol,
+           schema_natverk = "nvdb",
+           tabell_natverk = "nvdb20buff30",
+           pg_db_user,
+           pg_db_pwd ,
+           pg_db_host,
+           pg_db_port = 5432,
+           pg_db_name_db) {
+    
+    # Skript för att läsa in en postgis-tabell som innehåller målpunkter som man vill göra beräkningar mot 
+    # företrädelsevis från boenderutor på avstånd eller restid med kortaste eller snabbaste resväg
+    # från rutor (eller annan geografi som punkter) till närmaste målpunkt i denna tabell.
+    # Det kan vara restid till närmaste skola, vårdcentral eller busshållplats från samtliga 
+    # boenderutor i en geografi
+    #
+    # Följande parametrar skickas med funktionen:
+    # malpunkter_tabellnamn = en textsträng eller vektor om det finns flera filer med tabellnamnet som 
+    #                    målpunkterna ska ha i postgisdatabasen (bör vara gemener och utan konstiga tecken)
+    # schema_malpunkter = det schema i postgisdatabasen som målpunktstabellen ska ligga under
+    # malpunkter_id_kol = den kolumn som innehåller ett unikt ID och görs till primärnyckelkolumn, måste finnas!
+    # malpunkter_geo_kol = geometry-kolumnen
+    # schema_natverk = det schema där nätverket mot vilket vi ska koppla målpunkterna finns 
+    # tabell_natverk = den tabell där nätverket mot vilket vi ska koppla målpunkterna finns, måste 
+    #                  finnas under schemat ovan
+    # pg_db_user = användare för den postgisdatabas man ansluter till
+    # pg_db_pwd = lösenord för användaren ovan, OBS! Aldrig i klartext!
+    # pg_db_host = adress till den server där postgis-databasen finns
+    # pg_db_port = den port som databasen ansluts via
+    # pg_db_name_db = den databas i postgis som man ansluter till
+    
+    # =================== Läs in och bearbeta excelfiler med rutdata ======================
+    
+    
+    con <- dbConnect(          # use in other settings
+      RPostgres::Postgres(),
+      # without the previous and next lines, some functions fail with bigint data 
+      #   so change int64 to integer
+      bigint = "integer",  
+      user = pg_db_user,
+      password = pg_db_pwd,
+      host = pg_db_host,
+      port = pg_db_port,
+      dbname = pg_db_name_db,
+      options="-c search_path=public")
+    
+    # gör en spatial join för mittpunkten i rutorna till nvdb ====================
+    
+    # vi börjar med att skapa en ny kolumn i den nya tabellen
+    dbExecute(con, paste0("ALTER TABLE ", punkter_schema, ".", punkter_tabellnamn,
+                          " ADD COLUMN IF NOT EXISTS toponode_id bigint;"))
+    
+    # därefter gör vi en spatial join från mittpunkten till noderna i nvdb
+    dbExecute(con, paste0("UPDATE ", punkter_schema, ".", punkter_tabellnamn,
+                          " SET toponode_id = (",
+                          "SELECT ", schema_natverk, ".", tabell_natverk, "_vertices_pgr.id ",
+                          "FROM ", schema_natverk, ".", tabell_natverk, "_vertices_pgr ",
+                          "ORDER BY ", punkter_schema, ".", punkter_tabellnamn, ".", punkter_geo_kol, " <-> ",
+                          schema_natverk, ".", tabell_natverk, "_vertices_pgr.the_geom ASC NULLS LAST ",
+                          "LIMIT 1);"))
+    
+    dbDisconnect(con)           # stäng postgis-anslutningen igen
+    
+  } # slut funktion
+
+
+skriv_geosf_till_postgis_skapa_spatialt_index <- 
+  function(inlas_sf,
+           inlas_tabellnamn,   # de tabellnamn de nya filerna ska få i postgis
+           schema_karta = "karta",
+           postgistabell_id_kol,
+           postgistabell_geo_kol,
+           postgistabell_till_crs,
+           pg_db_user = key_list(service = "rd_geodata")$username,
+           pg_db_pwd = key_get("rd_geodata", key_list(service = "rd_geodata")$username),
+           pg_db_host = "WFALMITVS526.ltdalarna.se",
+           pg_db_port = 5432,
+           pg_db_name_db = "geodata") {
+    
+    # Skript för att läsa in ett sf-objekt till en postgistabell 
+    #
+    # Följande parametrar skickas med funktionen:
+    # inlas_mapp = mapp i vilken tabellen finns som innehåller målpunkterna, måste innehålla kolumner
+    #              för x- och y- koordinat
+    # inlas_filer = en vektor med den eller de filer som ska läsas in, måste finnas i inlas_mapp
+    # inlas_tabellnamn = en textsträng eller vektor om det finns flera filer med tabellnamnet som 
+    #                    målpunkterna ska ha i postgisdatabasen (bör vara gemener och utan konstiga tecken)
+    # schema_karta = det schema i postgisdatabasen som målpunktstabellen ska ligga under
+    # postgistabell_id_kol = den kolumn som innehåller ett unikt ID och görs till primärnyckelkolumn, måste finnas!
+    # postgistabell_geo_kol = geometry-kolumnen
+    # pg_db_user = användare för den postgisdatabas man ansluter till
+    # pg_db_pwd = lösenord för användaren ovan, OBS! Aldrig i klartext!
+    # pg_db_host = adress till den server där postgis-databasen finns
+    # pg_db_port = den port som databasen ansluts via
+    # pg_db_name_db = den databas i postgis som man ansluter till
+    
+    # =================== Läs in och bearbeta excelfiler med rutdata ======================
+    
+    
+    # säkerställ att alla kolumnnamn är i gemener, ställer inte till problem i postgis då
+    names(inlas_sf) <- tolower(names(inlas_sf))
+    
+    # =================== lägg över till postgis =======================
+    
+    con <- dbConnect(          # use in other settings
+      RPostgres::Postgres(),
+      # without the previous and next lines, some functions fail with bigint data 
+      #   so change int64 to integer
+      bigint = "integer",  
+      user = pg_db_user,
+      password = pg_db_pwd,
+      host = pg_db_host,
+      port = pg_db_port,
+      dbname = pg_db_name_db,
+      timezone = "UTC",
+      options="-c search_path=public")
+    
+    # kör sql-kod för att skapa ett nytt schema med namn definierat ovan
+    dbExecute(con, paste0("create schema if not exists ", schema_karta, ";"))
+    
+    # ================== skriv rut-lagren till postgis 
+    starttid = Sys.time()
+    st_write(obj = inlas_sf,
+             dsn = con,
+             Id(schema=schema_karta, table = inlas_tabellnamn))
+    print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "sec"),1), " sekunder att läsa in ", inlas_tabellnamn, " till postgis."))
+    
+    # skapa spatialt index, finns det sedan tidigare, ta bort - loopa så att man kan skicka fler geokolumner
+    for (geokol in 1:length(postgistabell_geo_kol)) {
+      dbExecute(con, paste0("DROP INDEX IF EXISTS ", schema_karta, ".", postgistabell_geo_kol[geokol], "_idx;")) 
+      dbExecute(con, paste0("CREATE INDEX ", postgistabell_geo_kol[geokol], "_idx ON ", schema_karta, ".", inlas_tabellnamn, " USING GIST (", postgistabell_geo_kol[geokol], ");"))
+    }  
+    # gör rutid till id-kolumn i tabellen
+    dbExecute(con, paste0("ALTER TABLE ", schema_karta, ".", inlas_tabellnamn, " ADD PRIMARY KEY (", postgistabell_id_kol ,");"))
+    
+    dbDisconnect(con)           # stäng postgis-anslutningen igen
+    
+  } # slut funktion
+
+
+
+kopiera_tabell_postgis <- function(schema_fran, 
+                                   tabell_fran,
+                                   schema_till,
+                                   tabell_till,
+                                   pg_db_user,
+                                   pg_db_pwd,
+                                   pg_db_host,
+                                   pg_db_port,
+                                   pg_db_name_db){
+  
+  # funktion för att kopiera en tabell i en postgisdatabas till en annan tabell
+  # i samma schema eller under ett annat schema
+  
+  con_kop <- dbConnect(          # use in other settings
+    RPostgres::Postgres(),
+    # without the previous and next lines, some functions fail with bigint data 
+    #   so change int64 to integer
+    bigint = "integer",  
+    user = pg_db_user,
+    password = pg_db_pwd,
+    host = pg_db_host,
+    port = pg_db_port,
+    dbname = pg_db_name_db,
+    options="-c search_path=public")  
+  
+  
+  # skapa tabell som har samma struktur som den tabell vi ska kopiera
+  dbExecute(con_kop, paste0("CREATE TABLE ", schema_till, ".", tabell_till, " (LIKE ", schema_fran, ".", tabell_fran, " INCLUDING ALL);"))
+  
+  # fyll på den nya tabellen med data från tabellen vi kopierar från
+  dbExecute(con_kop, paste0("INSERT INTO ", schema_till, ".", tabell_till, " SELECT * ",  
+                            "FROM ", schema_fran, ".", tabell_fran, ";"))
+  
+  dbDisconnect(con_kop)           # stäng postgis-anslutningen igen
+}                      
+
+byt_schema_for_tabell_postgis <- function(schema_fran, 
+                                          tabell_fran,
+                                          schema_till,
+                                          pg_db_user,
+                                          pg_db_pwd,
+                                          pg_db_host,
+                                          pg_db_port,
+                                          pg_db_name_db){
+  
+  # funktion för att flytta en tabell från ett schema till ett annat
+  
+  con_flytt <- dbConnect(          # use in other settings
+    RPostgres::Postgres(),
+    # without the previous and next lines, some functions fail with bigint data 
+    #   so change int64 to integer
+    bigint = "integer",  
+    user = pg_db_user,
+    password = pg_db_pwd,
+    host = pg_db_host,
+    port = pg_db_port,
+    dbname = pg_db_name_db,
+    options="-c search_path=public")  
+  
+  # byt schema för en tabell
+  dbExecute(con_flytt, paste0("ALTER TABLE ", schema_fran, ".", tabell_fran, " SET SCHEMA ", schema_till, ";"))
+  
+  dbDisconnect(con_flytt)           # stäng postgis-anslutningen igen
+  
+}
+
+# beräkna n närmaste malpunkter till varje ruta 
+
+skapa_n_narmaste_malpunkter_tabell <- function(
     n_narmaste = 10,                                  # hur många målpunkter ska beräkningen göras på
     malpunkt_schema,                                  # schema där målpunkterna finns och där rutorna finns  
     malpunkt_tabell,                                  # tabell som innehåller de målpunkter som ska beräknas
@@ -934,77 +934,77 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
     pg_db_host,
     pg_db_port,
     pg_db_name_db
- ){
-   
-   starttid <- Sys.time()
-   
-   # skapa textvariabel av medskickade målpunktskolumner
-   if (!is.na(malpunkt_ovr_kolumner[1])) {
-     
-     # för användning i första delen av sql-skriptet
-     malp_ovr_kol <- malpunkt_ovr_kolumner
-     malp_ovr_kol <- paste0("malp.", malp_ovr_kol, collapse = ", ")
-     malp_ovr_kol <- paste0(malp_ovr_kol, ", ")
-     
-     # för användning i första delen av sql-skriptet
-     m_ovr_kol <- malpunkt_ovr_kolumner
-     m_ovr_kol <- paste0("m.", m_ovr_kol, collapse = ", ")
-     m_ovr_kol <- paste0(m_ovr_kol, ", ")
-     
-   } else {
-     malp_ovr_kol <- ""
-     m_ovr_kol <- ""
-   }
-   
-   con_n_narmaste <- dbConnect(          # use in other settings
-     RPostgres::Postgres(),
-     # without the previous and next lines, some functions fail with bigint data 
-     #   so change int64 to integer
-     bigint = "integer",  
-     user = pg_db_user,
-     password = pg_db_pwd,
-     host = pg_db_host,
-     port = pg_db_port,
-     dbname = pg_db_name_db,
-     options="-c search_path=public")  
-   
-   # ta bort tabell om den redan finns
-   dbExecute(con_n_narmaste, paste0("DROP TABLE IF EXISTS ", 
-                                    malpunkt_schema, ".", mal_tab_n_narmaste, ";"))
-   
-   # skapa en tabell med alla startpunkter och de n närmaste målpunkterna fågelvägen
-   # denna tabell används sedan för att beräkna närmaste målpunkt i grafen/nätverket
-   dbExecute(con_n_narmaste, paste0("CREATE TABLE ",
-                                    malpunkt_schema, ".", mal_tab_n_narmaste, " AS ",
-                                    "(SELECT start.", startpunkt_tabell_id_kol, ", ",
-                                    "start.", startpunkt_toponode_id, " AS start_toponode_id, ",
-                                    #"rut.geom_polygon AS rut_geom_polygon, ", 
-                                    "start.", startpunkt_geom_kol, " AS start_geom_point, ",
-                                    "malp.", malpunkt_id_kol, ", ",
-                                    "malp.", malpunkt_toponode_id, " AS mal_toponode_id, ",
-                                    malp_ovr_kol,
-                                    "malp.geom AS mal_geom, ", 
-                                    "malp.dist ",
-                                    "FROM ", malpunkt_schema, ".", startpunkt_tabell_malschema, " AS start ",
-                                    "CROSS JOIN LATERAL (",
-                                    "SELECT m.", malpunkt_id_kol, ", ",
-                                    "m.", malpunkt_toponode_id, ", ",
-                                    "m.geom, ",
-                                    m_ovr_kol, 
-                                    "m.geom <-> start.", startpunkt_geom_kol, " AS dist ",
-                                    "FROM ", malpunkt_schema, ".", malpunkt_tabell, " AS m ",
-                                    "ORDER BY dist ", 
-                                    "LIMIT ", n_narmaste, " ",
-                                    ") AS malp );"))
-   
-   dbDisconnect(con_n_narmaste)           # stäng postgis-anslutningen igen
-   print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "min"),2) , 
-                " minuter att beräkna fågelavstånd till de ", n_narmaste , 
-                " närmaste målpunkterna från varje startpunkt i körningen."))
-   
- }
- 
- berakna_pgr_dijkstracost_n_narmaste_tab <- function(
+){
+  
+  starttid <- Sys.time()
+  
+  # skapa textvariabel av medskickade målpunktskolumner
+  if (!is.na(malpunkt_ovr_kolumner[1])) {
+    
+    # för användning i första delen av sql-skriptet
+    malp_ovr_kol <- malpunkt_ovr_kolumner
+    malp_ovr_kol <- paste0("malp.", malp_ovr_kol, collapse = ", ")
+    malp_ovr_kol <- paste0(malp_ovr_kol, ", ")
+    
+    # för användning i första delen av sql-skriptet
+    m_ovr_kol <- malpunkt_ovr_kolumner
+    m_ovr_kol <- paste0("m.", m_ovr_kol, collapse = ", ")
+    m_ovr_kol <- paste0(m_ovr_kol, ", ")
+    
+  } else {
+    malp_ovr_kol <- ""
+    m_ovr_kol <- ""
+  }
+  
+  con_n_narmaste <- dbConnect(          # use in other settings
+    RPostgres::Postgres(),
+    # without the previous and next lines, some functions fail with bigint data 
+    #   so change int64 to integer
+    bigint = "integer",  
+    user = pg_db_user,
+    password = pg_db_pwd,
+    host = pg_db_host,
+    port = pg_db_port,
+    dbname = pg_db_name_db,
+    options="-c search_path=public")  
+  
+  # ta bort tabell om den redan finns
+  dbExecute(con_n_narmaste, paste0("DROP TABLE IF EXISTS ", 
+                                   malpunkt_schema, ".", mal_tab_n_narmaste, ";"))
+  
+  # skapa en tabell med alla startpunkter och de n närmaste målpunkterna fågelvägen
+  # denna tabell används sedan för att beräkna närmaste målpunkt i grafen/nätverket
+  dbExecute(con_n_narmaste, paste0("CREATE TABLE ",
+                                   malpunkt_schema, ".", mal_tab_n_narmaste, " AS ",
+                                   "(SELECT start.", startpunkt_tabell_id_kol, ", ",
+                                   "start.", startpunkt_toponode_id, " AS start_toponode_id, ",
+                                   #"rut.geom_polygon AS rut_geom_polygon, ", 
+                                   "start.", startpunkt_geom_kol, " AS start_geom_point, ",
+                                   "malp.", malpunkt_id_kol, ", ",
+                                   "malp.", malpunkt_toponode_id, " AS mal_toponode_id, ",
+                                   malp_ovr_kol,
+                                   "malp.geom AS mal_geom, ", 
+                                   "malp.dist ",
+                                   "FROM ", malpunkt_schema, ".", startpunkt_tabell_malschema, " AS start ",
+                                   "CROSS JOIN LATERAL (",
+                                   "SELECT m.", malpunkt_id_kol, ", ",
+                                   "m.", malpunkt_toponode_id, ", ",
+                                   "m.geom, ",
+                                   m_ovr_kol, 
+                                   "m.geom <-> start.", startpunkt_geom_kol, " AS dist ",
+                                   "FROM ", malpunkt_schema, ".", malpunkt_tabell, " AS m ",
+                                   "ORDER BY dist ", 
+                                   "LIMIT ", n_narmaste, " ",
+                                   ") AS malp );"))
+  
+  dbDisconnect(con_n_narmaste)           # stäng postgis-anslutningen igen
+  print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "min"),2) , 
+               " minuter att beräkna fågelavstånd till de ", n_narmaste , 
+               " närmaste målpunkterna från varje startpunkt i körningen."))
+  
+}
+
+berakna_pgr_dijkstracost_n_narmaste_tab <- function(
     natverk_schema,
     natverk_tabell,
     start_toponode_id,
@@ -1018,54 +1018,54 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
     pg_db_host,
     pg_db_port,
     pg_db_name_db){
-   
-   starttid <- Sys.time()
-   
-   con_dijkstra <- dbConnect(          # use in other settings
-     RPostgres::Postgres(),
-     # without the previous and next lines, some functions fail with bigint data 
-     #   so change int64 to integer
-     bigint = "integer",  
-     user = pg_db_user,
-     password = pg_db_pwd,
-     host = pg_db_host,
-     port = pg_db_port,
-     dbname = pg_db_name_db,
-     options="-c search_path=public")  
-   
-   # beräkna avstånd meter för alla målpunkter 
-   # Skapa kolumn för avstånd i meter mellan ruta och målpunkt
-   dbExecute(con_dijkstra, paste0("ALTER TABLE ", 
-                                  malpunkt_schema, ".", mal_tab_n_narmaste, " ",
-                                  "ADD COLUMN IF NOT EXISTS ", cost_col_ny, " double precision;"))
-   
-   # därefter uppdaterar vi kolumnen med värdet från pgRoutring - dijkstraCost
-   dbExecute(con_dijkstra, paste0("UPDATE ", malpunkt_schema, ".", mal_tab_n_narmaste, " ",
-                                  "SET ", cost_col_ny, " = a.agg_cost ", 
-                                  "FROM (",
-                                  "SELECT * FROM pgr_dijkstraCost(",
-                                  "'SELECT id, source, target, ", cost_col_natverk, " as cost FROM ",
-                                  natverk_schema, ".", natverk_tabell, "',",
-                                  "'SELECT ", rut_toponode_id, " as source, ", 
-                                  mal_toponode_id, " as target FROM ", malpunkt_schema, ".", 
-                                  mal_tab_n_narmaste, "', ",
-                                  "FALSE)) as a ",
-                                  "WHERE (", malpunkt_schema, ".", mal_tab_n_narmaste, ".", 
-                                  rut_toponode_id, " = a.start_vid AND ", 
-                                  malpunkt_schema, ".", mal_tab_n_narmaste, ".", mal_toponode_id, " = a.end_vid);"))
-   
-   # byt ut NULL mot 0 om startnoden (ruta) är samma som slutnoden (hållplats)
-   dbExecute(con_dijkstra, paste0("UPDATE ", malpunkt_schema, ".", mal_tab_n_narmaste, " ",
-                                  "SET ", cost_col_ny, " = 0 ",
-                                  "WHERE ", rut_toponode_id, " = ", mal_toponode_id, ";"))
-   
-   dbDisconnect(con_dijkstra)           # stäng postgis-anslutningen igen
-   print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "min"),2) , " minuter att beräkna pgr_Dijkstra"))
-   
-   
- }
- 
- join_narmaste_malpunkt_fran_n_narmaste <- function(
+  
+  starttid <- Sys.time()
+  
+  con_dijkstra <- dbConnect(          # use in other settings
+    RPostgres::Postgres(),
+    # without the previous and next lines, some functions fail with bigint data 
+    #   so change int64 to integer
+    bigint = "integer",  
+    user = pg_db_user,
+    password = pg_db_pwd,
+    host = pg_db_host,
+    port = pg_db_port,
+    dbname = pg_db_name_db,
+    options="-c search_path=public")  
+  
+  # beräkna avstånd meter för alla målpunkter 
+  # Skapa kolumn för avstånd i meter mellan ruta och målpunkt
+  dbExecute(con_dijkstra, paste0("ALTER TABLE ", 
+                                 malpunkt_schema, ".", mal_tab_n_narmaste, " ",
+                                 "ADD COLUMN IF NOT EXISTS ", cost_col_ny, " double precision;"))
+  
+  # därefter uppdaterar vi kolumnen med värdet från pgRoutring - dijkstraCost
+  dbExecute(con_dijkstra, paste0("UPDATE ", malpunkt_schema, ".", mal_tab_n_narmaste, " ",
+                                 "SET ", cost_col_ny, " = a.agg_cost ", 
+                                 "FROM (",
+                                 "SELECT * FROM pgr_dijkstraCost(",
+                                 "'SELECT id, source, target, ", cost_col_natverk, " as cost FROM ",
+                                 natverk_schema, ".", natverk_tabell, "',",
+                                 "'SELECT ", rut_toponode_id, " as source, ", 
+                                 mal_toponode_id, " as target FROM ", malpunkt_schema, ".", 
+                                 mal_tab_n_narmaste, "', ",
+                                 "FALSE)) as a ",
+                                 "WHERE (", malpunkt_schema, ".", mal_tab_n_narmaste, ".", 
+                                 rut_toponode_id, " = a.start_vid AND ", 
+                                 malpunkt_schema, ".", mal_tab_n_narmaste, ".", mal_toponode_id, " = a.end_vid);"))
+  
+  # byt ut NULL mot 0 om startnoden (ruta) är samma som slutnoden (hållplats)
+  dbExecute(con_dijkstra, paste0("UPDATE ", malpunkt_schema, ".", mal_tab_n_narmaste, " ",
+                                 "SET ", cost_col_ny, " = 0 ",
+                                 "WHERE ", rut_toponode_id, " = ", mal_toponode_id, ";"))
+  
+  dbDisconnect(con_dijkstra)           # stäng postgis-anslutningen igen
+  print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "min"),2) , " minuter att beräkna pgr_Dijkstra"))
+  
+  
+}
+
+join_narmaste_malpunkt_fran_n_narmaste <- function(
     malpunkt_schema,
     mal_start_tabell,
     mal_n_narmaste_tab,
@@ -1079,193 +1079,193 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
     pg_db_host,
     pg_db_port,
     pg_db_name_db){
-   
-   starttid <- Sys.time()
-   
-   con_join <- dbConnect(          # use in other settings
-     RPostgres::Postgres(),
-     # without the previous and next lines, some functions fail with bigint data 
-     #   so change int64 to integer
-     bigint = "integer",  
-     user = pg_db_user,
-     password = pg_db_pwd,
-     host = pg_db_host,
-     port = pg_db_port,
-     dbname = pg_db_name_db,
-     options="-c search_path=public") 
-   
-   # skapa en textsträng om namn_malpunkt_kol har ett värde (som inte är "") för att skapa kolumn och för att koda värdet
-   if (namn_malpunkt_kol == ""){ 
-     lagg_till_namn_malpunkt_kol <- ""
-     set_namn <- " "
-     from_namn <- ""
-     groupby_namn <- ""
-   } else {
-     lagg_till_namn_malpunkt_kol <- paste0(", ADD COLUMN IF NOT EXISTS ", cost_mal_start_tab_ny, "_", namn_malpunkt_kol, " text")
-     set_namn <- paste0(", ", cost_mal_start_tab_ny, "_", namn_malpunkt_kol, " = B.", namn_malpunkt_kol, " ")
-     from_namn <- paste0(", ", namn_malpunkt_kol)
-     groupby_namn <- paste0(", ", namn_malpunkt_kol)
-   }
-   
-   # skapa kolumn om den inte redan finns
-   dbExecute(con_join, paste0("ALTER TABLE ", malpunkt_schema, ".", mal_start_tabell, " ",
-                              "ADD COLUMN IF NOT EXISTS ", cost_mal_start_tab_ny, " double precision", 
-                              lagg_till_namn_malpunkt_kol, ";"))
-   
-   # och så joinar vi på kolumnen från aktuell tabell
-   dbExecute(con_join, paste0("UPDATE ", malpunkt_schema, ".", mal_start_tabell, " AS A ",
-                              "SET ", cost_mal_start_tab_ny, " = B.minavst", set_namn,
-                              "FROM (SELECT DISTINCT ON(", n_narm_tab_startid_kol, ") ",
-                              n_narm_tab_startid_kol, from_namn, ", ", cost_col_n_narmaste_tab, " AS minavst ",
-                              " FROM ", malpunkt_schema, ".", mal_n_narmaste_tab, " ",
-                              "ORDER BY ", n_narm_tab_startid_kol, ", ", cost_col_n_narmaste_tab, ") ",
-                              "AS B ",
-                              "WHERE A.", mal_start_tab_startid_kol, " = B.", n_narm_tab_startid_kol, ";"))
-   
-   
-   # MIN(", cost_col_n_narmaste_tab, ") as minavst, ", n_narm_tab_startid_kol,
-   # from_namn, " FROM ", malpunkt_schema, ".", mal_n_narmaste_tab, " ", 
-   # "GROUP BY ", n_narm_tab_startid_kol, groupby_namn, ") ",
-   # "AS B ",
-   # "WHERE A.", mal_rut_tab_rutid_kol, " = B.", n_narm_tab_startid_kol, ";"))
-   
-   dbDisconnect(con_join)           # stäng postgis-anslutningen igen
-   
-   print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "min"),2) , " minuter att köra funktionen"))
-   
- }
- 
- kartifiera <- function(skickad_df, geom_nyckel){
-   
-   kartifiera_regionkoder <- unique(skickad_df[[geom_nyckel]])
-   geom_nyckel_langd <- nchar(kartifiera_regionkoder) %>% unique()
-   
-   if (length(geom_nyckel_langd) > 1) {
-     print("Skickad df:s geom_nyckel kan bara innehålla värden av samma typ. Kontrollera att så är fallet och försök igen.") 
-   } else {
-     
-     # här bestäms vilken karttyp vi har att göra med
-     if (geom_nyckel_langd == 2) kartifiera_karttyp <- "lan"
-     if (geom_nyckel_langd == 4 & all(str_detect(kartifiera_regionkoder, "^[:digit:]+$"))) kartifiera_karttyp <- "kommun" 
-     if (geom_nyckel_langd == 4 & !all(str_detect(kartifiera_regionkoder, "^[:digit:]+$"))) kartifiera_karttyp <- "nuts2"
-     if (geom_nyckel_langd == 9 & !all(str_detect(kartifiera_regionkoder, "^[:digit:]+$"))) kartifiera_karttyp <- "deso"
-     if (geom_nyckel_langd == 8 & !all(str_detect(kartifiera_regionkoder, "^[:digit:]+$"))) kartifiera_karttyp <- "regso"
-     
-     # vi hämtar gislagret för aktuell karttyp, för de geom_nyckelkoder som skickats med
-     gis_lager <- hamta_karta(karttyp = kartifiera_karttyp, regionkoder = kartifiera_regionkoder)
-     
-     # här lägger vi till rader (dvs. tabeller) som ska vara hämtbara från geodatabasen med hamta_karta()-funktionen
-     tabell_df <- hamta_karttabell()
-     
-     df_rad <- suppressWarnings(str_which(tabell_df$sokord, kartifiera_karttyp))             # vi letar upp den rad som parametern karrtyp finns på
-     
-     # om medskickade kartyp inte finns bland sökorden får pg_tabell värdet "finns ej" och då körs inte skriptet nedan
-     if (length(df_rad) == 0) pg_tab_idkol <- "finns ej" else pg_tab_idkol <- tabell_df$id_kol[df_rad] 
-     
-     join_sf <- skickad_df %>% 
-       left_join(gis_lager, by = setNames(pg_tab_idkol, geom_nyckel)) %>% 
-       st_as_sf()
-     
-     return(join_sf)
-   } # slut if-sats om det finns fler längder på geom_nyckel
- }
- 
- hamta_karttabell <- function(){
-   
-   # här lägger vi till nya kolumner om det behövs
-   kolumn_namn <- c("namn", "id_kol", "lankol", "kommunkol", "sokord")
-   
-   antal_kol <- length(kolumn_namn)                            # räkna kolumnnamn i vektorn som vi skapar ovan
-   karttabell_df <- as.data.frame(matrix(nrow = 0, ncol = antal_kol)) %>%             # skapa df med 0 rader och lika många kolumner som vi har kolumnnamn ovan
-     setNames(kolumn_namn) %>%                                              # döp kolumnnamn efter vektorn vi skapade ovan
-     mutate(across(1:(antal_kol-1), as.character),                          # alla kolumner ska vara text, utom sista kolumnen som ska vara en lista med sökord
-            sokord = sokord %>% as.list())                                  # som vi initierar här
-   
-   # här lägger vi till rader (dvs. tabeller) som ska vara hämtbara från geodatabasen med hamta_karta()-funktionen
-   karttabell_df <- karttabell_df %>%  
-     add_row(namn = "kommun_scb", id_kol = "knkod", lankol = "lanskod_tx", kommunkol = "knkod", sokord = list(c("kommun", "kommuner", "kommunpolygoner"))) %>% 
-     add_row(namn = "lan_scb", id_kol = "lnkod", lankol = "lnkod", kommunkol = NA, sokord = list(c("lan", "lanspolygoner"))) %>% 
-     add_row(namn = "tatorter_2020", id_kol = "tatortskod", lankol = "lnkod", kommunkol = "kommunkod", sokord = list(c("tatort", "tätort", "tatorter", "tätorter", "tatortspolygoner", "tätortspolygoner"))) %>% 
-     add_row(namn = "regso", id_kol = "regsokod",  lankol = "lan", kommunkol = "kommun", sokord = list(c("regso", "regsopolygoner"))) %>% 
-     add_row(namn = "deso", id_kol = "deso", lankol = "lan", kommunkol = "kommun", sokord = list(c("deso", "desopolygoner"))) %>% 
-     add_row(namn = "nuts2", id_kol = "id", lankol = "id", kommunkol = "cntr_code", sokord = list(c("nuts2", "nuts2-områden")))
-   
-   return(karttabell_df)
- }
- 
- 
- hamta_karta <- function(karttyp = "kommuner", regionkoder = NA, tabellnamn = NA) {
-   
-   # här lägger vi till rader (dvs. tabeller) som ska vara hämtbara från geodatabasen med hamta_karta()-funktionen
-   tabell_df <- hamta_karttabell()
-   
-   df_rad <- suppressWarnings(str_which(tabell_df$sokord, karttyp))             # vi letar upp den rad som parametern karrtyp finns på
-   
-   # om medskickade kartyp inte finns bland sökorden får pg_tabell värdet "finns ej" och då körs inte skriptet nedan
-   if (length(df_rad) == 0) pg_tabell <- "finns ej" else pg_tabell <- tabell_df$namn[df_rad] 
-   
-   # kontrollera om karttypen som skickats med i funktionen finns, om inte så körs inte skriptet nedan utan ett felmeddelande visas istället
-   if (pg_tabell != "finns ej"){
-     
-     # skriv query utifrån medskickade regionkoder, om ingen är medskickad görs en query för att hämta allt
-     if (all(!is.na(regionkoder)) & all(regionkoder != "00")) {
-       kommunkoder <- regionkoder[nchar(regionkoder) == 4]
-       if (karttyp == "nuts2") kommunkoder <- regionkoder[nchar(regionkoder) == 2]
-       lanskoder <- regionkoder[nchar(regionkoder) == 2 & regionkoder != "00"]
-       if (karttyp == "nuts2") lanskoder <- regionkoder[nchar(regionkoder) == 4]
-     } else {
-       kommunkoder <- NULL
-       lanskoder <- NULL
-     }
-     # if (is.na(kommunkoder)) kommunkoder <- NULL
-     # if (is.na(lanskoder)) lanskoder <- NULL
-     # 
-     grundquery <- paste0("SELECT * FROM karta.", pg_tabell) 
-     
-     if ((length(kommunkoder) == 0) & (length(lanskoder) == 0)) skickad_query <- paste0(grundquery, ";") else {
-       
-       # det finns lan- eller kommunkoder, så vi lägger på ett WHERE på grundqueryn
-       skickad_query <- paste0(grundquery, " WHERE ")
-       
-       # kolla om det finns länskoder i regionkoder, om så lägger vi på länskoder i queryn
-       if (length(lanskoder) != 0 & !is.na(tabell_df$lankol[df_rad])) {
-         skickad_query <- paste0(skickad_query, tabell_df$lankol[df_rad], " IN (", paste0("'", lanskoder, "'", collapse = ", "), ")")
-       }
-       
-       # kolla om det finns både läns- och kommunkoder i regionkoder, i så fall lägger vi till ett OR mellan 
-       # de båda IN-satserna - då måste tabellen ha både kommun- och länskod
-       if ((length(lanskoder) != 0 & !is.na(tabell_df$lankol[df_rad])) & (length(kommunkoder) != 0 & !is.na(tabell_df$kommunkol[df_rad]))) mellanquery <- " OR " else mellanquery <- ""
-       
-       if (length(kommunkoder) != 0 & !is.na(tabell_df$kommunkol[df_rad])){     # om det finns kommunkoder, lägg på det på tidigare query
-         skickad_query <- paste0(skickad_query, mellanquery, tabell_df$kommunkol[df_rad], " IN (", paste0("'", kommunkoder, "'", collapse = ", "), ");")
-       } else {                           # om det inte finns kommunkoder, avsluta med ett semikolon
-         skickad_query <- paste0(skickad_query, ";") 
-       }   
-       
-     } # slut if-sats för om regionkoder är medskickade, om inte så hämtas alla regioner 
-     # query klar, använd inloggningsuppgifter med keyring och skicka med vår serveradress 
-     
-     retur_sf <- suppressWarnings(las_in_postgis_tabell_till_sf_objekt(schema = "karta",
-                                                                       tabell = pg_tabell,
-                                                                       skickad_query = skickad_query,
-                                                                       pg_db_user = key_list(service = "rd_geodata")$username,
-                                                                       pg_db_pwd = key_get("rd_geodata", key_list(service = "rd_geodata")$username),
-                                                                       pg_db_host = "WFALMITVS526.ltdalarna.se",
-                                                                       pg_db_port = 5432,
-                                                                       pg_db_name_db = "geodata"))
-     
-     return(retur_sf)
-     
-     
-   } else {
-     warning(paste0("Karttypen ", karttyp, " finns inte i databasen."))
-   } # slut if-sats karttyp
-   
- } # slut funktion
- 
- 
- 
- las_in_postgis_tabell_till_sf_objekt <- function(
+  
+  starttid <- Sys.time()
+  
+  con_join <- dbConnect(          # use in other settings
+    RPostgres::Postgres(),
+    # without the previous and next lines, some functions fail with bigint data 
+    #   so change int64 to integer
+    bigint = "integer",  
+    user = pg_db_user,
+    password = pg_db_pwd,
+    host = pg_db_host,
+    port = pg_db_port,
+    dbname = pg_db_name_db,
+    options="-c search_path=public") 
+  
+  # skapa en textsträng om namn_malpunkt_kol har ett värde (som inte är "") för att skapa kolumn och för att koda värdet
+  if (namn_malpunkt_kol == ""){ 
+    lagg_till_namn_malpunkt_kol <- ""
+    set_namn <- " "
+    from_namn <- ""
+    groupby_namn <- ""
+  } else {
+    lagg_till_namn_malpunkt_kol <- paste0(", ADD COLUMN IF NOT EXISTS ", cost_mal_start_tab_ny, "_", namn_malpunkt_kol, " text")
+    set_namn <- paste0(", ", cost_mal_start_tab_ny, "_", namn_malpunkt_kol, " = B.", namn_malpunkt_kol, " ")
+    from_namn <- paste0(", ", namn_malpunkt_kol)
+    groupby_namn <- paste0(", ", namn_malpunkt_kol)
+  }
+  
+  # skapa kolumn om den inte redan finns
+  dbExecute(con_join, paste0("ALTER TABLE ", malpunkt_schema, ".", mal_start_tabell, " ",
+                             "ADD COLUMN IF NOT EXISTS ", cost_mal_start_tab_ny, " double precision", 
+                             lagg_till_namn_malpunkt_kol, ";"))
+  
+  # och så joinar vi på kolumnen från aktuell tabell
+  dbExecute(con_join, paste0("UPDATE ", malpunkt_schema, ".", mal_start_tabell, " AS A ",
+                             "SET ", cost_mal_start_tab_ny, " = B.minavst", set_namn,
+                             "FROM (SELECT DISTINCT ON(", n_narm_tab_startid_kol, ") ",
+                             n_narm_tab_startid_kol, from_namn, ", ", cost_col_n_narmaste_tab, " AS minavst ",
+                             " FROM ", malpunkt_schema, ".", mal_n_narmaste_tab, " ",
+                             "ORDER BY ", n_narm_tab_startid_kol, ", ", cost_col_n_narmaste_tab, ") ",
+                             "AS B ",
+                             "WHERE A.", mal_start_tab_startid_kol, " = B.", n_narm_tab_startid_kol, ";"))
+  
+  
+  # MIN(", cost_col_n_narmaste_tab, ") as minavst, ", n_narm_tab_startid_kol,
+  # from_namn, " FROM ", malpunkt_schema, ".", mal_n_narmaste_tab, " ", 
+  # "GROUP BY ", n_narm_tab_startid_kol, groupby_namn, ") ",
+  # "AS B ",
+  # "WHERE A.", mal_rut_tab_rutid_kol, " = B.", n_narm_tab_startid_kol, ";"))
+  
+  dbDisconnect(con_join)           # stäng postgis-anslutningen igen
+  
+  print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "min"),2) , " minuter att köra funktionen"))
+  
+}
+
+kartifiera <- function(skickad_df, geom_nyckel){
+  
+  kartifiera_regionkoder <- unique(skickad_df[[geom_nyckel]])
+  geom_nyckel_langd <- nchar(kartifiera_regionkoder) %>% unique()
+  
+  if (length(geom_nyckel_langd) > 1) {
+    print("Skickad df:s geom_nyckel kan bara innehålla värden av samma typ. Kontrollera att så är fallet och försök igen.") 
+  } else {
+    
+    # här bestäms vilken karttyp vi har att göra med
+    if (geom_nyckel_langd == 2) kartifiera_karttyp <- "lan"
+    if (geom_nyckel_langd == 4 & all(str_detect(kartifiera_regionkoder, "^[:digit:]+$"))) kartifiera_karttyp <- "kommun" 
+    if (geom_nyckel_langd == 4 & !all(str_detect(kartifiera_regionkoder, "^[:digit:]+$"))) kartifiera_karttyp <- "nuts2"
+    if (geom_nyckel_langd == 9 & !all(str_detect(kartifiera_regionkoder, "^[:digit:]+$"))) kartifiera_karttyp <- "deso"
+    if (geom_nyckel_langd == 8 & !all(str_detect(kartifiera_regionkoder, "^[:digit:]+$"))) kartifiera_karttyp <- "regso"
+    
+    # vi hämtar gislagret för aktuell karttyp, för de geom_nyckelkoder som skickats med
+    gis_lager <- hamta_karta(karttyp = kartifiera_karttyp, regionkoder = kartifiera_regionkoder)
+    
+    # här lägger vi till rader (dvs. tabeller) som ska vara hämtbara från geodatabasen med hamta_karta()-funktionen
+    tabell_df <- hamta_karttabell()
+    
+    df_rad <- suppressWarnings(str_which(tabell_df$sokord, kartifiera_karttyp))             # vi letar upp den rad som parametern karrtyp finns på
+    
+    # om medskickade kartyp inte finns bland sökorden får pg_tabell värdet "finns ej" och då körs inte skriptet nedan
+    if (length(df_rad) == 0) pg_tab_idkol <- "finns ej" else pg_tab_idkol <- tabell_df$id_kol[df_rad] 
+    
+    join_sf <- skickad_df %>% 
+      left_join(gis_lager, by = setNames(pg_tab_idkol, geom_nyckel)) %>% 
+      st_as_sf()
+    
+    return(join_sf)
+  } # slut if-sats om det finns fler längder på geom_nyckel
+}
+
+hamta_karttabell <- function(){
+  
+  # här lägger vi till nya kolumner om det behövs
+  kolumn_namn <- c("namn", "id_kol", "lankol", "kommunkol", "sokord")
+  
+  antal_kol <- length(kolumn_namn)                            # räkna kolumnnamn i vektorn som vi skapar ovan
+  karttabell_df <- as.data.frame(matrix(nrow = 0, ncol = antal_kol)) %>%             # skapa df med 0 rader och lika många kolumner som vi har kolumnnamn ovan
+    setNames(kolumn_namn) %>%                                              # döp kolumnnamn efter vektorn vi skapade ovan
+    mutate(across(1:(antal_kol-1), as.character),                          # alla kolumner ska vara text, utom sista kolumnen som ska vara en lista med sökord
+           sokord = sokord %>% as.list())                                  # som vi initierar här
+  
+  # här lägger vi till rader (dvs. tabeller) som ska vara hämtbara från geodatabasen med hamta_karta()-funktionen
+  karttabell_df <- karttabell_df %>%  
+    add_row(namn = "kommun_scb", id_kol = "knkod", lankol = "lanskod_tx", kommunkol = "knkod", sokord = list(c("kommun", "kommuner", "kommunpolygoner"))) %>% 
+    add_row(namn = "lan_scb", id_kol = "lnkod", lankol = "lnkod", kommunkol = NA, sokord = list(c("lan", "lanspolygoner"))) %>% 
+    add_row(namn = "tatorter_2020", id_kol = "tatortskod", lankol = "lnkod", kommunkol = "kommunkod", sokord = list(c("tatort", "tätort", "tatorter", "tätorter", "tatortspolygoner", "tätortspolygoner"))) %>% 
+    add_row(namn = "regso", id_kol = "regsokod",  lankol = "lan", kommunkol = "kommun", sokord = list(c("regso", "regsopolygoner"))) %>% 
+    add_row(namn = "deso", id_kol = "deso", lankol = "lan", kommunkol = "kommun", sokord = list(c("deso", "desopolygoner"))) %>% 
+    add_row(namn = "nuts2", id_kol = "id", lankol = "id", kommunkol = "cntr_code", sokord = list(c("nuts2", "nuts2-områden")))
+  
+  return(karttabell_df)
+}
+
+
+hamta_karta <- function(karttyp = "kommuner", regionkoder = NA, tabellnamn = NA) {
+  
+  # här lägger vi till rader (dvs. tabeller) som ska vara hämtbara från geodatabasen med hamta_karta()-funktionen
+  tabell_df <- hamta_karttabell()
+  
+  df_rad <- suppressWarnings(str_which(tabell_df$sokord, karttyp))             # vi letar upp den rad som parametern karrtyp finns på
+  
+  # om medskickade kartyp inte finns bland sökorden får pg_tabell värdet "finns ej" och då körs inte skriptet nedan
+  if (length(df_rad) == 0) pg_tabell <- "finns ej" else pg_tabell <- tabell_df$namn[df_rad] 
+  
+  # kontrollera om karttypen som skickats med i funktionen finns, om inte så körs inte skriptet nedan utan ett felmeddelande visas istället
+  if (pg_tabell != "finns ej"){
+    
+    # skriv query utifrån medskickade regionkoder, om ingen är medskickad görs en query för att hämta allt
+    if (all(!is.na(regionkoder)) & all(regionkoder != "00")) {
+      kommunkoder <- regionkoder[nchar(regionkoder) == 4]
+      if (karttyp == "nuts2") kommunkoder <- regionkoder[nchar(regionkoder) == 2]
+      lanskoder <- regionkoder[nchar(regionkoder) == 2 & regionkoder != "00"]
+      if (karttyp == "nuts2") lanskoder <- regionkoder[nchar(regionkoder) == 4]
+    } else {
+      kommunkoder <- NULL
+      lanskoder <- NULL
+    }
+    # if (is.na(kommunkoder)) kommunkoder <- NULL
+    # if (is.na(lanskoder)) lanskoder <- NULL
+    # 
+    grundquery <- paste0("SELECT * FROM karta.", pg_tabell) 
+    
+    if ((length(kommunkoder) == 0) & (length(lanskoder) == 0)) skickad_query <- paste0(grundquery, ";") else {
+      
+      # det finns lan- eller kommunkoder, så vi lägger på ett WHERE på grundqueryn
+      skickad_query <- paste0(grundquery, " WHERE ")
+      
+      # kolla om det finns länskoder i regionkoder, om så lägger vi på länskoder i queryn
+      if (length(lanskoder) != 0 & !is.na(tabell_df$lankol[df_rad])) {
+        skickad_query <- paste0(skickad_query, tabell_df$lankol[df_rad], " IN (", paste0("'", lanskoder, "'", collapse = ", "), ")")
+      }
+      
+      # kolla om det finns både läns- och kommunkoder i regionkoder, i så fall lägger vi till ett OR mellan 
+      # de båda IN-satserna - då måste tabellen ha både kommun- och länskod
+      if ((length(lanskoder) != 0 & !is.na(tabell_df$lankol[df_rad])) & (length(kommunkoder) != 0 & !is.na(tabell_df$kommunkol[df_rad]))) mellanquery <- " OR " else mellanquery <- ""
+      
+      if (length(kommunkoder) != 0 & !is.na(tabell_df$kommunkol[df_rad])){     # om det finns kommunkoder, lägg på det på tidigare query
+        skickad_query <- paste0(skickad_query, mellanquery, tabell_df$kommunkol[df_rad], " IN (", paste0("'", kommunkoder, "'", collapse = ", "), ");")
+      } else {                           # om det inte finns kommunkoder, avsluta med ett semikolon
+        skickad_query <- paste0(skickad_query, ";") 
+      }   
+      
+    } # slut if-sats för om regionkoder är medskickade, om inte så hämtas alla regioner 
+    # query klar, använd inloggningsuppgifter med keyring och skicka med vår serveradress 
+    
+    retur_sf <- suppressWarnings(las_in_postgis_tabell_till_sf_objekt(schema = "karta",
+                                                                      tabell = pg_tabell,
+                                                                      skickad_query = skickad_query,
+                                                                      pg_db_user = key_list(service = "rd_geodata")$username,
+                                                                      pg_db_pwd = key_get("rd_geodata", key_list(service = "rd_geodata")$username),
+                                                                      pg_db_host = "WFALMITVS526.ltdalarna.se",
+                                                                      pg_db_port = 5432,
+                                                                      pg_db_name_db = "geodata"))
+    
+    return(retur_sf)
+    
+    
+  } else {
+    warning(paste0("Karttypen ", karttyp, " finns inte i databasen."))
+  } # slut if-sats karttyp
+  
+} # slut funktion
+
+
+
+las_in_postgis_tabell_till_sf_objekt <- function(
     schema,                 # det schema i vilken tabellen finns som man vill hämta
     tabell,                 # den tabell i postgisdatabasen man vill hämta
     skickad_query = NA,     # om man inte skickar med någon query hämtas hela tabellen
@@ -1274,33 +1274,33 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
     pg_db_host,
     pg_db_port,
     pg_db_name_db){
-   
-   starttid <- Sys.time()
-   
-   con_hamta <- dbConnect(          # use in other settings
-     RPostgres::Postgres(),
-     # without the previous and next lines, some functions fail with bigint data 
-     #   so change int64 to integer
-     bigint = "integer",  
-     user = pg_db_user,
-     password = pg_db_pwd,
-     host = pg_db_host,
-     port = pg_db_port,
-     dbname = pg_db_name_db,
-     options="-c search_path=public") 
-   
-   
-   if (is.na(skickad_query)) skickad_query <- paste0("SELECT * FROM ", schema, ".", tabell)
-   retur_sf <- st_read(con_hamta, query = skickad_query)
-   
-   dbDisconnect(con_hamta)           # stäng postgis-anslutningen igen
-   
-   print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "sec"),2) , " sekunder att läsa in tabellen."))
-   
-   return(retur_sf)
- }
- 
- koppla_kommun_till_geokol_i_tabell <- function(
+  
+  starttid <- Sys.time()
+  
+  con_hamta <- dbConnect(          # use in other settings
+    RPostgres::Postgres(),
+    # without the previous and next lines, some functions fail with bigint data 
+    #   so change int64 to integer
+    bigint = "integer",  
+    user = pg_db_user,
+    password = pg_db_pwd,
+    host = pg_db_host,
+    port = pg_db_port,
+    dbname = pg_db_name_db,
+    options="-c search_path=public") 
+  
+  
+  if (is.na(skickad_query)) skickad_query <- paste0("SELECT * FROM ", schema, ".", tabell)
+  retur_sf <- st_read(con_hamta, query = skickad_query)
+  
+  dbDisconnect(con_hamta)           # stäng postgis-anslutningen igen
+  
+  print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "sec"),2) , " sekunder att läsa in tabellen."))
+  
+  return(retur_sf)
+}
+
+koppla_kommun_till_geokol_i_tabell <- function(
     schema,                              # det schema i vilken tabellen finns som man vill hämta
     tabell,                              # den tabell i postgisdatabasen man vill hämta
     geo_kol,                             # geometrikolumn som ska användas (bör helst vara punktgeometrier)
@@ -1318,58 +1318,638 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
     pg_db_host,
     pg_db_port,
     pg_db_name_db) {
-   
-   starttid <- Sys.time()
-   
-   con_join_kommun <- dbConnect(          # use in other settings
-     RPostgres::Postgres(),
-     # without the previous and next lines, some functions fail with bigint data 
-     #   so change int64 to integer
-     bigint = "integer",  
-     user = pg_db_user,
-     password = pg_db_pwd,
-     host = pg_db_host,
-     port = pg_db_port,
-     dbname = pg_db_name_db,
-     options="-c search_path=public") 
-   
-   if (filter_lan == "") {
-     # om filter_lan är tomt, dvs. vi ska inte göra någon filtrering
-     filter_lan <- paste0(")")
-   } else {
-     # om länskod är medskickad
-     filter_lan <- paste0(") AND k.", kommun_lanskod, " = '", filter_lan, "'")
-   }
-   
-   # vi börjar med att skapa kolumner för kommunkod och kommunnamn
-   dbExecute(con_join_kommun, paste0("ALTER TABLE ", schema, ".", tabell, " ",
-                                     "ADD COLUMN IF NOT EXISTS ", kommunkod_ny_kol, " character varying, ",
-                                     "ADD COLUMN IF NOT EXISTS ", kommunnamn_ny_kol, " character varying;"))
-   
-   # därefter kopplar vi kommunkod till varje punkt i tabellen
-   dbExecute(con_join_kommun, paste0("UPDATE ", schema, ".", tabell, " ",
-                                     "SET ", kommunkod_ny_kol, " = (SELECT ", kommun_kommunkod, " ",
-                                     "FROM ", kommun_schema, ".", kommun_tabell, " AS k ",
-                                     "WHERE st_contains(k.", kommun_geokol, ", ", schema, ".", tabell, ".",
-                                     geo_kol, filter_lan, ");"))
-   
-   # och så kopplar vi även kommunnamn till varje punkt i tabellen
-   dbExecute(con_join_kommun, paste0("UPDATE ", schema, ".", tabell, " ",
-                                     "SET ", kommunnamn_ny_kol, " = (SELECT ", kommun_kommunnamn, " ",
-                                     "FROM ", kommun_schema, ".", kommun_tabell, " AS k ",
-                                     "WHERE st_contains(k.", kommun_geokol, ", ", schema, ".", tabell, ".",
-                                     geo_kol, filter_lan, ");"))
-   
-   dbDisconnect(con_join_kommun)           # stäng postgis-anslutningen igen
-   
-   print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "sec"),2) , " sekunder att koppla kommuner till tabellen."))
-   
- }
- 
- postgis_skapa_schema_om_inte_finns <- function(schema_namn){
-   # kör sql-kod för att skapa ett nytt schema med namn definierat ovan
-   dbExecute(con, paste0("create schema if not exists ", schema_namn, ";"))
- }
- 
- 
+  
+  starttid <- Sys.time()
+  
+  con_join_kommun <- dbConnect(          # use in other settings
+    RPostgres::Postgres(),
+    # without the previous and next lines, some functions fail with bigint data 
+    #   so change int64 to integer
+    bigint = "integer",  
+    user = pg_db_user,
+    password = pg_db_pwd,
+    host = pg_db_host,
+    port = pg_db_port,
+    dbname = pg_db_name_db,
+    options="-c search_path=public") 
+  
+  if (filter_lan == "") {
+    # om filter_lan är tomt, dvs. vi ska inte göra någon filtrering
+    filter_lan <- paste0(")")
+  } else {
+    # om länskod är medskickad
+    filter_lan <- paste0(") AND k.", kommun_lanskod, " = '", filter_lan, "'")
+  }
+  
+  # vi börjar med att skapa kolumner för kommunkod och kommunnamn
+  dbExecute(con_join_kommun, paste0("ALTER TABLE ", schema, ".", tabell, " ",
+                                    "ADD COLUMN IF NOT EXISTS ", kommunkod_ny_kol, " character varying, ",
+                                    "ADD COLUMN IF NOT EXISTS ", kommunnamn_ny_kol, " character varying;"))
+  
+  # därefter kopplar vi kommunkod till varje punkt i tabellen
+  dbExecute(con_join_kommun, paste0("UPDATE ", schema, ".", tabell, " ",
+                                    "SET ", kommunkod_ny_kol, " = (SELECT ", kommun_kommunkod, " ",
+                                    "FROM ", kommun_schema, ".", kommun_tabell, " AS k ",
+                                    "WHERE st_contains(k.", kommun_geokol, ", ", schema, ".", tabell, ".",
+                                    geo_kol, filter_lan, ");"))
+  
+  # och så kopplar vi även kommunnamn till varje punkt i tabellen
+  dbExecute(con_join_kommun, paste0("UPDATE ", schema, ".", tabell, " ",
+                                    "SET ", kommunnamn_ny_kol, " = (SELECT ", kommun_kommunnamn, " ",
+                                    "FROM ", kommun_schema, ".", kommun_tabell, " AS k ",
+                                    "WHERE st_contains(k.", kommun_geokol, ", ", schema, ".", tabell, ".",
+                                    geo_kol, filter_lan, ");"))
+  
+  dbDisconnect(con_join_kommun)           # stäng postgis-anslutningen igen
+  
+  print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "sec"),2) , " sekunder att koppla kommuner till tabellen."))
+  
+}
+
+postgis_skapa_schema_om_inte_finns <- function(schema_namn){
+  # kör sql-kod för att skapa ett nytt schema med namn definierat ovan
+  dbExecute(con, paste0("create schema if not exists ", schema_namn, ";"))
+}
+
+
+
+#============== Funktioner och en wrapper-funktion för att köra DjikstraNearCost på två tabeller med punkter och ett nätverk ============
+# Funktionen avstandsanalys_tva_punkttabeller_ett_natverk() är den funktion som anropar de andra funktionerna,
+# Dessa funktioner kan köras separat men bör isf följa samma ordning som i wrapper-funktionen
+
+# 0. Funktion för att koppla upp mot databasen. Kan användas med defaultvärden enligt nedan eller egna parametrar.
+# Används av andra funktioner som default om inget eget objekt med databasuppkoppling har skickats till dessa funktioner
+# OBS! Ändra default för db_name till "geodata" sen
+uppkoppling_db <- function(
+    service_name = "rd_geodata",
+    db_host = "WFALMITVS526.ltdalarna.se",
+    db_port = 5432,
+    db_name = "praktik",                    # Ändra till "geodata" sen
+    db_options = "-c search_path=public"
+) {
+  
+  tryCatch({
+    # Etablera anslutningen
+    con <- dbConnect(          
+      RPostgres::Postgres(),
+      bigint = "integer",  
+      user = key_list(service = service_name)$username,
+      password = key_get(service_name, key_list(service = service_name)$username),
+      host = db_host,
+      port = db_port,
+      dbname = db_name,
+      options=db_options)
+    
+    # Returnerar anslutningen om den lyckas
+    return(con)
+  }, error = function(e) {
+    # Skriver ut felmeddelandet och returnerar NULL
+    print(paste("Ett fel inträffade vid anslutning till databasen:", e$message))
+    return(NULL)
+  })
+  
+}
+
+# 1. Funktion för att utöka nätverk med nya noder
+hitta_narmaste_punkt_pa_natverk <- function(
+    con = "default",         # Om ingen uppkoppling skickas in används default-uppkopplingen i uppkoppling_db()
+    schema_fran,             # Schemat som innehåller tabellen med punkter
+    tabell_fran,             # Tabell med punkter som skall användas för att utöka ett nätverk/graf
+    geometri_fran = "geometry",# Kolumnen med geometrin i tabell_fran
+    id_fran = "id",          # Kolumnen som innehåller id för tabellen med punkter
+    schema_graf,             # Schemat som innehåller tabellen med nätverket/grafen
+    tabell_graf,             # Tabell med ett nätverk som skall utökas med nya noder från tabell_fran
+    geometri_graf = "geometry",# Kolumnen med geometrin i tabell_graf
+    id_graf = "id",          # Kolumnen som innehåller id för tabellen med grafen
+    tolerans_avstand = 3     # Parameter för toleransen i meter för att skapa nya adresspunkter, används för att 1. Inte skapa ny nod om en existerar inom X m från ny nod och 2. för att skapa kluster av nya noder inom X m från varandra och välja en representant
+) {
+  # Starta tidstagning
+  starttid <- Sys.time()
+  
+  # Sätt en flagga som kontrollerar ifall defaultuppkoppling är använd, isf skall den sättas till true så att vi kan stänga den sen
+  default_flagga = FALSE
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if(is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga = TRUE
+  }
+  
+  
+  dbBegin(con)  # Starta en databastransaktion
+  
+  tryCatch({
+    
+    # Kolla om kolumnen original_id finns i tabell_graf annars skapa den med NULL-värden
+    # Behövs för att behålla id till korrekt segment i originalgrafen för att plocka ut annan info
+    dbExecute(con, glue("DO $$
+                          BEGIN
+                              -- Kontrollera om kolumnen original_id finns i den aktuella grafen
+                              IF NOT EXISTS (
+                                  SELECT 1 
+                                  FROM information_schema.columns 
+                                  WHERE 
+                                      table_schema = '{schema_graf}' AND 
+                                      table_name = '{tabell_graf}' AND 
+                                      column_name = 'original_id'
+                              ) THEN
+                                  -- Om den inte finns, skapa den
+                                  ALTER TABLE {schema_graf}.{tabell_graf} ADD COLUMN original_id INT;
+                              END IF;
+                          END$$;"))
+    
+    # 0. Gör om ZM Linestrings till 2D
+    # dbExecute(con, glue("ALTER TABLE {schema}.{tabell_graf} ALTER COLUMN {geom_kolumn} TYPE geometry(Geometry, 3006) USING ST_Force2D({geom_kolumn});"))
+    # 1 Skapa tabell med alla nya punkter som skall användas för att dela upp vägsegmenten - dvs närmaste punkten på en linje för varje objekt i tabell_fran
+    # Använder tolerans_avstand för att avgöra om den skall lägga in en ny punkt eller "använda" en existerande
+    sql_query <- glue("CREATE TEMP TABLE narmaste_punkt AS
+                      WITH closest_points AS (
+                        SELECT
+                          f.{id_fran} AS adress_id,
+                          g.{id_graf} AS graf_id,
+                          ST_ClosestPoint(g.{geometri_graf}, f.{geometri_fran}) AS punkt_pa_natverk,
+                          ST_DWithin(ST_ClosestPoint(g.{geometri_graf}, f.{geometri_fran}), ST_StartPoint(g.{geometri_graf}), {tolerans_avstand}) AS is_near_start_point,
+                          ST_DWithin(ST_ClosestPoint(g.{geometri_graf}, f.{geometri_fran}), ST_EndPoint(g.{geometri_graf}), {tolerans_avstand}) AS is_near_end_point
+                        FROM
+                          {schema_fran}.{tabell_fran} f,
+                          LATERAL (
+                            SELECT g.{id_graf}, g.{geometri_graf}
+                            FROM {schema_graf}.{tabell_graf}  g
+                            ORDER BY f.{geometri_fran} <-> g.{geometri_graf}
+                            LIMIT 1
+                          ) AS g
+                      )
+                      SELECT adress_id, graf_id, punkt_pa_natverk
+                      FROM closest_points
+                      WHERE NOT is_near_start_point AND NOT is_near_end_point;
+                      ")
+    
+    dbExecute(con, sql_query)
+    print("Nya punkter hittade på nätverket. Skapar kluster och indexerar position på linjerna...")
+    # 2 Skapa kluster av alla nya punkter som ligger inom tolerans_avstånd meter ifrån varandra och välj en av dessa som representant
+    # OBS! Kluster beräknas på att de ligger på samma linje för att undvika att den klustrar med en punkt på en annan linje.
+    # Räkna samtidigt ut dess relativa position på linjen (0-1) som används i nästa steg för att skapa nya linjer
+    #- tester har gett att med en tolerans på 1 m -> 5% färre nya punkter, 2 m -> 10% färre punkter
+    # Borde kunna gå att räkna ut centroiden i clustret och sedan hitta den närmaste punkten på vägnätverket om man vill ha en bättre "medelpunkt"
+    sql_cluster <- glue("CREATE TEMP TABLE klusterpunkt AS
+                      WITH clusters AS ( -- Skapar kluster av punkter inom tolerans_avstånd meter från varandra - minsta antalet 1 så att alla punkter kommer med
+                        SELECT
+                          ST_ClusterDBSCAN(punkt_pa_natverk, eps := {tolerans_avstand}, minpoints := 1) OVER(PARTITION BY graf_id) AS cid,
+                          punkt_pa_natverk,
+                          graf_id
+                        FROM
+                          narmaste_punkt
+                      ), cluster_centroids AS ( -- Hittar centroiden i alla kluster
+                        SELECT
+                          cid,
+                          graf_id,
+                          ST_Centroid(ST_Collect(punkt_pa_natverk)) AS centroid
+                        FROM clusters
+                        GROUP BY cid, graf_id
+                      ), representant_punkter AS ( -- Välj ut den punkt i klustret som är närmast centroiden som respresentant. Sätt också dess relativa position på 'gamla' linjen (line_location) för att kunna i nästa steg skapa en substring
+                        SELECT DISTINCT ON (c.cid, c.graf_id)
+                          c.cid,
+                          c.graf_id,
+                          n.original_id,
+                          c.punkt_pa_natverk AS representant_punkt,
+                          ST_LineLocatePoint(n.{geometri_graf}, c.punkt_pa_natverk) AS line_location
+                        FROM clusters c
+                        JOIN {schema_graf}.{tabell_graf} n ON c.graf_id = n.id
+                        JOIN cluster_centroids cc ON c.cid = cc.cid AND c.graf_id = cc.graf_id
+                        ORDER BY c.cid, c.graf_id, ST_Distance(c.punkt_pa_natverk, cc.centroid)
+                      )
+                      SELECT
+                        cid,
+                        graf_id,
+                        original_id,
+                        representant_punkt,
+                        line_location
+                      FROM representant_punkter
+                      ORDER BY graf_id, line_location; -- Se till att sortera alla nya punkter med dess relativa position inför nästa steg
+                  ")
+    
+    dbExecute(con, sql_cluster)
+    print("Kluster beräknade och position på nätverket indexerad. Skapar nytt nätverk...")
+    # 3 Splitta linjer för nya segment utifrån de närmaste punkterna -> det nya nätverket. 
+    # ID till original-nätverket sparas i original_id för att kunna användas vid join för att hämta ex.vis hastighet
+    tabell_ny_natverk <- glue("{tabell_graf}_{tabell_fran}")
+    
+    # Kontrollera ifall den nya tabellen redan finns, isf DROPPA den
+    
+    res <- dbGetQuery(con, glue("SELECT table_name FROM information_schema.tables WHERE table_schema = '{schema_graf}' AND table_name = '{tabell_ny_natverk}';"))
+    
+    if (nrow(res) == 1) {
+      dbExecute(con, glue("DROP TABLE {schema_graf}.{tabell_ny_natverk};"))
+      print(glue("Tabellen {tabell_ny_natverk} fanns redan och har tagits bort."))
+    }
+    
+    # 4. Skapa den nya tabellen som innehåller den nya grafen som skapats utifrån de närmaste punkterna i tabell_fran
+    sql_create_table <- glue("CREATE TABLE {schema_graf}.{tabell_ny_natverk} AS 
+                            WITH locus AS (
+                              SELECT {id_graf} AS gid, original_id, 0 as l
+                              FROM {schema_graf}.{tabell_graf}
+                              UNION ALL
+                              SELECT {id_graf} AS gid, original_id, 1 as l
+                              FROM {schema_graf}.{tabell_graf}
+                              UNION ALL
+                              SELECT graf_id AS gid, original_id, line_location as l
+                              FROM klusterpunkt
+                            ),
+                            loc_with_idx AS (
+                              SELECT gid, original_id, l, rank() OVER (PARTITION BY gid ORDER BY l) AS idx
+                              FROM locus
+                            )
+                            SELECT
+                              ROW_NUMBER() OVER (ORDER BY loc1.gid, loc1.idx) AS {id_graf}, -- Lägger till nytt 'id' som räknare
+                              loc1.gid,
+                              COALESCE(loc1.original_id, loc1.gid) AS original_id,
+                              ST_LineSubstring(
+                                n.{geometri_graf}, 
+                                loc1.l, 
+                                loc2.l
+                              ) AS {geometri_graf}
+                            FROM 
+                              loc_with_idx loc1 JOIN loc_with_idx loc2 USING (gid)
+                            JOIN 
+                              {schema_graf}.{tabell_graf} n ON loc1.gid = n.{id_graf}
+                            WHERE loc2.idx = loc1.idx+1;
+                        ")
+    
+    dbExecute(con, sql_create_table)
+    
+    # Lägg till index på geometrin i det nya nätverket
+    dbExecute (con, glue("CREATE INDEX {tabell_ny_natverk}_geometry_idx ON {schema_graf}.{tabell_ny_natverk} USING GIST({geometri_graf});"))
+    print(glue("Nytt nätverk {tabell_ny_natverk} skapat."))
+    
+    
+    dbCommit(con)  # Bekräfta transaktionen
+  }, error = function(e) {
+    dbRollback(con)  # Ångra transaktionen vid fel
+    cat("Det uppstod ett fel under processen: ", e$message)
+  })
+  # Droppa temp-tabellerna om de ff finns kvar
+  dbExecute(con, glue("DROP TABLE IF EXISTS narmaste_punkt;"))
+  dbExecute(con, glue("DROP TABLE IF EXISTS klusterpunkt;"))
+  # Koppla ner om defaultuppkopplingen har använts
+  if(default_flagga){
+    dbDisconnect(con)
+  }
+  
+  
+  # Beräkna och skriv ut tidsåtgång
+  sluttid <- Sys.time()
+  tidstagning <- sluttid - starttid
+  message(sprintf("Processen tog %s att köra", tidstagning))
+}
+
+# 2. FUnktion för att skapa graf av tabell med linjer, ex.vis nvdb
+postgis_tabell_till_pgrgraf <- function(
+    con = "default",              # Möjlighet att skicka in en redan etablerad uppkoppling mot db, annars används defaultuppkopplingen i uppkoppling_db()
+    schema_graf = "nvdb",         # Vilket schema ligger tabellen i. Default: nvdb
+    tabell_graf = "nvdb20buff30", # Tabellen som ska förberedas för pgrouting. Default: nvdb20buff30
+    id_graf = "id",               # Kolumnen med id i graf-tabellen
+    geom_kolumn = "geometry",         # Namn på kolumnen som innehåller geometrin
+    tolerans = 0.001           # Toleransvärdet för hur nära segment måste vara för att ansluta. 
+){
+  
+  # Sätt en flagga som kontrollerar ifall defaultuppkoppling är använd, isf skall den sättas till true så att vi kan stänga den sen
+  default_flagga = FALSE
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if(is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga = TRUE
+  }
+  
+  # Skapa topologi till pgrouting, från G:\skript\gis\postgis\pgrouting test.R 
+  # Använder BEGIN och COMMIT tillsammans med tryCatch för att säkerställa att allt görs eller inget
+  tryCatch({
+    dbBegin(con)
+    # Kolla om topologi-tabellen redan finns, isf ta bort den
+    res <- dbGetQuery(con, glue("SELECT table_name FROM information_schema.tables WHERE table_schema = '{schema_graf}' AND table_name = '{tabell_graf}_vertices_pgr';"))
+    
+    if (nrow(res) == 1) {
+      dbExecute(con, glue("DROP TABLE {schema_graf}.{tabell_graf}_vertices_pgr;"))
+      print(glue("Tabellen {tabell_graf}_vertices_pgr fanns redan och har tagits bort."))
+    }
+    
+    # Ta bort zm-värden från geometrin - krävs för pgrouting
+    dbExecute(con, glue("ALTER TABLE {schema_graf}.{tabell_graf} ALTER COLUMN {geom_kolumn} TYPE geometry(Geometry, 3006) USING ST_Force2D({geom_kolumn});"))
+    # Skapa index på geometrin
+    dbExecute(con, glue("CREATE INDEX {tabell_graf}_{geom_kolumn} ON {schema_graf}.{tabell_graf} USING GIST ({geom_kolumn});"))
+    
+    # se till att id är av typen integer
+    dbExecute(con, glue("ALTER TABLE {schema_graf}.{tabell_graf} ALTER COLUMN {id_graf} TYPE integer USING id::integer;"))
+    # lägg till kolumnen "source"
+    dbExecute(con, glue("ALTER TABLE {schema_graf}.{tabell_graf} ADD COLUMN IF NOT EXISTS source integer;"))
+    # lägg till kolumnen "target"
+    dbExecute(con, glue("ALTER TABLE {schema_graf}.{tabell_graf} ADD COLUMN IF NOT EXISTS target integer;"))
+    # skapa topologi i pgrouting
+    dbExecute(con, glue("SELECT pgr_createTopology('{schema_graf}.{tabell_graf}', '{tolerans}', '{geom_kolumn}', '{id_graf}');"))
+    
+    # analysera den nyligen skapade topologin
+    dbExecute(con, glue("SELECT pgr_analyzeGraph('{schema_graf}.{tabell_graf}', {tolerans}, the_geom := '{geom_kolumn}', id := '{id_graf}');"))
+    
+    # Skapa kolumn för kostnad i meter
+    dbExecute(con, glue("ALTER TABLE {schema_graf}.{tabell_graf} ADD COLUMN IF NOT EXISTS kostnad_meter double precision;"))
+    # Sätt kostnad i meter för varje segment
+    dbExecute(con, glue("UPDATE {schema_graf}.{tabell_graf} SET kostnad_meter = ST_Length({geom_kolumn});"))
+    
+    
+    #Om allt gått bra, committa
+    dbCommit(con)
+    
+    #Om något fel skett i blocket, kör en rollback
+  }, error = function(e) {
+    dbRollback(con)
+    stop("Transaktionen misslyckades: ", e$message)
+  }, finally = {
+    
+    # Koppla ner om defaultuppkopplingen har använts
+    if(default_flagga){
+      dbDisconnect(con)
+      print("Uppkopplingen avslutad!")
+    }
+    
+  }
+  )
+}
+
+# 3. Funktion för att koppla tabell med punkter till pgRoutinggraf
+koppla_punkttabell_till_pgr_graf <- 
+  function(con = "default", # Möjlighet att skicka in en redan etablerad uppkoppling mot db, annars används defaultuppkopplingen i uppkoppling_db()
+           schema_punkter,
+           tabell_punkter,   
+           geom_kolumn = "geometry",
+           schema_natverk = "nvdb",
+           tabell_natverk = "nvdb20buff30"
+  ){
+    
+    # Sätt en flagga som kontrollerar ifall defaultuppkoppling är använd, isf skall den sättas till true så att vi kan stänga den sen
+    default_flagga = FALSE
+    # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+    if(is.character(con) && con == "default") {
+      con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+      default_flagga = TRUE
+    }
+    
+    # gör en spatial join för mittpunkten i rutorna till nvdb ====================
+    tryCatch({
+      dbBegin(con)
+      # vi börjar med att skapa en ny kolumn i den nya tabellen
+      dbExecute(con, glue("ALTER TABLE {schema_punkter}.{tabell_punkter} ADD COLUMN IF NOT EXISTS toponode_id bigint;"))
+      # Töm kolumnen om där redan finns värden
+      dbExecute(con, glue("UPDATE {schema_punkter}.{tabell_punkter} SET toponode_id = NULL;"))
+      # därefter gör vi en spatial join från mittpunkten till noderna i nvdb
+      dbExecute(con, glue("UPDATE {schema_punkter}.{tabell_punkter} 
+                          SET toponode_id = (
+                            SELECT {schema_natverk}.{tabell_natverk}_vertices_pgr.id 
+                            FROM {schema_natverk}.{tabell_natverk}_vertices_pgr 
+                            ORDER BY {schema_punkter}.{tabell_punkter}.{geom_kolumn} <-> 
+                            {schema_natverk}.{tabell_natverk}_vertices_pgr.the_geom ASC NULLS LAST 
+                            LIMIT 1);"))
+      # Om allt gått bra, committa
+      dbCommit(con)
+    }, error = function(e) {
+      # Om något gått fel under processen, återställ databasen till innan denna funktion
+      dbRollback(con)
+      print("Transaktionen misslyckades: ", e$message)
+    }) 
+    
+    # Koppla ner om defaultuppkopplingen har använts
+    if(default_flagga){
+      dbDisconnect(con)
+      print("Uppkopplingen avslutad.")
+    }
+    
+  } # slut funktion
+
+# 4. Funktion för att köra DjistraNearCost på två st tabeller med punkter och ett nätverk
+berakna_pgr_djikstranearcost_batch <- function(
+    con = "default",
+    schema_fran,
+    tabell_fran,
+    schema_till,
+    tabell_till,
+    schema_graf,
+    tabell_graf,
+    id_graf,
+    batch_storlek = 1000  # Ny parameter för batch-storlek
+){
+  # Starta tidstagning
+  starttid <- Sys.time()
+  
+  # Sätt en flagga som kontrollerar ifall defaultuppkoppling är använd, isf skall den sättas till true så att vi kan stänga den sen
+  default_flagga = FALSE
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if(is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga = TRUE
+  }
+  
+  # Skapa en ny tabell med alla unika toponode_id i tabell_fran om den inte redan finns. Om den finns så töm tabellen först
+  # 1. SKapa den nya tabellens namn, en kombination av de två tabellerna fran och till
+  tabell_ny <- glue("{tabell_fran}_{tabell_till}")
+  
+  # 2. Kolla om den redan finns, isf töm den
+  res <- dbGetQuery(con, glue("SELECT table_name FROM information_schema.tables WHERE table_schema = '{schema_fran}' AND table_name = '{tabell_ny}';"))
+  if (nrow(res) == 0) {
+    # Skapa den nya tabellen med samma kolumnnamn som djikstra_result
+    dbExecute(con, glue("CREATE table IF NOT EXISTS {schema_fran}.{tabell_ny}(
+	                          start_vid int,
+	                          end_vid int,
+	                          agg_cost double precision
+                        );"))
+    
+    print(glue("Tabellen {tabell_ny} har skapats."))
+  } else {
+    dbExecute(con, glue("TRUNCATE TABLE {schema_fran}.{tabell_ny};"))
+    print(glue("Tabellen {tabell_ny} fanns redan och har tömts på värden."))
+  }
+  # Skapa temporära tabeller för toponode_idn från tabell_fran och tabell_till, skall användas i djikstranearcost
+  temp_fran <- glue("temp_{tabell_fran}")
+  dbExecute(con, glue("CREATE TEMP TABLE {temp_fran} AS SELECT DISTINCT toponode_id FROM {schema_fran}.{tabell_fran};"))
+  temp_till <- glue("temp_{tabell_till}")
+  dbExecute(con, glue("CREATE TEMP TABLE {temp_till} AS SELECT DISTINCT toponode_id FROM {schema_till}.{tabell_till};"))
+  
+  # Skapa index till temptabellerna, behöver ej droppas efter de försvinner automagiskt när tabellen droppas
+  dbExecute(con, glue("CREATE INDEX temp_fran_toponode_idx ON {temp_fran}(toponode_id);"))
+  dbExecute(con, glue("CREATE INDEX temp_till_toponode_idx ON {temp_till}(toponode_id)"))
+  
+  # Skapa förutsättningar för batchkörning
+  # Räkna antalet rader i tabell_ny
+  antal_noder <- dbGetQuery(con, glue("SELECT COUNT(*) as antal FROM {temp_fran}"))$antal
+  
+  # Beräkna antalet batcher
+  antal_batcher <- ceiling(antal_noder / batch_storlek)
+  
+  print(glue("Letar efter kortaste vägen från {antal_noder} noder i {antal_batcher} batcher."))
+  ###
+  for(i in 1:antal_batcher){
+    
+    tryCatch({
+      offset <- (i - 1) * batch_storlek
+      
+      # Kör DJikstraNearCost med start- och slutvid från temptabellerna med unika noder och stoppa in i tabell_ny
+      sql_query <-  glue("INSERT INTO {schema_fran}.{tabell_ny} (start_vid, end_vid, agg_cost)
+                            SELECT
+                                start_vid,
+                                end_vid,
+                                agg_cost
+                            FROM pgr_dijkstraNearCost(
+                                'SELECT {id_graf}, source, target, kostnad_meter AS cost FROM {schema_graf}.{tabell_graf}',
+                                ARRAY(SELECT toponode_id FROM {temp_fran} LIMIT {batch_storlek} OFFSET {offset})::INT[],
+                                ARRAY(SELECT toponode_id FROM {temp_till})::INT[],
+                                directed => false,
+                                global => false
+                            ) AS djikstra_result;")
+      
+      dbExecute(con, sql_query)
+      print(glue("Batch {i} av {antal_batcher} bearbetad."))
+      #Sys.sleep(90)
+    }, warning = function(w) {
+      message("Varning upptäckt: ", w)
+    }, error = function(e) {
+      
+      print(glue("Fel under bearbetning av batch {i}: ", e$message))
+    }
+    )
+  }
+  #####
+  
+  # Leta noder där start och slutnod är samma och sätt kostnad till 0
+  sql_query <- glue("INSERT INTO {schema_fran}.{tabell_ny} (start_vid, end_vid, agg_cost)
+                        SELECT t.toponode_id, tt.toponode_id, 0
+                        FROM {temp_till} tt
+                        INNER JOIN {temp_fran} t ON tt.toponode_id = t.toponode_id
+                        WHERE NOT EXISTS (
+                            SELECT 1
+                            FROM {schema_fran}.{tabell_ny} ny
+                            WHERE ny.start_vid = t.toponode_id
+                        );")
+  #print (sql_query)
+  dbExecute(con, sql_query)
+  # Droppa temptabellen
+  dbExecute(con, glue("DROP TABLE IF EXISTS {temp_fran};"))
+  dbExecute(con, glue("DROP TABLE IF EXISTS {temp_till};"))
+  
+  # Kolla hur många rader som finns i den nya tabellen, bör stämma med antalet unika noder
+  antal_rader <- dbGetQuery(con, glue("SELECT COUNT(*) as antal FROM {schema_fran}.{tabell_ny}"))$antal
+  
+  print(glue("Det tog {round(difftime(Sys.time(), starttid, units = \"auto\"),1)} minuter att fylla tabellen {schema_fran}.{tabell_ny} med {antal_rader} rader, att jämföra med {antal_noder} unika noder."))
+  
+  if(antal_rader != antal_noder){
+    print("Det finns en differens mellan förväntat och faktiskt resultat vilket indikerar att något blivit fel.")
+  }
+  
+  # Koppla ner om defaultuppkopplingen har använts
+  if(default_flagga){
+    dbDisconnect(con)
+    print("Uppkopplingen avslutad.")
+  }
+  
+  
+}
+
+# Wrapper-funktion för att köra djikstraNearCost på två tabeller med punkter och ett nätverk
+avstandsanalys_tva_punkttabeller_ett_natverk <- function(
+    w_con = "default",     # Om ingen uppkoppling skickas in används default-uppkopplingen i uppkoppling_db()
+    schema_fran,           # Schemat som innehåller från-tabellen med punkter
+    tabell_fran,           # Tabell med punkter som analysen använder som "från"
+    id_fran,               # Kolumnen som innehåller id för från-tabellen
+    geometri_fran,         # Kolumnen som innehåller geometrin för från-tabellen
+    schema_till,           # Schemat som innehåller till-tabellen med punkter
+    tabell_till,           # Tabell med punkter som analysen använder som "till"
+    id_till,               # Kolumnen som innehåller id för till-tabellen
+    geometri_till,         # Kolumnen som innehåller geometrin för till-tabellen
+    schema_graf,           # Schemat som innehåller tabellen med nätverket/grafen
+    tabell_graf,           # Tabell med ett nätverk som avståndsanalysen ska köras på
+    id_graf,               # Kolumnen som innehåller id för nätverkstabellen
+    geometri_graf,         # Kolumnen som innehåller geometrin för nätverkstabellen
+    tolerans_avstand = 3   # Toleransen i meter för gränsvärde när den skall skapa nya noder
+)
+{
+  # Hantera uppkoppling, är den default så anropa uppkoppling_db() med defaultvärden
+  if(is.character(w_con) && w_con == "default") {
+    w_con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+  }
+  
+  # Variabler som innehåller nya tabellnamn deriverade från de tabeller som skickas in
+  mellan_graf = glue("{tabell_graf}_{tabell_fran}")  # Resultatet av den första körningen av hitta_narmaste_punkt_pa_natverk(), skickas till den andra körningen
+  slutlig_graf = glue("{mellan_graf}_{tabell_till}") # # Resultatet av den andra körningen av hitta_narmaste_punkt_pa_natverk()
+  
+  # Då wrapper-funktionen använder samma parameternamn som underfunktionerna behövs de sparas ner i en lista "args"
+  args <- as.list(match.call())[-1]
+  
+  # 1. SKapa nytt nätverk med från-tabellen 
+  hitta_narmaste_punkt_pa_natverk(
+    con = w_con,
+    schema_fran = args$schema_fran,
+    tabell_fran = args$tabell_fran,
+    geometri_fran = args$geometri_fran,
+    id_fran = args$id_fran,
+    schema_graf = args$schema_graf,
+    tabell_graf = args$tabell_graf,
+    geometri_graf = args$geometri_graf,
+    id_graf = args$id_graf,
+    tolerans_avstand = args$tolerans_avstand
+  )
+  
+  
+  # 2. SKapa nytt nätverk med till-tabellen och utgå ifrån det nya nätverket skapat i steg 1
+  hitta_narmaste_punkt_pa_natverk(
+    con = w_con,
+    schema_fran = args$schema_till,
+    tabell_fran = args$tabell_till,
+    geometri_fran = args$geometri_till,
+    id_fran = args$id_till,
+    schema_graf = args$schema_graf,
+    tabell_graf = mellan_graf,
+    geometri_graf = args$geometri_graf,
+    id_graf = args$id_graf,
+    tolerans_avstand = args$tolerans_avstand
+  )
+  
+  # 3. Koppla det nya nätverket från steg 2 till en pgrgraf
+  postgis_tabell_till_pgrgraf(
+    con = w_con,
+    geom_kolumn = geometri_graf, 
+    schema_graf = args$schema_graf,
+    tabell_graf = slutlig_graf,
+  )
+  
+  # 4. Koppla tabell_fran till pgr_grafen
+  koppla_punkttabell_till_pgr_graf(
+    con = w_con,
+    schema_punkter = schema_fran,
+    tabell_punkter = tabell_fran,   
+    geom_kolumn = geometri_fran,
+    schema_natverk = schema_graf,
+    tabell_natverk = slutlig_graf
+  ) 
+  
+  # 5. Koppla tabell_till till pgr_grafen
+  koppla_punkttabell_till_pgr_graf(
+    con = w_con,
+    schema_punkter = schema_till,
+    tabell_punkter = tabell_till,   
+    geom_kolumn = geometri_till,
+    schema_natverk = schema_graf,
+    tabell_natverk = slutlig_graf
+  )
+  
+  # 6. Kör pgr_djikstranearcost på resultatet av tidigare steg
+  berakna_pgr_djikstranearcost_batch(
+    con = w_con,
+    schema_fran = args$schema_fran,
+    tabell_fran = args$tabell_fran,
+    schema_till = args$schema_till,
+    tabell_till = args$tabell_till,
+    schema_graf = args$schema_graf,
+    tabell_graf = slutlig_graf,
+    id_graf = args$id_graf
+  )
+  
+  # Koppla ner
+  dbDisconnect(w_con)
+  print("Uppkoppling avslutad.")
+}
  
