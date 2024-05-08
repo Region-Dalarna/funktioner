@@ -1410,6 +1410,110 @@ uppkoppling_db <- function(
   
 }
 
+# Wrapper-funktion för att köra djikstraNearCost på två tabeller med punkter och ett nätverk
+avstandsanalys_tva_punkttabeller_ett_natverk <- function(
+    w_con = "default",     # Om ingen uppkoppling skickas in används default-uppkopplingen i uppkoppling_db()
+    schema_fran,           # Schemat som innehåller från-tabellen med punkter
+    tabell_fran,           # Tabell med punkter som analysen använder som "från"
+    id_fran,               # Kolumnen som innehåller id för från-tabellen
+    geometri_fran,         # Kolumnen som innehåller geometrin för från-tabellen
+    schema_till,           # Schemat som innehåller till-tabellen med punkter
+    tabell_till,           # Tabell med punkter som analysen använder som "till"
+    id_till,               # Kolumnen som innehåller id för till-tabellen
+    geometri_till,         # Kolumnen som innehåller geometrin för till-tabellen
+    schema_graf,           # Schemat som innehåller tabellen med nätverket/grafen
+    tabell_graf,           # Tabell med ett nätverk som avståndsanalysen ska köras på
+    id_graf,               # Kolumnen som innehåller id för nätverkstabellen
+    geometri_graf,         # Kolumnen som innehåller geometrin för nätverkstabellen
+    tolerans_avstand = 3   # Toleransen i meter för gränsvärde när den skall skapa nya noder
+)
+{
+  # Hantera uppkoppling, är den default så anropa uppkoppling_db() med defaultvärden
+  if(is.character(w_con) && w_con == "default") {
+    w_con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+  }
+  
+  # Variabler som innehåller nya tabellnamn deriverade från de tabeller som skickas in
+  mellan_graf = glue("{tabell_graf}_{tabell_fran}")  # Resultatet av den första körningen av hitta_narmaste_punkt_pa_natverk(), skickas till den andra körningen
+  slutlig_graf = glue("{mellan_graf}_{tabell_till}") # # Resultatet av den andra körningen av hitta_narmaste_punkt_pa_natverk()
+  
+  # Då wrapper-funktionen använder samma parameternamn som underfunktionerna behövs de sparas ner i en lista "args"
+  args <- as.list(match.call())[-1]
+  
+  # 1. SKapa nytt nätverk med från-tabellen 
+  hitta_narmaste_punkt_pa_natverk(
+    con = w_con,
+    schema_fran = args$schema_fran,
+    tabell_fran = args$tabell_fran,
+    geometri_fran = args$geometri_fran,
+    id_fran = args$id_fran,
+    schema_graf = args$schema_graf,
+    tabell_graf = args$tabell_graf,
+    geometri_graf = args$geometri_graf,
+    id_graf = args$id_graf,
+    tolerans_avstand = args$tolerans_avstand
+  )
+  
+  
+  # 2. SKapa nytt nätverk med till-tabellen och utgå ifrån det nya nätverket skapat i steg 1
+  hitta_narmaste_punkt_pa_natverk(
+    con = w_con,
+    schema_fran = args$schema_till,
+    tabell_fran = args$tabell_till,
+    geometri_fran = args$geometri_till,
+    id_fran = args$id_till,
+    schema_graf = args$schema_graf,
+    tabell_graf = mellan_graf,
+    geometri_graf = args$geometri_graf,
+    id_graf = args$id_graf,
+    tolerans_avstand = args$tolerans_avstand
+  )
+  
+  # 3. Koppla det nya nätverket från steg 2 till en pgrgraf
+  postgis_tabell_till_pgrgraf(
+    con = w_con,
+    geom_kolumn = geometri_graf, 
+    schema_graf = args$schema_graf,
+    tabell_graf = slutlig_graf,
+  )
+  
+  # 4. Koppla tabell_fran till pgr_grafen
+  koppla_punkttabell_till_pgr_graf(
+    con = w_con,
+    schema_punkter = schema_fran,
+    tabell_punkter = tabell_fran,   
+    geom_kolumn = geometri_fran,
+    schema_natverk = schema_graf,
+    tabell_natverk = slutlig_graf
+  ) 
+  
+  # 5. Koppla tabell_till till pgr_grafen
+  koppla_punkttabell_till_pgr_graf(
+    con = w_con,
+    schema_punkter = schema_till,
+    tabell_punkter = tabell_till,   
+    geom_kolumn = geometri_till,
+    schema_natverk = schema_graf,
+    tabell_natverk = slutlig_graf
+  )
+  
+  # 6. Kör pgr_djikstranearcost på resultatet av tidigare steg
+  berakna_pgr_djikstranearcost_batch(
+    con = w_con,
+    schema_fran = args$schema_fran,
+    tabell_fran = args$tabell_fran,
+    schema_till = args$schema_till,
+    tabell_till = args$tabell_till,
+    schema_graf = args$schema_graf,
+    tabell_graf = slutlig_graf,
+    id_graf = args$id_graf
+  )
+  
+  # Koppla ner
+  dbDisconnect(w_con)
+  print("Uppkoppling avslutad.")
+}
+
 # 1. Funktion för att utöka nätverk med nya noder
 hitta_narmaste_punkt_pa_natverk <- function(
     con = "default",         # Om ingen uppkoppling skickas in används default-uppkopplingen i uppkoppling_db()
@@ -1458,7 +1562,7 @@ hitta_narmaste_punkt_pa_natverk <- function(
                           END$$;"))
     
     # 0. Gör om ZM Linestrings till 2D
-    # dbExecute(con, glue("ALTER TABLE {schema}.{tabell_graf} ALTER COLUMN {geom_kolumn} TYPE geometry(Geometry, 3006) USING ST_Force2D({geom_kolumn});"))
+    dbExecute(con, glue("ALTER TABLE {schema}.{tabell_graf} ALTER COLUMN {geom_kolumn} TYPE geometry(Geometry, 3006) USING ST_Force2D({geom_kolumn});"))
     # 1 Skapa tabell med alla nya punkter som skall användas för att dela upp vägsegmenten - dvs närmaste punkten på en linje för varje objekt i tabell_fran
     # Använder tolerans_avstand för att avgöra om den skall lägga in en ny punkt eller "använda" en existerande
     sql_query <- glue("CREATE TEMP TABLE narmaste_punkt AS
@@ -1848,108 +1952,3 @@ berakna_pgr_djikstranearcost_batch <- function(
   
   
 }
-
-# Wrapper-funktion för att köra djikstraNearCost på två tabeller med punkter och ett nätverk
-avstandsanalys_tva_punkttabeller_ett_natverk <- function(
-    w_con = "default",     # Om ingen uppkoppling skickas in används default-uppkopplingen i uppkoppling_db()
-    schema_fran,           # Schemat som innehåller från-tabellen med punkter
-    tabell_fran,           # Tabell med punkter som analysen använder som "från"
-    id_fran,               # Kolumnen som innehåller id för från-tabellen
-    geometri_fran,         # Kolumnen som innehåller geometrin för från-tabellen
-    schema_till,           # Schemat som innehåller till-tabellen med punkter
-    tabell_till,           # Tabell med punkter som analysen använder som "till"
-    id_till,               # Kolumnen som innehåller id för till-tabellen
-    geometri_till,         # Kolumnen som innehåller geometrin för till-tabellen
-    schema_graf,           # Schemat som innehåller tabellen med nätverket/grafen
-    tabell_graf,           # Tabell med ett nätverk som avståndsanalysen ska köras på
-    id_graf,               # Kolumnen som innehåller id för nätverkstabellen
-    geometri_graf,         # Kolumnen som innehåller geometrin för nätverkstabellen
-    tolerans_avstand = 3   # Toleransen i meter för gränsvärde när den skall skapa nya noder
-)
-{
-  # Hantera uppkoppling, är den default så anropa uppkoppling_db() med defaultvärden
-  if(is.character(w_con) && w_con == "default") {
-    w_con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
-  }
-  
-  # Variabler som innehåller nya tabellnamn deriverade från de tabeller som skickas in
-  mellan_graf = glue("{tabell_graf}_{tabell_fran}")  # Resultatet av den första körningen av hitta_narmaste_punkt_pa_natverk(), skickas till den andra körningen
-  slutlig_graf = glue("{mellan_graf}_{tabell_till}") # # Resultatet av den andra körningen av hitta_narmaste_punkt_pa_natverk()
-  
-  # Då wrapper-funktionen använder samma parameternamn som underfunktionerna behövs de sparas ner i en lista "args"
-  args <- as.list(match.call())[-1]
-  
-  # 1. SKapa nytt nätverk med från-tabellen 
-  hitta_narmaste_punkt_pa_natverk(
-    con = w_con,
-    schema_fran = args$schema_fran,
-    tabell_fran = args$tabell_fran,
-    geometri_fran = args$geometri_fran,
-    id_fran = args$id_fran,
-    schema_graf = args$schema_graf,
-    tabell_graf = args$tabell_graf,
-    geometri_graf = args$geometri_graf,
-    id_graf = args$id_graf,
-    tolerans_avstand = args$tolerans_avstand
-  )
-  
-  
-  # 2. SKapa nytt nätverk med till-tabellen och utgå ifrån det nya nätverket skapat i steg 1
-  hitta_narmaste_punkt_pa_natverk(
-    con = w_con,
-    schema_fran = args$schema_till,
-    tabell_fran = args$tabell_till,
-    geometri_fran = args$geometri_till,
-    id_fran = args$id_till,
-    schema_graf = args$schema_graf,
-    tabell_graf = mellan_graf,
-    geometri_graf = args$geometri_graf,
-    id_graf = args$id_graf,
-    tolerans_avstand = args$tolerans_avstand
-  )
-  
-  # 3. Koppla det nya nätverket från steg 2 till en pgrgraf
-  postgis_tabell_till_pgrgraf(
-    con = w_con,
-    geom_kolumn = geometri_graf, 
-    schema_graf = args$schema_graf,
-    tabell_graf = slutlig_graf,
-  )
-  
-  # 4. Koppla tabell_fran till pgr_grafen
-  koppla_punkttabell_till_pgr_graf(
-    con = w_con,
-    schema_punkter = schema_fran,
-    tabell_punkter = tabell_fran,   
-    geom_kolumn = geometri_fran,
-    schema_natverk = schema_graf,
-    tabell_natverk = slutlig_graf
-  ) 
-  
-  # 5. Koppla tabell_till till pgr_grafen
-  koppla_punkttabell_till_pgr_graf(
-    con = w_con,
-    schema_punkter = schema_till,
-    tabell_punkter = tabell_till,   
-    geom_kolumn = geometri_till,
-    schema_natverk = schema_graf,
-    tabell_natverk = slutlig_graf
-  )
-  
-  # 6. Kör pgr_djikstranearcost på resultatet av tidigare steg
-  berakna_pgr_djikstranearcost_batch(
-    con = w_con,
-    schema_fran = args$schema_fran,
-    tabell_fran = args$tabell_fran,
-    schema_till = args$schema_till,
-    tabell_till = args$tabell_till,
-    schema_graf = args$schema_graf,
-    tabell_graf = slutlig_graf,
-    id_graf = args$id_graf
-  )
-  
-  # Koppla ner
-  dbDisconnect(w_con)
-  print("Uppkoppling avslutad.")
-}
- 
