@@ -1014,7 +1014,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     px_meta_enkel_list <- sortera_px_variabler(px_meta_enkel_list, sorterings_vars = "tid", sortera_pa_kod = TRUE)
   }
   
-  if ("år" %in% tolower(tabell_variabler$koder) & str_detect(url_scb, "http://fohm-app.folkhalsomyndigheten.se")) {
+  if ("år" %in% tolower(tabell_variabler$koder) & any(str_detect(url_scb, "http://fohm-app.folkhalsomyndigheten.se"))) {
     px_meta_enkel_list <- sortera_px_variabler(px_meta_enkel_list, sorterings_vars = "år", sortera_pa_kod = TRUE)
   }
   
