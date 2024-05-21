@@ -764,9 +764,8 @@ SkapaLinjeDiagram <- function(skickad_df,
       scale_x_continuous(expand = c(0,.3), breaks = seq(1,53, by = 1))
     }} +
     { if (!is.na(x_axis_visa_var_xe_etikett)) {  
-      scale_x_discrete( breaks = every_nth(n = x_axis_visa_var_xe_etikett, sista_vardet = inkludera_sista_vardet_var_xe_etikett, ta_bort_nast_sista = x_axis_var_xe_etikett_ta_bort_nast_sista_vardet))
+      scale_x_discrete(expand = c(0,0), breaks = every_nth(n = x_axis_visa_var_xe_etikett, sista_vardet = inkludera_sista_vardet_var_xe_etikett, ta_bort_nast_sista = x_axis_var_xe_etikett_ta_bort_nast_sista_vardet))
     }} +
-    # Borttaget först ovan expand = c(0,0),
     # scale_y_continuous(breaks = seq(min_yvar, max_yvar, 
     #                                 by = round(max_yvar / 6, (nchar(trunc(max_yvar/6))-1)*-1)),
     #                    minor_breaks = seq(min_yvar, max_yvar, by = min_by_yvar),
