@@ -1,6 +1,6 @@
 # funktioner för att hantera api-anrop via px_web samt möjligen i framtiden även 
 # andra paket
-
+ 
 if (!require("pacman")) install.packages("pacman")
 p_load(pxweb,
        tidyverse,
