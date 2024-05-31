@@ -13,7 +13,7 @@ p_load(pxweb,
 
 # ================================================= pxweb-funktioner ========================================================
 
- 
+
 hamtaregtab <- function(){
 
 # Hämta tabell med regioner
@@ -868,7 +868,6 @@ github_status_filer_lokalt_repo <- function(sokvag_lokal_repo = "c:/gh/",
     
 } # slut funktion
 
-
 github_commit_push <- function(
     sokvag_lokal_repo = "c:/gh/",
     repo = "hamta_data",
@@ -1063,7 +1062,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   
   # om inte inte län finns som region, byt ut "20" mot "00" eller "*" i funktion_parametrar
   if (any(c("region", "lan") %in% tolower(varlist_koder))){
-    region_variabel <- varlist_koder[str_detect(tolower(varlist_koder), "region|lan")] %>% tolower()
+    region_variabel <- varlist_koder[str_detect(tolower(varlist_koder), "region|lan") & !str_detect(tolower(varlist_koder), "fodelse")] %>% tolower()
     if (!default_region %in% varlist_giltiga_varden_koder[[region_variabel]]) {
       funktion_parametrar <- str_replace(funktion_parametrar, glue('{region_variabel}_vekt = "{default_region}"'), glue('{region_variabel}_vekt = \"00\"'))
       if (!"00" %in% varlist_giltiga_varden_koder[[region_variabel]]) {
@@ -1394,7 +1393,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   
   # returnera sökväg till den skapade filen
   return(paste0(output_mapp, "hamta_", filnamn_suffix, ".R"))
-   
+  
 } 
 
 kontrollera_pxweb_url <- function(url_scb_lista) {
