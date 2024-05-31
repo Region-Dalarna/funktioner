@@ -13,7 +13,6 @@ p_load(pxweb,
  
 # ================================================= pxweb-funktioner ========================================================
 
-
 hamtaregtab <- function(){
 
 # Hämta tabell med regioner
