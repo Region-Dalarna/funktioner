@@ -14,7 +14,7 @@ p_load(pxweb,
 # ================================================= pxweb-funktioner ========================================================
 
 hamtaregtab <- function(){
-
+ 
 # Hämta tabell med regioner
 url_adress <- "https://api.scb.se/OV0104/v1/doris/sv/ssd/BE/BE0101/BE0101A/BefolkningNy"
 
