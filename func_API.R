@@ -922,15 +922,22 @@ github_commit_push <- function(
     
     # först en pull
     if (pull_forst){
-      git2r::pull( repo = push_repo,                 
+      git2r::pull(repo = push_repo,                 
                    credentials = cred_user_pass( username = key_list(service = "github")$username, 
                                                  password = key_get("github", key_list(service = "github")$username)))
     } # slut if-sats där man kan stänga av att man kör en pull först (inte att rekommendera)
     
     # och sedan en push
-    git2r::push( object = push_repo,               
-                 credentials = cred_user_pass( username = key_list(service = "github_token")$username, 
-                                               password = key_get("github_token", key_list(service = "github_token")$username)))
+    # git2r::push(object = push_repo,               
+    #              credentials = cred_user_pass( username = key_list(service = "github_token")$username, 
+    #                                            password = key_get("github_token", key_list(service = "github_token")$username)))
+    
+    # det har krånglat med att köra push() från git2r-paketet så denna sista del kör vi med system(), 
+    # dvs. att vi kör det med cmd. Funkar nog bara på windows så ingen robust lösning men det får gå för 
+    # nu
+    system(paste0('git -C ', lokal_sokvag_repo, ' push https://', key_list(service = "github_token")$username, ':', key_get("github_token", key_list(service = "github_token")$username), '@github.com/', repo_org, '/', repo, '.git'))
+    
+    
     
     cat(paste0("Commit och push till ", repo, " på Github är klar.\n\n", konsolmeddelande))
     
