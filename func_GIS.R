@@ -807,6 +807,7 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
      
      # säkerställ att alla kolumnnamn är i gemener, ställer inte till problem i postgis då
      names(inlas_sf) <- tolower(names(inlas_sf))
+     inlas_tabellnamn <- inlas_tabellnamn %>% tolower()
      
      # =================== lägg över till postgis =======================
      

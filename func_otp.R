@@ -79,6 +79,8 @@ testa_otp_server <- function(otp_url = 'http://localhost:8801'){
 # Funktion för att starta en otp-server (kräver att den är uppsatt på korrekt sätt innan)
 starta_otp_server <- function() {
   
+  old_http_proxy <- Sys.getenv("http_proxy")
+  old_https_proxy <- Sys.getenv("https_proxy")
   # vi behöver stänga av proxy för att otp-lösningen ska fungera
   Sys.setenv(http_proxy = "")
   Sys.setenv(https_proxy = "")
@@ -93,6 +95,9 @@ starta_otp_server <- function() {
   efter_processer <- hamta_pid_for_processer() %>% dplyr::pull(PID)
   
   if(length(fore_processer) > 0) efter_processer <- efter_processer[!efter_processer %in% fore_processer]
+  
+  #Sys.setenv(http_proxy = old_http_proxy)
+  #Sys.setenv(https_proxy = old_https_proxy)
   
   return(efter_processer)
 }
