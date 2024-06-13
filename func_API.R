@@ -1,6 +1,6 @@
 # funktioner för att hantera api-anrop via px_web samt möjligen i framtiden även 
 # andra paket
-
+ 
 if (!require("pacman")) install.packages("pacman")
 p_load(pxweb,
        tidyverse,
@@ -12,10 +12,9 @@ p_load(pxweb,
        glue) 
  
 # ================================================= pxweb-funktioner ========================================================
- 
- 
-hamtaregtab <- function(){
 
+hamtaregtab <- function(){
+ 
 # Hämta tabell med regioner
 url_adress <- "https://api.scb.se/OV0104/v1/doris/sv/ssd/BE/BE0101/BE0101A/BefolkningNy"
 
@@ -868,7 +867,6 @@ github_status_filer_lokalt_repo <- function(sokvag_lokal_repo = "c:/gh/",
     
 } # slut funktion
 
-
 github_commit_push <- function(
     sokvag_lokal_repo = "c:/gh/",
     repo = "hamta_data",
@@ -924,15 +922,22 @@ github_commit_push <- function(
     
     # först en pull
     if (pull_forst){
-      git2r::pull( repo = push_repo,                 
+      git2r::pull(repo = push_repo,                 
                    credentials = cred_user_pass( username = key_list(service = "github")$username, 
                                                  password = key_get("github", key_list(service = "github")$username)))
     } # slut if-sats där man kan stänga av att man kör en pull först (inte att rekommendera)
     
     # och sedan en push
-    git2r::push( object = push_repo,               
-                 credentials = cred_user_pass( username = key_list(service = "github_token")$username, 
-                                               password = key_get("github_token", key_list(service = "github_token")$username)))
+    # git2r::push(object = push_repo,               
+    #              credentials = cred_user_pass( username = key_list(service = "github_token")$username, 
+    #                                            password = key_get("github_token", key_list(service = "github_token")$username)))
+    
+    # det har krånglat med att köra push() från git2r-paketet så denna sista del kör vi med system(), 
+    # dvs. att vi kör det med cmd. Funkar nog bara på windows så ingen robust lösning men det får gå för 
+    # nu
+    system(paste0('git -C ', lokal_sokvag_repo, ' push https://', key_list(service = "github_token")$username, ':', key_get("github_token", key_list(service = "github_token")$username), '@github.com/', repo_org, '/', repo, '.git'))
+    
+    
     
     cat(paste0("Commit och push till ", repo, " på Github är klar.\n\n", konsolmeddelande))
     
@@ -1063,7 +1068,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   
   # om inte inte län finns som region, byt ut "20" mot "00" eller "*" i funktion_parametrar
   if (any(c("region", "lan") %in% tolower(varlist_koder))){
-    region_variabel <- varlist_koder[str_detect(tolower(varlist_koder), "region|lan")] %>% tolower()
+    region_variabel <- varlist_koder[str_detect(tolower(varlist_koder), "region|lan") & !str_detect(tolower(varlist_koder), "fodelse")] %>% tolower()
     if (!default_region %in% varlist_giltiga_varden_koder[[region_variabel]]) {
       funktion_parametrar <- str_replace(funktion_parametrar, glue('{region_variabel}_vekt = "{default_region}"'), glue('{region_variabel}_vekt = \"00\"'))
       if (!"00" %in% varlist_giltiga_varden_koder[[region_variabel]]) {
@@ -1394,7 +1399,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   
   # returnera sökväg till den skapade filen
   return(paste0(output_mapp, "hamta_", filnamn_suffix, ".R"))
-   
+  
 } 
 
 kontrollera_pxweb_url <- function(url_scb_lista) {
