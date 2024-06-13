@@ -1187,10 +1187,12 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
      add_row(namn = "kommun_scb", id_kol = "knkod", lankol = "lanskod_tx", kommunkol = "knkod", sokord = list(c("kommun", "kommuner", "kommunpolygoner"))) %>% 
      add_row(namn = "lan_scb", id_kol = "lnkod", lankol = "lnkod", kommunkol = NA, sokord = list(c("lan", "lanspolygoner"))) %>% 
      add_row(namn = "tatorter_2020", id_kol = "tatortskod", lankol = "lnkod", kommunkol = "kommunkod", sokord = list(c("tatort", "tätort", "tatorter", "tätorter", "tatortspolygoner", "tätortspolygoner"))) %>% 
+     add_row(namn = "tatortspunkter_2020", id_kol = "tatortskod", lankol = "lnkod", kommunkol = "kommunkod", sokord = list(c("tatortspunkter", "tätortspunkter"))) %>% 
      add_row(namn = "regso", id_kol = "regsokod",  lankol = "lan", kommunkol = "kommun", sokord = list(c("regso", "regsopolygoner"))) %>% 
      add_row(namn = "deso", id_kol = "deso", lankol = "lan", kommunkol = "kommun", sokord = list(c("deso", "desopolygoner"))) %>% 
-     add_row(namn = "nuts2", id_kol = "id", lankol = "id", kommunkol = "cntr_code", sokord = list(c("nuts2", "nuts2-områden")))
-   
+     add_row(namn = "nuts2", id_kol = "id", lankol = "id", kommunkol = "cntr_code", sokord = list(c("nuts2", "nuts2-områden"))) %>% 
+     add_row(namn = "laomraden2022_scb", id_kol = "lakod", lankol = "lan", kommunkol = "kommun", sokord = list(c("la", "laomraden", "la-omraden", "la-områden", "la-omraden")))
+     
    return(karttabell_df)
  }
  
