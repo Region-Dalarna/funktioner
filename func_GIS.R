@@ -1196,7 +1196,6 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
    return(karttabell_df)
  }
  
- 
  hamta_karta <- function(karttyp = "kommuner", regionkoder = NA, tabellnamn = NA) {
    
    # här lägger vi till rader (dvs. tabeller) som ska vara hämtbara från geodatabasen med hamta_karta()-funktionen
