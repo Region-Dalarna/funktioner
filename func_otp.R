@@ -96,4 +96,3 @@ starta_otp_server <- function() {
   
   return(efter_processer)
 }
-
