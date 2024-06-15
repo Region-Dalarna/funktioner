@@ -10,7 +10,7 @@
 # Peter Möller, Region Dalarna, juni 2024
 #
 # ========================================================================================================
-if (!require("pacman")) install.packages("pacman")
+if (!require("pacman")) install.packages("pacman") 
 p_load(tidyverse, 
        httr)
 
