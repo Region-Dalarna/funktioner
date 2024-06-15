@@ -92,10 +92,11 @@ starta_otp_server <- function() {
   # Starta servern i ett nytt fönster på Windows
   shell('start cmd /c "cd /d C:/otp/ && java -Xmx3G -jar otp-2.3.0-shaded.jar --load --serve --port 8801 --securePort 8802 ./data_otp"')
 
+  Sys.sleep(2)            # för att processerna ska hinna igång och kunna fångas upp av nästa rad i skriptet
   efter_processer <- hamta_pid_for_processer() %>% dplyr::pull(PID)
   
   if(length(fore_processer) > 0) efter_processer <- efter_processer[!efter_processer %in% fore_processer]
-  
+  if(length(efter_processer) == 0) efter_processer <- NULL
   #Sys.setenv(http_proxy = old_http_proxy)
   #Sys.setenv(https_proxy = old_https_proxy)
   
