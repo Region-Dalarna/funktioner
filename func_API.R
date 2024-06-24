@@ -67,6 +67,12 @@ hamtaregion_kod_namn <- function(regionkod, kolada = FALSE){
   return(retur_df)
 }
 
+hamta_kommunkoder <- function(lanskod = "20", kolada = FALSE) {
+  # smidig funktion för att hämta kommunkoder för ett län
+  retur_df <- hamtaregion_kod_namn(regionkod = hamtakommuner(lanskod, tamedlan = FALSE, tamedriket = FALSE), kolada = kolada)
+  return(retur_df)
+}
+
 skapa_kortnamn_lan <- function(lansnamn, byt_ut_riket_mot_sverige = FALSE){
   nyttnamn <- NA
   for (elem in 1:length(lansnamn)){
