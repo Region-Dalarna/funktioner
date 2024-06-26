@@ -9,7 +9,7 @@ p_load(pxweb,
        keyring,
        usethis,
        git2r,
-       glue) 
+       glue)
  
 # ================================================= pxweb-funktioner ========================================================
 
@@ -64,6 +64,12 @@ hamtaregion_kod_namn <- function(regionkod, kolada = FALSE){
   retur_df <- regdf[regdf$regionkod %in% regionkod,]
   if (nrow(retur_df) == 0) retur_df <- data.frame(regionkod = regionkod, region = regionkod)
   if (kolada) retur_df <- retur_df %>% mutate(regionkod = str_pad(regionkod, width = 4, side = "left", pad = "0"))
+  return(retur_df)
+}
+
+hamta_kommunkoder <- function(lanskod = "20", kolada = FALSE) {
+  # smidig funktion för att hämta kommunkoder för ett län
+  retur_df <- hamtaregion_kod_namn(regionkod = hamtakommuner(lanskod, tamedlan = FALSE, tamedriket = FALSE), kolada = kolada)
   return(retur_df)
 }
 
