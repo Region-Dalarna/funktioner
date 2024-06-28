@@ -1271,11 +1271,11 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
     schema,                 # det schema i vilken tabellen finns som man vill hämta
     tabell,                 # den tabell i postgisdatabasen man vill hämta
     skickad_query = NA,     # om man inte skickar med någon query hämtas hela tabellen
-    pg_db_user,
-    pg_db_pwd,
-    pg_db_host,
-    pg_db_port,
-    pg_db_name_db){
+    pg_db_user = key_list(service = "rd_geodata")$username,
+    pg_db_pwd = key_get("rd_geodata", key_list(service = "rd_geodata")$username),
+    pg_db_host = "WFALMITVS526.ltdalarna.se",
+    pg_db_port = 5432,
+    pg_db_name_db = "geodata"){
    
    starttid <- Sys.time()
    
