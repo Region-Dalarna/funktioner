@@ -361,5 +361,5 @@ gtfs_fyll_calendar_dates_fran_calendar <- function(calendar_df,
     select(service_id, date, exception_type)
   
   return(retur_df)
-  
+
 }
