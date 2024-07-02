@@ -316,5 +316,3 @@ gtfs_fyll_calendar_dagar <- function(calendar_dates_df){
 }
 
 dala_kalender_df <- gtfs_fyll_calendar_dagar(dala_kalender_df)
-
-
