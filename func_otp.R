@@ -288,8 +288,7 @@ otp_bygg_ny_graf <- function(otp_jar_mapp = "c:/otp/",
 gtfs_fyll_calendar_dagar <- function(calendar_dates_df){
   
   retur_df <- calendar_dates_df %>% 
-    mutate(service_id = service_id %>% as.integer(),
-           datum = as.Date(paste0(str_sub(date, 1,4), "-",
+    mutate(datum = as.Date(paste0(str_sub(date, 1,4), "-",
                                   str_sub(date, 5,6), "-",
                                   str_sub(date, 7,8))),
            veckodag = weekdays(datum),
@@ -299,7 +298,7 @@ gtfs_fyll_calendar_dagar <- function(calendar_dates_df){
     pivot_wider(names_from = weekday, values_from = exception_type) %>%
     mutate(across(Monday:Saturday, as.numeric)) %>% 
     replace(is.na(.), 0) %>%
-    mutate(service_id = service_id %>% as.integer()) %>% 
+    #mutate(service_id = service_id %>% as.integer()) %>% 
     group_by(service_id) %>% 
     summarise(monday = max(Monday),
               tuesday = max(Tuesday),
@@ -315,4 +314,52 @@ gtfs_fyll_calendar_dagar <- function(calendar_dates_df){
   
 }
 
-dala_kalender_df <- gtfs_fyll_calendar_dagar(dala_kalender_df)
+gtfs_fyll_calendar_dates_fran_calendar <- function(calendar_df, 
+                                                   skickade_service_id = NA, 
+                                                   exception_kol = "1"){
+  
+  # om man skickar med service_id så kör vi bara på dem, annars hela datasetet
+  if (!is.na(skickade_service_id)) { 
+    filtrerad_df <- calendar_df %>% filter(service_id %in% skickade_service_id)
+  } else {
+    filtrerad_df <- calendar_df
+  }
+  
+  # vi skapar ett longdataset utifrån calendar_df med alla möjliga datum
+  retur_brutto_df <- filtrerad_df %>% 
+    mutate(start_date = as.Date(paste0(str_sub(start_date, 1,4), "-",
+                                  str_sub(start_date, 5,6), "-",
+                                  str_sub(start_date, 7,8))),
+           end_date = as.Date(paste0(str_sub(end_date, 1,4), "-",
+                                       str_sub(end_date, 5,6), "-",
+                                       str_sub(end_date, 7,8)))) %>%
+    group_by(service_id) %>%
+    summarise(date = list(seq.Date(from = min(start_date), to = max(end_date), by = "day"))) %>%
+    unnest(cols = c(date)) %>%
+    mutate(veckodag = c("Sunday", "Monday", "Tuesday",     # Convert dates to weekdays
+              "Wednesday", "Thursday", "Friday",
+              "Saturday")[as.numeric(format(date, "%w"))+1] %>% tolower())
+  
+    
+  # vi skapar ett dataset där varje service_id har en vektor med de veckodagar 
+  # som ska vara kvar
+  service_veckodagar_df <- filtrerad_df %>%
+    pivot_longer(cols = monday:sunday, names_to = "weekday", values_to = "value") %>%
+    filter(value == 1) %>%
+    group_by(service_id) %>%
+    summarise(weekday_vector = list(weekday), .groups = "drop")
+  
+  # vi lägger ihop dessa två dataset och filtrerar på de veckodagar som finns i 
+  # den vektor vi skapade i service_veckodagar_df ovan
+  retur_df <- retur_brutto_df %>%
+    inner_join(service_veckodagar_df, by = "service_id") %>%
+    rowwise() %>%
+    filter(veckodag %in% weekday_vector) %>%
+    ungroup() %>%
+    mutate(exception_type = exception_kol,
+           date = date %>% as.character() %>% str_remove_all("-")) %>%
+    select(service_id, date, exception_type)
+  
+  return(retur_df)
+  
+}
