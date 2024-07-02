@@ -9,11 +9,13 @@
 #
 # Viktiga funktioner i denna fil är:
 #
-#      starta_otp_server() - startar en otp-server i en cmd-process, denna cmd-process ligger kvar till vi kör stang_otp_server()
+#      otp_starta_server() - startar en otp-server i en cmd-process, denna cmd-process ligger kvar till vi kör otp_stang_server()
 #     
-#      stang_otp_server() - stänger en otp-server som är igång, om någon är igång
+#      otp_stang_server() - stänger en otp-server som är igång, om någon är igång
 # 
-#      bygg_ny_otp_graf()       
+#      otp_bygg_ny_graf() - bygger en ny otp-graf vilket behöver göras med uppdaterad
+#                           gtfs-data, eller om man vill läsa in en uppdaterad 
+#                           openstreetmap-karta.
 #
 #
 # Peter Möller, Region Dalarna, juni 2024
@@ -25,7 +27,7 @@ p_load(tidyverse,
 
 # kolla process-id (pid) för processer som är igång med programmet som skickas med parametern
 # program_fil (default = "java.exe")
-hamta_pid_for_processer <- function(program_fil = "java.exe") {    # ska vara en exefil
+otp_hamta_pid_for_processer <- function(program_fil = "java.exe") {    # ska vara en exefil
   
   pid <- system(paste0('tasklist /FI "IMAGENAME eq ', program_fil,  '" /FO CSV'), intern = TRUE)
   
@@ -42,7 +44,7 @@ hamta_pid_for_processer <- function(program_fil = "java.exe") {    # ska vara en
 }
 
 # Funktion för att hitta och döda en process (default = "java.exe")
-stang_otp_server <- function(program_fil = "java.exe", 
+otp_stang_server <- function(program_fil = "java.exe", 
                              undanta_pid = NA,                 # vektor med pid-id för processer som INTE ska stängas
                              stang_pid = NA                    # vektor med pid_id som SKA stängas, trumfar undantag ovan
                              ) {
@@ -51,7 +53,7 @@ stang_otp_server <- function(program_fil = "java.exe",
    stang_lista <- stang_pid 
     
   } else {
-    pid_list <- hamta_pid_for_processer()
+    pid_list <- otp_hamta_pid_for_processer()
     
     # om man vill låta några processer vara igång
     if (!all(is.na(undanta_pid))) {
@@ -72,7 +74,7 @@ stang_otp_server <- function(program_fil = "java.exe",
 }
 
 # Funktion för att testa om en otp-server är igång
-testa_otp_server <- function(otp_url = 'http://localhost:8801',
+otp_testa_server <- function(otp_url = 'http://localhost:8801',
                              bara_text_konsol = FALSE){
   
   # Skicka en GET-förfrågan till OTP-servern
@@ -91,7 +93,7 @@ testa_otp_server <- function(otp_url = 'http://localhost:8801',
 }
 
 # Funktion för att starta en otp-server (kräver att den är uppsatt på korrekt sätt innan)
-starta_otp_server <- function() {
+otp_starta_server <- function() {
   
   old_http_proxy <- Sys.getenv("http_proxy")
   old_https_proxy <- Sys.getenv("https_proxy")
@@ -100,7 +102,7 @@ starta_otp_server <- function() {
   Sys.setenv(https_proxy = "")
 
   # för att kolla vilka pid-id:n som eventuellt redan körs för java.exe, så att vi kan stänga av enbart de processer vi startar nedan
-  fore_processer <- hamta_pid_for_processer() 
+  fore_processer <- otp_hamta_pid_for_processer() 
   if(!is.null(fore_processer)) fore_processer <- fore_processer %>% dplyr::pull(PID)
   
   # Starta servern i ett nytt fönster på Windows
@@ -108,7 +110,7 @@ starta_otp_server <- function() {
   shell('start cmd /c "cd /d C:/otp/ && java -Xmx6G -XX:+UseParallelGC -jar otp-2.3.0-shaded.jar --load --serve --port 8801 --securePort 8802 ./data_otp"')
   
   Sys.sleep(2)            # för att processerna ska hinna igång och kunna fångas upp av nästa rad i skriptet
-  efter_processer <- hamta_pid_for_processer() %>% dplyr::pull(PID)
+  efter_processer <- otp_hamta_pid_for_processer() %>% dplyr::pull(PID)
   
   if(length(fore_processer) > 0) efter_processer <- efter_processer[!efter_processer %in% fore_processer]
   if(length(efter_processer) == 0) efter_processer <- NULL
@@ -157,7 +159,7 @@ skapa_isokroner_otp <- function(
   
   otp_isochrone <- 'http://localhost:8801/otp/traveltime/isochrone'
   
-  starta_otp_server()
+  otp_starta_server()
 
   # skapa funktioner =======================================
   
@@ -251,7 +253,7 @@ skapa_isokroner_otp <- function(
 
 }
 
-bygg_ny_otp_graf <- function(otp_jar_mapp = "c:/otp/",
+otp_bygg_ny_graf <- function(otp_jar_mapp = "c:/otp/",
                              otp_data_mapp = "c:/otp/data_otp/") {
   
   # om man till exempel vill uppdatera sin graf med ny gtfs-data så måste man 
@@ -267,7 +269,7 @@ bygg_ny_otp_graf <- function(otp_jar_mapp = "c:/otp/",
   # kör detta i kommandotolken
   system(build_cmd)
   
-  process_tid <- difftime(Sys.time(), start_time, units = "mins")
+  process_tid <- difftime(Sys.time(), start_tid, units = "mins")
   
   # Skriv ut tiden i minuter
   cat("Processen tog", round(process_tid, 2), "minuter att köra.\n\n")
@@ -279,4 +281,40 @@ bygg_ny_otp_graf <- function(otp_jar_mapp = "c:/otp/",
   } else {
     cat("Grafen (", graf_fil, ") har inte kunnat uppdaterats på grund av att något problem har inträffat. Se felmeddelanden i konsolen.\n")
   }
-} # slut funktion bygg_ny_otp_graf()
+} # slut funktion otp_bygg_ny_graf()
+
+
+
+gtfs_fyll_calendar_dagar <- function(calendar_dates_df){
+  
+  retur_df <- calendar_dates_df %>% 
+    mutate(service_id = service_id %>% as.integer(),
+           datum = as.Date(paste0(str_sub(date, 1,4), "-",
+                                  str_sub(date, 5,6), "-",
+                                  str_sub(date, 7,8))),
+           veckodag = weekdays(datum),
+           weekday = c("Sunday", "Monday", "Tuesday",     # Convert dates to weekdays
+                       "Wednesday", "Thursday", "Friday",
+                       "Saturday")[as.numeric(format(datum, "%w"))+1]) %>% 
+    pivot_wider(names_from = weekday, values_from = exception_type) %>%
+    mutate(across(Monday:Saturday, as.numeric)) %>% 
+    replace(is.na(.), 0) %>%
+    mutate(service_id = service_id %>% as.integer()) %>% 
+    group_by(service_id) %>% 
+    summarise(monday = max(Monday),
+              tuesday = max(Tuesday),
+              wednesday = max(Wednesday),
+              thursday = max(Thursday),
+              friday = max(Friday),
+              saturday = max(Saturday),
+              sunday = max(Sunday),
+              start_date = min(date),
+              end_date = max(date)) %>% 
+    ungroup()
+  return(retur_df)
+  
+}
+
+dala_kalender_df <- gtfs_fyll_calendar_dagar(dala_kalender_df)
+
+
