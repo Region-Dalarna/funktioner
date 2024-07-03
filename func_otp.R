@@ -25,9 +25,12 @@ if (!require("pacman")) install.packages("pacman")
 p_load(tidyverse, 
        httr)
 
-# kolla process-id (pid) för processer som är igång med programmet som skickas med parametern
-# program_fil (default = "java.exe")
+# ================ skript för att hantera en lokal otp-server  ============================
+
+
 otp_hamta_pid_for_processer <- function(program_fil = "java.exe") {    # ska vara en exefil
+  # kolla process-id (pid) för processer som är igång med programmet som skickas med parametern
+  # program_fil (default = "java.exe")
   
   pid <- system(paste0('tasklist /FI "IMAGENAME eq ', program_fil,  '" /FO CSV'), intern = TRUE)
   
@@ -43,12 +46,12 @@ otp_hamta_pid_for_processer <- function(program_fil = "java.exe") {    # ska var
   return(pid_list)  
 }
 
-# Funktion för att hitta och döda en process (default = "java.exe")
 otp_stang_server <- function(program_fil = "java.exe", 
                              undanta_pid = NA,                 # vektor med pid-id för processer som INTE ska stängas
                              stang_pid = NA                    # vektor med pid_id som SKA stängas, trumfar undantag ovan
                              ) {
-
+  # Funktion för att hitta och döda en process (default = "java.exe")
+  
   if (!all(is.na(stang_pid))) {
    stang_lista <- stang_pid 
     
@@ -73,9 +76,9 @@ otp_stang_server <- function(program_fil = "java.exe",
   
 }
 
-# Funktion för att testa om en otp-server är igång
 otp_testa_server <- function(otp_url = 'http://localhost:8801',
                              bara_text_konsol = FALSE){
+  # Funktion för att testa om en otp-server är igång
   
   # Skicka en GET-förfrågan till OTP-servern
   response <- GET(otp_url)
@@ -92,8 +95,10 @@ otp_testa_server <- function(otp_url = 'http://localhost:8801',
   }
 }
 
-# Funktion för att starta en otp-server (kräver att den är uppsatt på korrekt sätt innan)
-otp_starta_server <- function() {
+otp_starta_server <- function(vanta_tills_klar = TRUE) {
+  # Funktion för att starta en otp-server (kräver att den är uppsatt på korrekt sätt innan)
+  # om vanta_tills_klar är TRUE så körs inte skriptet vidare förrän otp-servern
+  #                        är helt klar att köra vilket kan ta upp till någon minut
   
   old_http_proxy <- Sys.getenv("http_proxy")
   old_https_proxy <- Sys.getenv("https_proxy")
@@ -117,9 +122,78 @@ otp_starta_server <- function() {
   #Sys.setenv(http_proxy = old_http_proxy)
   #Sys.setenv(https_proxy = old_https_proxy)
   
+  # vänta max 1 minut (60 sekunder) och kolla varannan sekund om servern är up and running
+  if (vanta_tills_klar) otp_vanta_tills_otp_server_ar_klar(timeout = 60,
+                                                           interval = 2)
+  
   return(efter_processer)
 }
+
+
+otp_vanta_tills_otp_server_ar_klar <- function(timeout = 60, # I sekunder, 60 = timeout på 1 minut
+                                           interval = 2  # Kontrollintervall på 2 sekunder 
+){
+  # Funktion för att vänta tills otp-servern är uppe och klar för körningar innan
+  # koden fortsätter, så att det inte blir fel för att otp-servern inte är riktigt klar ännu.
+  # standard är att den kollar av varannan sekund (interval = 2) och att den väntar i 1 minut
+  # (timeout = 60), sekunder. Är den inte klar då så stoppas koden med ett felmeddelande.
   
+  start_time <- Sys.time()
+  
+  repeat {
+    result <- tryCatch({
+      otp_testa_server()
+    }, error = function(e) {
+      #message("Error: ", e$message)
+      FALSE
+    })
+    
+    if (result) {
+      cat("OTP-servern är klar att användas.\n\n")
+      return(invisible())
+    }
+    
+    if (as.numeric(Sys.time() - start_time, units = "secs") > timeout) {
+      stop("Timeout: misslyckades med att starta otp-server inom 1 minut.\n\n")
+    }
+    
+    Sys.sleep(interval)
+  }
+}
+
+otp_bygg_ny_graf <- function(otp_jar_mapp = "c:/otp/",
+                             otp_data_mapp = "c:/otp/data_otp/") {
+  
+  # om man till exempel vill uppdatera sin graf med ny gtfs-data så måste man 
+  # också uppdatera grafen som används i beräkningarna, filen heter otp-2.3.0-shaded.jar och uppdateras 
+  # när man bygger en ny graf
+  
+  graf_fil <- paste0(otp_data_mapp, "graph.obj")
+  start_tid <- Sys.time()         # hämtar tid innan vi kör igång uppdateringen
+  
+  # sätt ihop kommandot rätt med korrekta mappar, som vi sedan ska köra i cmd
+  build_cmd <- paste0("java -Xms2G -Xmx8G -XX:+UseParallelGC -jar ", otp_jar_mapp, "otp-2.3.0-shaded.jar --build --save ", otp_data_mapp)
+  
+  # kör detta i kommandotolken
+  system(build_cmd)
+  
+  process_tid <- difftime(Sys.time(), start_tid, units = "mins")
+  
+  # Skriv ut tiden i minuter
+  cat("Processen tog", round(process_tid, 2), "minuter att köra.\n\n")
+  # kontrollera att graf-filen har uppdaterats
+  graf_fil_revtid <- file.info(graf_fil)$mtime
+  
+  if (graf_fil_revtid > start_tid) {
+    cat("Grafen (", graf_fil, ") har uppdaterats framgångsrikt.\n")
+  } else {
+    cat("Grafen (", graf_fil, ") har inte kunnat uppdaterats på grund av att något problem har inträffat. Se felmeddelanden i konsolen.\n")
+  }
+} # slut funktion otp_bygg_ny_graf()
+
+  
+# ================ test att göra en funktion av skapa isokroner  ============================
+
 skapa_isokroner_otp <- function(
     datum = "2024-06-10",         # datum för tillgänglighetskörningen
     tid = "08:00",                # tid för tillgänglighetskörningen
@@ -131,7 +205,7 @@ skapa_isokroner_otp <- function(
     
   ){
 
-  # ====================== otp - skapa isokroner =====================
+  #  otp - skapa isokroner 
   #
   # Skript skapat av Swecos skript med syfte att skapa isokroner från ett valfritt antal punkter.
   # För att köra skriptet behöver man starta en otp-server, som också behöver sättas upp innan den kan sättas igång, 
@@ -142,7 +216,7 @@ skapa_isokroner_otp <- function(
   #
   # Peter Möller, Region Dalarna, juni 2024
   #
-  # ========================================================================================================
+  
   if (!require("pacman")) install.packages("pacman")
   p_load(tidyverse, 
          httr,
@@ -161,7 +235,7 @@ skapa_isokroner_otp <- function(
   
   otp_starta_server()
 
-  # skapa funktioner =======================================
+  # skapa funktioner 
   
   result <- list()
   
@@ -253,37 +327,7 @@ skapa_isokroner_otp <- function(
 
 }
 
-otp_bygg_ny_graf <- function(otp_jar_mapp = "c:/otp/",
-                             otp_data_mapp = "c:/otp/data_otp/") {
-  
-  # om man till exempel vill uppdatera sin graf med ny gtfs-data så måste man 
-  # också uppdatera grafen som används i beräkningarna, filen heter otp-2.3.0-shaded.jar och uppdateras 
-  # när man bygger en ny graf
-  
-  graf_fil <- paste0(otp_data_mapp, "graph.obj")
-  start_tid <- Sys.time()         # hämtar tid innan vi kör igång uppdateringen
-  
-  # sätt ihop kommandot rätt med korrekta mappar, som vi sedan ska köra i cmd
-  build_cmd <- paste0("java -Xms2G -Xmx8G -XX:+UseParallelGC -jar ", otp_jar_mapp, "otp-2.3.0-shaded.jar --build --save ", otp_data_mapp)
-  
-  # kör detta i kommandotolken
-  system(build_cmd)
-  
-  process_tid <- difftime(Sys.time(), start_tid, units = "mins")
-  
-  # Skriv ut tiden i minuter
-  cat("Processen tog", round(process_tid, 2), "minuter att köra.\n\n")
-  # kontrollera att graf-filen har uppdaterats
-  graf_fil_revtid <- file.info(graf_fil)$mtime
-  
-  if (graf_fil_revtid > start_tid) {
-    cat("Grafen (", graf_fil, ") har uppdaterats framgångsrikt.\n")
-  } else {
-    cat("Grafen (", graf_fil, ") har inte kunnat uppdaterats på grund av att något problem har inträffat. Se felmeddelanden i konsolen.\n")
-  }
-} # slut funktion otp_bygg_ny_graf()
-
-
+# ================================ gtfs-skript ====================================
 
 gtfs_fyll_calendar_dagar <- function(calendar_dates_df){
   
@@ -296,7 +340,7 @@ gtfs_fyll_calendar_dagar <- function(calendar_dates_df){
                        "Wednesday", "Thursday", "Friday",
                        "Saturday")[as.numeric(format(datum, "%w"))+1]) %>% 
     pivot_wider(names_from = weekday, values_from = exception_type) %>%
-    mutate(across(Monday:Saturday, as.numeric)) %>% 
+    mutate(across(Sunday:Saturday, as.numeric)) %>% 
     replace(is.na(.), 0) %>%
     #mutate(service_id = service_id %>% as.integer()) %>% 
     group_by(service_id) %>% 
