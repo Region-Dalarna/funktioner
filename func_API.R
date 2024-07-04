@@ -715,6 +715,8 @@ mapp_hamtadata_peter <- function(){ return("C:/gh/hamta_data/")}
 
 mapp_temp_peter <- function(){ return("g:/skript/peter/temp/")}
 
+mapp_leveranser <- function(){"g:/Samhällsanalys/Leveranser/"}
+
 manader_bearbeta_scbtabeller <- function(skickad_df) {
   # funktion för att skapa kolumnerna år, månad, månad_år samt år_månad av kolumnen månad som 
   # ligger i flera scb-tabeller och är strukturerad som år, bokstaven "M" och sedan månads-
