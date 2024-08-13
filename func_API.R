@@ -746,6 +746,12 @@ manader_bearbeta_scbtabeller <- function(skickad_df) {
   return(retur_df)
 }
 
+stop_tyst <- function() {
+  opt <- options(show.error.messages = FALSE)
+  on.exit(options(opt))
+  stop()
+}
+
 # ================================================= github-funktioner ========================================================
 
 github_lista_repos <- function(owner = "Region-Dalarna", skriv_ut_reponamn_i_konsol = TRUE) {
