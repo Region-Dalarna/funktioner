@@ -167,10 +167,14 @@ SkapaStapelDiagram <- function(skickad_df,
       max_varde_plot_df <- plot_df %>% filter(total > 0) %>% group_by(across(all_of(skickad_x_var))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == max(summ)) %>% slice(1) %>% dplyr::pull()
       min_varde_plot_df <- plot_df %>% filter(total < 0) %>% group_by(across(all_of(skickad_x_var))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == min(summ)) %>% slice(1) %>% dplyr::pull()
     } else {
-      # om det bara finns positiva eller negativa värden beräknas max- och min-värden som vanligt
-      max_varde_plot_df <- plot_df %>% group_by(across(all_of(skickad_x_var))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == max(summ)) %>% slice(1) %>% dplyr::pull()
-      min_varde_plot_df <- plot_df %>% group_by(across(all_of(skickad_x_var))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == min(summ)) %>% slice(1) %>% dplyr::pull()
-        
+      if (diagram_facet) {
+        max_varde_plot_df <- plot_df %>% group_by(across(all_of(c(as.character(skickad_x_var), as.character(facet_grp))))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == max(summ)) %>% slice(1) %>% dplyr::pull()
+        min_varde_plot_df <- plot_df %>% group_by(across(all_of(c(as.character(skickad_x_var), as.character(facet_grp))))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == min(summ)) %>% slice(1) %>% dplyr::pull()
+      } else {
+        # om det bara finns positiva eller negativa värden beräknas max- och min-värden som vanligt
+        max_varde_plot_df <- plot_df %>% group_by(across(all_of(skickad_x_var))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == max(summ)) %>% slice(1) %>% dplyr::pull()
+        min_varde_plot_df <- plot_df %>% group_by(across(all_of(skickad_x_var))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == min(summ)) %>% slice(1) %>% dplyr::pull()
+      }  
     } # slut if-sats för att kolla om värdena i stacked bar sträcker sig över 0
     
   } else {
