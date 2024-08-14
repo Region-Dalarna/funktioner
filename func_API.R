@@ -648,7 +648,7 @@ ar_alla_lan_i_sverige <- function(reg_koder, tillat_rikskod = TRUE, returnera_te
   # kontrollerar om reg_koder innehåller alla län i Sverige
  
   retur_varde <- TRUE                      # vi sätter värdet till TRUE från början, testar nedan och ändrar till FALSE om inte alla kriterier nedan uppfylls
-  returtext_na <- if (is.na(returtext)) TRUE else FALSE                 # om man skickat med returtext så returneras den om inte regionkoderna är alla län i Sverige , annars om man inte skickat med någon returtext  returneras FALSE
+  returtext_na <- if (all(is.na(returtext))) TRUE else FALSE                 # om man skickat med returtext så returneras den om inte regionkoderna är alla län i Sverige , annars om man inte skickat med någon returtext  returneras FALSE
   
   if (any(nchar(reg_koder) > 2)) retur_varde <- FALSE
   reg_koder_utan <- reg_koder[reg_koder != "00"]
