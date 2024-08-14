@@ -545,11 +545,19 @@ SkapaLinjeDiagram <- function(skickad_df,
                               undertitel_storlek = 11,       # styr storleken på undertiteln
                               output_mapp, 
                               diagram_capt = NULL,             # skicka med en textsträng som hamnar i nedre vänstra hörnet på diagram, som kan beskriva källa, vem som gjort diagrammet etc.
+                              diagramfil_hojd = 7,               # om ett diagram skrivs till fil kan proportionerna ändras här i filens upplösning, OBS! påverkar även textstorlekar etc.                                                                                                                                                                                                                                                                                                                   fontface finns "plain", "bold", "italic", "bold.italic"
+                              diagramfil_bredd = 12,             # man kan påverka både storlek på diagrammet och proportionen mellan bredd och höjd
                               berakna_index = FALSE,
                               lagga_till_punkter = FALSE,     # Om man vill kombinera ett linjediagram med ett punktdiagran, dvs, med punkter vid varje observation
                               diagram_facet = FALSE,
                               facet_grp = NA,
                               facet_scale = "free",
+                              facet_sort = FALSE,                # TRUE sorterar varje facet för sig. Kräver att man skapar en variabel på följande sätt: mutate(facetgruppen = as.factor(facetgruppen), x_axelvar = reorder_within(x_axelvar, y_axelvar, facetgruppen)), detta kräver paketet tidytext
+                              facet_kolumner = NULL,             # hur många diagram i bredd vill man ha i sin facet-bild, NA = låter ggplot bestämma
+                              facet_rader = NULL,                # hur många diagram i höjd vill man ha i sin facet-bild, NA = låter ggplot bestämma
+                              facet_x_axis_storlek = 8,          # styr storleken på x-axeln i facetdiagram
+                              facet_y_axis_storlek = 8,          # styr storleken på x-axeln i facetdiagram
+                              facet_rubrik_storlek = 12,         # styr rubriken som skrivs ut ovanför varje facet
                               facet_space_diag_horisont = 5.5,   # styr det horisontella avståndet mellan facet-diagram
                               facet_oka_avstand_vid_visa_sista_vardet = 1.5,   # ökar avståndet mellan facet-diagram om man visar sista värdet med x_axis_visa_var_xe_etikett
                               manual_color = NA,
@@ -559,6 +567,7 @@ SkapaLinjeDiagram <- function(skickad_df,
                               manual_x_axis_title = NA,
                               x_axis_lutning = 45,
                               x_axis_storlek = 10.5,
+                              y_axis_minus_plus_samma_axel = FALSE, # om man vill ha lika stort avstånd från 0 till min och maxvärde på y-axeln - gäller endast när man har min-värde < 0 och max-värde > 0
                               facet_legend_bottom = FALSE,
                               x_axis_visa_var_xe_etikett = NA,
                               inkludera_sista_vardet_var_xe_etikett = TRUE,              # om man vill ha med sista värdet när man kör x_axis_visa_var_xe_etikett
@@ -579,6 +588,7 @@ SkapaLinjeDiagram <- function(skickad_df,
                               skriv_till_diagramfil = TRUE,
                               filnamn_diagram,
                               utan_diagramtitel = FALSE,
+                              diagram_som_svg = FALSE,           # spara diagrammet som svg
                               y_axis_borjar_pa_noll = TRUE,              # sätt till FALSE om y-axeln ska börja på annat värde än 0
                               y_axis_100proc = FALSE){                   # sätt till TRUE om y-axeln ska vara mellan 0 och 100
   
@@ -666,12 +676,34 @@ SkapaLinjeDiagram <- function(skickad_df,
   # min_by_yvar <- stodlinjer_list$min_by_yvar
   # maj_by_yvar <- stodlinjer_list$maj_by_yvar
 
-  if (y_axis_100proc) max_varde_plot_df <- 100 else max_varde_plot_df <- max(plot_df["total"])    # om vi skickat med att vi vill ha låsa y-axelns maxvärde till 100 så fixar vi det här
-  stodlinjer_list <- Berakna_varden_stodlinjer(min_varde =  min(plot_df["total"]), max_varde = max_varde_plot_df, y_borjar_pa_noll = y_axis_borjar_pa_noll, procent_0_100_10intervaller = procent_0_100_10intervaller, avrunda_fem = stodlinjer_avrunda_fem)
+  
+  # Ändrat 14 aug 2024:
+  # if (y_axis_100proc) max_varde_plot_df <- 100 else max_varde_plot_df <- max(plot_df["total"])    # om vi skickat med att vi vill ha låsa y-axelns maxvärde till 100 så fixar vi det här
+  # stodlinjer_list <- Berakna_varden_stodlinjer(min_varde =  min(plot_df["total"]), max_varde = max_varde_plot_df, y_borjar_pa_noll = y_axis_borjar_pa_noll, procent_0_100_10intervaller = procent_0_100_10intervaller, avrunda_fem = stodlinjer_avrunda_fem)
+  # min_yvar <- stodlinjer_list$min_yvar
+  # max_yvar <- stodlinjer_list$max_yvar
+  # min_by_yvar <- stodlinjer_list$min_by_yvar
+  # maj_by_yvar <- stodlinjer_list$maj_by_yvar
+  
+  # =========================================== skapa stödlinje-variabler =============================================
+  
+  if (y_axis_100proc) max_varde_plot_df <- 100 else max_varde_plot_df <- max(plot_df["total"])    # om vi skickat med att vi vill ha låsa y-axelns maxvärde till 100 så fixar vi det här - slice(1) utfall att det finns flera grupper som uppnår maxvärde (då tar vi bara en av dem)
+  if (diagram_facet) {
+    max_varde_plot_df <- plot_df %>% group_by(across(all_of(c(as.character(skickad_x_var), as.character(facet_grp))))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == max(summ)) %>% slice(1) %>% dplyr::pull()
+    min_varde_plot_df <- plot_df %>% group_by(across(all_of(c(as.character(skickad_x_var), as.character(facet_grp))))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == min(summ)) %>% slice(1) %>% dplyr::pull()
+  } else {
+    min_varde_plot_df <- min(plot_df["total"])
+  }
+  if (min_varde_plot_df < 0 & max_varde_plot_df < 0) min_och_max_negativa <- TRUE else min_och_max_negativa <- FALSE
+  stodlinjer_list <- Berakna_varden_stodlinjer(min_varde =  min_varde_plot_df, max_varde = max_varde_plot_df, y_borjar_pa_noll = y_axis_borjar_pa_noll, procent_0_100_10intervaller = procent_0_100_10intervaller, avrunda_fem = stodlinjer_avrunda_fem, minus_plus_samma = y_axis_minus_plus_samma_axel)
+  
   min_yvar <- stodlinjer_list$min_yvar
   max_yvar <- stodlinjer_list$max_yvar
   min_by_yvar <- stodlinjer_list$min_by_yvar
   maj_by_yvar <- stodlinjer_list$maj_by_yvar
+  
+  
+  
   
   # om vi vill visa var x:e x-axeletikett
   #if (visa_var_x_xlabel > 0) rep_vec <- c(T, rep(F, visa_var_x_xlabel-1))
@@ -770,22 +802,50 @@ SkapaLinjeDiagram <- function(skickad_df,
     { if (!is.na(x_axis_visa_var_xe_etikett)) {  
       scale_x_discrete(expand = c(0,0), breaks = every_nth(n = x_axis_visa_var_xe_etikett, sista_vardet = inkludera_sista_vardet_var_xe_etikett, ta_bort_nast_sista = x_axis_var_xe_etikett_ta_bort_nast_sista_vardet))
     }} +
+    
     # scale_y_continuous(breaks = seq(min_yvar, max_yvar, 
     #                                 by = round(max_yvar / 6, (nchar(trunc(max_yvar/6))-1)*-1)),
     #                    minor_breaks = seq(min_yvar, max_yvar, by = min_by_yvar),
-    scale_y_continuous(breaks = seq(min_yvar, max_yvar, 
-                                    by = maj_by_yvar),
-                       minor_breaks = seq(min_yvar, max_yvar, by = min_by_yvar),
-                       labels = etikett_format,
-                       #expand = expand_vekt, 
-                       limits = c(limit_min,max_yvar),
-                       expand = c(0,0)) +
+    
+    {if (!diagram_facet | (facet_scale == "fixed" & diagram_facet)){
+      scale_y_continuous(breaks = seq(min_yvar, max_yvar, 
+                                      by = maj_by_yvar),
+                         minor_breaks = seq(min_yvar, max_yvar, by = min_by_yvar),
+                         labels = etikett_format,
+                         limits = c(min_yvar, max_yvar),
+                         expand = c(0,0)) 
+    } else {                        # om det fuckar med facet-diagram, ta bort denna else-sats då. Den gör att procentformatet funkar även på free-scale facetdiagram men jag är inte säker att det funkar för övriga diagram
+      scale_y_continuous(labels = etikett_format,
+                         expand = c(0,0))
+    }} +
+    
+    
+    # scale_y_continuous(breaks = seq(min_yvar, max_yvar, 
+    #                                 by = maj_by_yvar),
+    #                    minor_breaks = seq(min_yvar, max_yvar, by = min_by_yvar),
+    #                    labels = etikett_format,
+    #                    #expand = expand_vekt, 
+    #                    limits = c(limit_min,max_yvar),
+    #                    expand = c(0,0)) +
+    # 
+    
+    
     #labels = function(x) format(x, big.mark = " ")) +
-    {if (diagram_facet & x_grupp != "NA") facet_wrap(as.formula(paste("~",facet_grp)), scales = facet_scale) } +
-    {if(diagram_facet & x_grupp != "NA"){
-      theme(strip.text = element_text(color = "black", size = 12),
+    #{if (diagram_facet & x_grupp != "NA") facet_wrap(as.formula(paste("~",facet_grp)), scales = facet_scale) } +
+    #{if (diagram_facet) facet_wrap(as.formula(paste("~",facet_grp)), scales = facet_scale) } +
+  
+    {if (diagram_facet) facet_wrap(as.formula(paste("~",facet_grp)), scales = "free",
+                                   ncol = facet_kolumner,
+                                   nrow = facet_rader) } +
+    
+    #{if (diagram_facet & x_grupp != "NA"){               # gammal, om det krånglar kan man lägga till x_grupp-delen igen
+    {if (diagram_facet & facet_sort) scale_x_reordered()} +                 # sorterar varje facetgrupp för sig om man kör facet_sort
+    {if (diagram_facet){
+      theme(strip.text = element_text(color = "black", size = facet_rubrik_storlek),
             strip.background = element_blank(),
-            axis.text.x = element_text(size = x_axis_storlek))  
+            axis.text.x = element_text(size = facet_x_axis_storlek),
+            axis.text.y = element_text(size = facet_y_axis_storlek)
+            )  
     } else {  
       theme(strip.text = element_blank())
     }}
@@ -793,8 +853,10 @@ SkapaLinjeDiagram <- function(skickad_df,
   # skriv till diagramfil om sådan är vald
   if (skriv_till_diagramfil){
     # Ändra höjd och bredd på den sparade png-filen, + ange mapp och filnamn
-    bredd <- 12
-    hojd <- 7
+    bredd <- diagramfil_bredd
+    hojd <- diagramfil_hojd
+    
+    if (diagram_som_svg) filnamn_diagram <- filnamn_diagram %>% str_replace(".png", ".svg")
     
     fullpath <- paste0(output_mapp, filnamn_diagram)
     ggsave(fullpath, width = bredd, height = hojd)
@@ -825,13 +887,16 @@ skriv_till_diagramfil <- function(ggplot_objekt,
                                   filnamn_diagram,
                                   lagg_pa_logga = TRUE,
                                   logga_scaling = 15,
-                                  logga_path = NA
+                                  logga_path = NA,
+                                  diagram_som_svg = FALSE
                                   ) {   
   
   g <- ggplot_objekt
   # Ändra höjd och bredd på den sparade png-filen, + ange mapp och filnamn
   bredd <- diagramfil_bredd
   hojd <- diagramfil_hojd
+  
+  if (diagram_som_svg) filnamn_diagram <- filnamn_diagram %>% str_replace(".png", ".svg")
   
   fullpath <- paste0(output_mapp, filnamn_diagram)
   ggsave(fullpath, width = bredd, height = hojd)
