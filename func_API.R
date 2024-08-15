@@ -1565,3 +1565,200 @@ sortera_px_variabler <- function(lista, sorterings_vars = c("Tid"), sortera_pa_k
   
   return(retur_lista)
 }
+
+################################
+
+
+demo_diagrambild_skapa <- function(
+    diagramskript_filnamn,
+    parameter_lista = list(),       # man kan skicka med parametrar men ska inte skicka med output_mapp, den tilldelas i skriptet nedan för att kunna tas bort
+    parameter_output_mapp = NA,     # behövs bara om parametern heter annat än output_mapp eller utmapp
+    github_kor_commit_och_push = TRUE,         # kan sättas till FALSE om man vill köra igenom flera skript och commita och pusha efter att man reviderat alla skript
+    github_mapp_lokal = "c:/gh/",
+    github_diag_demo_repo = "utskrivna_diagram",
+    revidera_diagramskript = TRUE,        # skickas med för att revidera själva diagramskriptet med en demo-parameter samt kod i själva skriptet för att visa demo-diagram
+    github_diagram_repo = "diagram"    # om man vill skicka ändringar av diagramskriptet till github också
+){
+  
+  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_filer.R")
+  
+  diagram_sokvag <- paste0(github_mapp_lokal, github_diagram_repo, "/", diagramskript_filnamn)
+  dia_funktion <- hitta_funktioner_i_fil_ej_inuti_andra_funktioner(diagram_sokvag)
+  dia_funktion <- dia_funktion[str_sub(dia_funktion,1,4) == "diag"]     # bara första funktionen i skriptet
+  
+  # Skapa en temporär mapp
+  temp_mapp <- file.path(tempdir(), "temp_mapp")
+  skapa_mapp_om_den_inte_finns(temp_mapp)
+  
+  # Sätt att mappen tas bort när skriptet avslutas
+  on.exit(unlink(temp_mapp, recursive = TRUE))
+  
+  source(diagram_sokvag)
+  parametrar <- formals(get(dia_funktion))
+  
+  # Om inte output_mapp-parameternamnet är anget så testas output_mapp eller utmapp
+  if (is.na(parameter_output_mapp)){
+    if ("output_mapp" %in% names(parametrar)){
+      utmappnamn <- "output_mapp"
+    } else if ("utmapp" %in% names(parametrar)){
+      utmappnamn <- "utmapp"
+    } else if ("output_mapp_figur" %in% names(parametrar)){
+      utmappnamn <- "output_mapp_figur"
+    } else {
+      stop("Parameternamnet för output_mapp kan inte hittas. Ange det med parametern 'parameter_output_mapp' i denna funktion.")
+    }
+  } else {
+    utmappnamn <- parameter_output_mapp
+  }
+  
+  # Lägg till output_mapp-parametern i parameter_lista, finns den redan skrivs den över
+  parameter_lista[[utmappnamn]] <- temp_mapp
+  
+  # Sätt parameter för att skriva diagramfil(er) till TRUE
+  match_index <- match(names(parametrar), 
+                       c("skriv_diagrambild", "skriv_diagramfil", "skriv_diagram",
+                         "spara_figur", "skriv_till_diagramfil", "skapa_fil"), 
+                       nomatch = 0)
+  parametrar[match_index > 0] <- TRUE          # sätter de parametrar som matchar med vektorn ovan till TRUE (bör vara bara en)
+  
+  # Uppdatera parametrar med värden från parameter_lista där namnen överensstämmer
+  parameter_lista <- imap(parametrar, ~ if(.y %in% names(parameter_lista)) parameter_lista[[.y]] else .x)
+  
+  
+  # Skapa diagram
+  resultat <- do.call(dia_funktion, parameter_lista)
+  rm(resultat)             # ta bort ggplot_objektet, vi behöver inte det
+  
+  # lägg alla skapade filer i en vektor
+  demofil_vekt <- list.files(temp_mapp, full.names = TRUE) 
+  
+  # kopiera alla filer till det lokala github-repot för demo-diagram
+  walk(demofil_vekt, ~ file.copy(.x, paste0(github_mapp_lokal, github_diag_demo_repo), overwrite = TRUE))
+  
+  demofiler_filnamn <- basename(demofil_vekt)
+  
+  # commita och pusha till github-repot för demo-diagram
+  if (github_kor_commit_och_push) {
+    commit_meddelande <- paste0("Lagt till följande demo-diagrambilder: ", list_komma_och(demofiler_filnamn))
+    github_commit_push(repo = github_diag_demo_repo, commit_txt = commit_meddelande)
+  }
+  
+  # Om diagramskriptet är angivet så revideras det med kod för att titta på 
+  # demodiagram för att sedan commita diagramskriptet till github-repot för diagram
+  if (revidera_diagramskript){
+    reviderat <- FALSE
+    dia_filnamn <- paste0(github_mapp_lokal, github_diagram_repo, "/", diagramskript_filnamn)
+    # Läs in diagramskriptet
+    diagram_skript <- readLines(dia_filnamn)
+    
+    # kontrollera om det redan finns en demo-parameter
+    index_parameter <- str_which(diagram_skript, "demo = ")
+    index_demokod <- str_which(diagram_skript, "if \\(demo\\)\\{")
+    
+    # om det inte gör det läggs det till
+    if (length(index_parameter) == 0){
+      # först tar vi reda på var i skriptet funktionen startar (med function), 
+      # och var parameterlistan slutar (med första } efter function)
+      index_parameter_slut <- str_which(diagram_skript, "\\{") %>% min()
+      
+      mellanslag_txt <- str_extract(diagram_skript[index_parameter_slut-2], "^\\s*")
+      ny_rad <- paste0(mellanslag_txt, "demo = FALSE,             # sätts till TRUE om man bara vill se ett exempel på diagrammet i webbläsaren och inget annat")
+      
+      # skriv en ny vektor med demo som parameter
+      diagram_skript_ny <- c(diagram_skript[1:(index_parameter_slut-2)], ny_rad, diagram_skript[(index_parameter_slut-1):length(diagram_skript)])
+      reviderat <- TRUE
+      if (length(index_demokod) > 0) index_demokod <- index_demokod + 1       # om det finns demokod redan så ökar vi elementet med 1 då vi lägger till en rad, men om den inte finns så låter vi den vara 0
+    } # slut test om demo finns som parameter
+    
+    if (length(index_demokod) == 0){
+      # hitta första raden efter att parametrarna definierats i funktionen    
+      index_parameter_slut <- str_which(diagram_skript_ny, "\\{") %>% min()+1
+      
+      # Funktion som kontrollerar om ett element uppfyller kriterierna att hitta första raden efter parametrarna som inte bara består av mellanslag eller börjar med #
+      hittat_ratt_rad <- function(x) {
+        # Trimma inledande mellanslag och kontrollera om strängen inte börjar med "#"
+        trimmed <- str_trim(x)
+        trimmed != "" && !str_starts(trimmed, "#")
+      }
+      
+      # Hitta första giltiga elementet från och med första rad efter parametrarna
+      demokod_startrad <- index_parameter_slut - 1 + detect_index(diagram_skript_ny[index_parameter_slut:length(diagram_skript_ny)], hittat_ratt_rad)
+      
+      # fixa till den delen av demokoden som refererar till bildfilerna på github
+      demokod_filnamn <- paste0('"', 'https://region-dalarna.github.io/utskrivna_diagram/', demofiler_filnamn, '"', ',')
+      demokod_filnamn[1] <- paste0('c(', demokod_filnamn[1])
+      demokod_filnamn[length(demokod_filnamn)] <- demokod_filnamn[length(demokod_filnamn)] %>% str_replace(',', ')')
+      
+      nya_demokodrader <- c(
+        "# om parametern demo är satt till TRUE så öppnas en flik i webbläsaren med ett exempel på hur diagrammet ser ut och därefter avslutas funktionen",
+        "# demofilen måste läggas upp på webben för att kunna öppnas, vi lägger den på Region Dalarnas github-repo som heter utskrivna_diagram",
+        "if (demo){",
+        "  demo_url <- ",
+        demokod_filnamn,
+        "  walk(demo_url, ~browseURL(.x))",
+        '  if (length(demo_url) > 1) cat(paste0(length(demo_url), " diagram har öppnats i webbläsaren."))',
+        "  stop_tyst()",
+        "}",
+        "")
+      
+      # kolla om det finns en tomrad innan startraden för demokoden, annars lägga till det
+      # först skapa tomrad om det inte finns innan demokod-startraden, annars NULL (dvs. ingen tomrad)
+      tomrad <- if (str_trim(diagram_skript_ny[demokod_startrad-1]) != "") "" else NULL 
+      
+      # sätt ihop den nya demokoden med tomraden (eller ingen tomrad om det redan finns) och den gamla demokoden
+      diagram_skript_ny <- c(diagram_skript_ny[1:(demokod_startrad-1)], tomrad, nya_demokodrader, diagram_skript_ny[demokod_startrad:length(diagram_skript_ny)])
+      
+      reviderat <- TRUE
+      
+    } # slut test om demo finns som kod
+    
+    # Skriv tillbaka diagramskriptet
+    if (reviderat) {
+
+      #dia_filnamn <- "g:/skript/peter/test/diagram_fruktsamhet_SCB.R"
+      
+      writeLines(diagram_skript_ny, dia_filnamn)
+      
+      if (github_kor_commit_och_push) {
+        commit_meddelande <- paste0("Lagt till demo-kod i diagramskriptet ", diagramskript_filnamn)
+        github_commit_push(repo = github_diagram_repo, commit_txt = commit_meddelande)
+      }
+    } # slut test om diagramskriptet är reviderat
+  } # slut test om parametern revidera_diagramskript är TRUE
+} # slut funktion
+
+
+# Funktion som hittar alla yttre funktioner i en skriptfil
+hitta_funktioner_i_fil_ej_inuti_andra_funktioner <- function(filnamn) {
+  # Läser in skriptfilen som en vektor av rader
+  rader <- readLines(filnamn)
+  
+  # Identifierar alla rader som innehåller funktionsdefinitioner
+  funktionsrader <- str_which(rader, "\\bfunction\\b")
+  
+  # Initialisera en vektor för att hålla index för yttre funktioner
+  outer_functions <- c()
+  bracket_balance <- 0
+  
+  # Loopar igenom funktionsraderna och identifierar yttre funktioner
+  for (i in funktionsrader) {
+    # Beräkna antalet { och } fram till den aktuella raden
+    balance <- sum(str_count(rader[1:i], "\\{")) - sum(str_count(rader[1:i], "\\}"))
+    
+    # Om balans är 0, är detta en yttre funktion
+    if (bracket_balance == 0) {
+      outer_functions <- c(outer_functions, i)
+    }
+    
+    # Uppdatera bracket_balance
+    bracket_balance <- balance
+  }
+  
+  # Extrahera namnen på yttre funktioner
+  funktion_namn <- map_chr(outer_functions, ~ str_extract(rader[.x], "\\b\\w+\\b(?=\\s*<-\\s*function)")) 
+  funktion_namn <- funktion_namn[!is.na(funktion_namn)]  
+  
+  # Returnera namnen på de yttre funktionerna
+  return(funktion_namn)
+}  
+
