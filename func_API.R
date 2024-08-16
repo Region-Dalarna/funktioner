@@ -747,9 +747,20 @@ manader_bearbeta_scbtabeller <- function(skickad_df) {
 }
 
 stop_tyst <- function() {
+  # stanna skriptet utan att skriva ut felmeddelande
   opt <- options(show.error.messages = FALSE)
   on.exit(options(opt))
   stop()
+}
+
+suppress_specific_warning <- function(expr, warn_text = "NAs introduced by coercion") {
+  # ta bort specifika felmeddelanden och inte alla
+  withCallingHandlers(expr,
+                      warning = function(w) {
+                        if (grepl(warn_text, conditionMessage(w))) {
+                          invokeRestart("muffleWarning")
+                        }
+                      })
 }
 
 # ================================================= github-funktioner ========================================================
@@ -1566,8 +1577,7 @@ sortera_px_variabler <- function(lista, sorterings_vars = c("Tid"), sortera_pa_k
   return(retur_lista)
 }
 
-################################
-
+# ======================== skapa demo-diagrambild =====================
 
 demo_diagrambild_skapa <- function(
     diagramskript_filnamn,
