@@ -1577,12 +1577,21 @@ demo_diagrambild_skapa <- function(
     github_mapp_lokal = "c:/gh/",
     github_diag_demo_repo = "utskrivna_diagram",
     revidera_diagramskript = TRUE,        # skickas med för att revidera själva diagramskriptet med en demo-parameter samt kod i själva skriptet för att visa demo-diagram
-    github_diagram_repo = "diagram"    # om man vill skicka ändringar av diagramskriptet till github också
-){
+    github_diagram_repo = "diagram",    # om man vill skicka ändringar av diagramskriptet till github också
+    mapp_diagramskript_ej_github = NA
+  ){
   
   source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_filer.R")
   
-  diagram_sokvag <- paste0(github_mapp_lokal, github_diagram_repo, "/", diagramskript_filnamn)
+  # Skapa sökväg till diagramskriptet, mapp_diagramskript_ej_github används när man inte ska revidera ett diagramskript
+  # som ligger i ett github-repo utan bara lokalt
+  if (is.na(mapp_diagramskript_ej_github)){
+    diagram_sokvag <- paste0(github_mapp_lokal, github_diagram_repo, "/", diagramskript_filnamn)
+  } else {
+    if (str_sub(mapp_diagramskript_ej_github, 1, nchar(mapp_diagramskript_ej_github)) != "/") mapp_diagramskript_ej_github <- paste0(mapp_diagramskript_ej_github, "/")
+    diagram_sokvag <- paste0(mapp_diagramskript_ej_github, diagramskript_filnamn)
+  }
+  
   dia_funktion <- hitta_funktioner_i_fil_ej_inuti_andra_funktioner(diagram_sokvag)
   dia_funktion <- dia_funktion[str_sub(dia_funktion,1,4) == "diag"]     # bara första funktionen i skriptet
   
@@ -1624,8 +1633,7 @@ demo_diagrambild_skapa <- function(
   # Uppdatera parametrar med värden från parameter_lista där namnen överensstämmer
   parameter_lista <- imap(parametrar, ~ if(.y %in% names(parameter_lista)) parameter_lista[[.y]] else .x)
   
-  
-  # Skapa diagram
+  # Skapa diagrammet och skriv ut bildfiler till den temporära mappen vi skapat ovan
   resultat <- do.call(dia_funktion, parameter_lista)
   rm(resultat)             # ta bort ggplot_objektet, vi behöver inte det
   
@@ -1647,9 +1655,9 @@ demo_diagrambild_skapa <- function(
   # demodiagram för att sedan commita diagramskriptet till github-repot för diagram
   if (revidera_diagramskript){
     reviderat <- FALSE
-    dia_filnamn <- paste0(github_mapp_lokal, github_diagram_repo, "/", diagramskript_filnamn)
+
     # Läs in diagramskriptet
-    diagram_skript <- readLines(dia_filnamn)
+    diagram_skript <- readLines(diagram_sokvag)
     
     # kontrollera om det redan finns en demo-parameter
     index_parameter <- str_which(diagram_skript, "demo = ")
@@ -1714,12 +1722,10 @@ demo_diagrambild_skapa <- function(
     
     # Skriv tillbaka diagramskriptet
     if (reviderat) {
-
-      #dia_filnamn <- "g:/skript/peter/test/diagram_fruktsamhet_SCB.R"
+      # skriv en nya versionen av skriptet tillbaka till samma fil som vi läste in i början
+      writeLines(diagram_skript_ny, diagram_sokvag)
       
-      writeLines(diagram_skript_ny, dia_filnamn)
-      
-      if (github_kor_commit_och_push) {
+      if (github_kor_commit_och_push & is.na(mapp_diagramskript_ej_github)) {
         commit_meddelande <- paste0("Lagt till demo-kod i diagramskriptet ", diagramskript_filnamn)
         github_commit_push(repo = github_diagram_repo, commit_txt = commit_meddelande)
       }
