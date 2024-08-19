@@ -340,7 +340,9 @@ gtfs_fyll_calendar_dagar <- function(calendar_dates_df){
                        "Wednesday", "Thursday", "Friday",
                        "Saturday")[as.numeric(format(datum, "%w"))+1]) %>% 
     pivot_wider(names_from = weekday, values_from = exception_type) %>%
-    mutate(across(Sunday:Saturday, as.numeric)) %>% 
+    mutate(across(c("Sunday", "Monday", "Tuesday",     # Convert dates to weekdays
+                    "Wednesday", "Thursday", "Friday",
+                    "Saturday"), as.numeric)) %>% 
     replace(is.na(.), 0) %>%
     #mutate(service_id = service_id %>% as.integer()) %>% 
     group_by(service_id) %>% 
