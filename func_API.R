@@ -445,50 +445,43 @@ kontrollera_pxweb_variabelvarden <- function(api_url,                           
   return(retur_list)
 }
 
-# finns i func_text.R istället
-
-# # en funktion för att sätta ett komma mellan varje element i en vektor
-# # samt ett och mellan näst sista och sista elementet
-# list_komma_och <- function(skickad_vektor){
-#   if (length(skickad_vektor)>1){
-#     nystrang <- skickad_vektor[1]
-#     for (elem in 2:length(skickad_vektor)){
-#       if (elem == length(skickad_vektor)){
-#         nystrang <- paste0(nystrang, " och ", skickad_vektor[elem])
-#       } else {
-#         nystrang <- paste0(nystrang, ", ", skickad_vektor[elem])
-#       }
-#     }
-#   } else nystrang <- skickad_vektor[1]
-#   return(nystrang)
-# }
-
-korrigera_kolnamn_supercross <- function(skickad_fil, teckenkodstabell = "latin1"){
-  kon_korr <- readLines(skickad_fil, encoding = teckenkodstabell)                          # läs in fil
-  if (str_detect(kon_korr[1], "/")) {                                                # kör bara om det finns ett "/" på rad 1, annars låt vara
-    kon_korr[1] <- kon_korr[1] %>% 
-      str_replace("-/", "_")                                                         # ta bort slash som ställer till det vid inläsning av kolumnnamn
-    writeLines(kon_korr, paste0(skickad_fil))                                        # skriv över med rätt tecken
-  }
+region_kolumn_splitta_kod_klartext <- function(skickad_df, regionkolumn, tabortgammalkolumn = TRUE, separator = " "){
+  # används på en regionkolumnn (län, kommun eller annat) där kod och klartext
+  # ligger i samma kolumn. Funktionen splittar kolumnen i två kolumner, en för 
+  # kod och en för klartext på första förekomsten av separator (default är mellanslag)
+  
+  retur_df <- skickad_df %>% 
+    separate(!!sym(regionkolumn), into = c("regionkod", "region"), sep = separator, extra = "merge", remove = tabortgammalkolumn)
+  
 }
 
-# gammal version
-# ar_alla_kommuner_i_ett_lan <- function(regionkoder, acceptera_lanets_kod = TRUE, acceptera_riket_kod = TRUE) {
-#   retur_resp <- TRUE
-#   
-#   lanskoder <- regionkoder %>% str_sub(1,2) %>% unique() %>% .[!str_detect(., "00")]
-#   if (length(unique(lanskoder)) > 1) retur_resp <- FALSE else {                  # testa om det finns fler län i skickade regionkoder
-#   
-#     kommuner_i_lan <- hamtakommuner(lanskoder, F, F)                             # hämta alla kommuner i aktuellt län
-#     if (!all(kommuner_i_lan %in% regionkoder)) retur_resp <- FALSE               # testa om alla kommuner i länet finns i regionkoder
-#     if (lanskoder %in% regionkoder & !acceptera_lanets_kod) retur_resp <- FALSE  # om man inte accepterar länets kod och den finns i regionkoder så returneras FALSE
-#     if ("00" %in% regionkoder & !acceptera_riket_kod) retur_resp <- FALSE        # om man inte accepterar riket-kod och den finns i regionkoder så returneras FALSE
-#   
-#   } # slut if-sats som testar om det finns flera län = returnerar FALSE
-#   
-#   return(retur_resp)
-#   
-# } # slut funktion
+svenska_tecken_byt_ut <- function(textstrang){
+  # funktion för att ta bort prickar över svenska tecken
+  
+  if (!require("stringi")) install.packages("stringi")
+  retur_strang <- stri_trans_general(textstrang, "Latin-ASCII")
+  return(retur_strang)
+}
+
+hamta_regionkod_med_knas_regionkod <- function(api_url, skickade_regionkoder, skickad_fran_variabel, dubbelkolumn = "klartext"){
+  # används för de myndigheter som hittar på egna läns- och kommunkoder
+  # men lägger de riktiga tillsammans med klartext i klartextkolumnen
+  # det funk-ar att skicka en api-url men också en lista med pxmeta-data
+  
+  pxmeta <- if (is.list(api_url)) api_url else pxweb_get(api_url)  
+  
+  regionkodtabell <- pxvardelist(pxmeta, skickad_fran_variabel) %>% 
+    region_kolumn_splitta_kod_klartext(dubbelkolumn)
+  
+  retur_regionkoder <- regionkodtabell %>% 
+    filter(regionkod %in% skickade_regionkoder) %>% 
+    dplyr::pull(kod)
+  
+  return(retur_regionkoder)
+  
+}
+
+
 
 # ================================================= kolada-funktioner ========================================================
 
@@ -763,6 +756,15 @@ suppress_specific_warning <- function(expr, warn_text = "NAs introduced by coerc
                       })
 }
 
+korrigera_kolnamn_supercross <- function(skickad_fil, teckenkodstabell = "latin1"){
+  kon_korr <- readLines(skickad_fil, encoding = teckenkodstabell)                          # läs in fil
+  if (str_detect(kon_korr[1], "/")) {                                                # kör bara om det finns ett "/" på rad 1, annars låt vara
+    kon_korr[1] <- kon_korr[1] %>% 
+      str_replace("-/", "_")                                                         # ta bort slash som ställer till det vid inläsning av kolumnnamn
+    writeLines(kon_korr, paste0(skickad_fil))                                        # skriv över med rätt tecken
+  }
+}
+ 
 # ================================================= github-funktioner ========================================================
 
 github_lista_repos <- function(owner = "Region-Dalarna", skriv_ut_reponamn_i_konsol = TRUE) {
@@ -1029,7 +1031,10 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   
   org_namn <- case_when(str_detect(skickad_url_pxweb, "https://www.statistikdatabasen.scb.se") ~ "SCB:s",
                         str_detect(skickad_url_pxweb, "https://api.scb.se") ~ "SCB:s",
-                        str_detect(skickad_url_pxweb, "http://fohm-app.folkhalsomyndigheten.se") ~ "Folkhälsomyndighetens") %>% unique()
+                        str_detect(skickad_url_pxweb, "http://fohm-app.folkhalsomyndigheten.se") ~ "Folkhälsomyndighetens",
+                        str_detect(skickad_url_pxweb, "statistik.tillvaxtanalys.se") ~ "Tillväxtanalys",
+                        str_detect(skickad_url_pxweb, "statistik.sjv.se") ~ "Jordbruksverkets") %>% 
+                        unique()
   
   if (!require("pacman")) install.packages("pacman")
   #source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R")
