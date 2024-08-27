@@ -86,7 +86,7 @@ SkapaStapelDiagram <- function(skickad_df,
                                skriv_till_excelfil = FALSE,       # om TRUE så skrivs df:n ut till en excelfil som heter samma som diagrammet men med .xlsx istället för .png på slutet
                                diagramfil_hojd = 7,               # om ett diagram skrivs till fil kan proportionerna ändras här i filens upplösning, OBS! påverkar även textstorlekar etc.                                                                                                                                                                                                                                                                                                                   fontface finns "plain", "bold", "italic", "bold.italic"
                                diagramfil_bredd = 12,             # man kan påverka både storlek på diagrammet och proportionen mellan bredd och höjd
-                               diagram_spara_annat_format = NA,   # ange filändelsen för det format som du vill spara diagrammet i (svg, eps, jpg m.fl, alla som funkar i ggsave)
+                               diagram_bildformat = "png",   # ange filändelsen för det format som du vill spara diagrammet i (svg, eps, jpg m.fl, alla som funkar i ggsave)
                                filnamn_diagram){                  # filnamn som diagrammet sparas som, bara filnamn med filändlse, sökvägen skickas med i output_mapp ovan
   
   # Här skapas variabler som används av de som skickats till funktionen
@@ -499,7 +499,7 @@ SkapaStapelDiagram <- function(skickad_df,
     } # slut på if-sats där vi testar 
   } # slut på if-sats där vi kontrollerar om vi har någon fokusera_varden-lista överhuvudtaget
   
-  if (!all(is.na(diagram_spara_annat_format))) filnamn_diagram <- filnamn_diagram %>% str_replace(".png", paste0(".", diagram_spara_annat_format))
+  if (diagram_bildformat != "png") filnamn_diagram <- filnamn_diagram %>% str_replace(".png", paste0(".", diagram_bildformat))
   
   fullpath <- paste0(output_mapp, filnamn_diagram)  # används i skriv_till_diagramfil OCH i skriv_till_excelfil
   
@@ -508,8 +508,17 @@ SkapaStapelDiagram <- function(skickad_df,
     bredd <- diagramfil_bredd
     hojd <- diagramfil_hojd
     
-    ggsave(fullpath, width = bredd, height = hojd)
-    
+    if (diagram_bildformat == "eps") {
+      
+      cairo_ps(filename = paste0(output_mapp, filnamn_diagram),
+               width = bredd, height = hojd, pointsize = 12,
+               fallback_resolution = 300)
+      print(gg_obj)
+      dev.off()
+      
+    } else {
+      ggsave(fullpath, width = bredd, height = hojd)
+    }
     # Lägg till logga till diagrammet =======================================
     
     if (lagg_pa_logga){  
@@ -588,7 +597,7 @@ SkapaLinjeDiagram <- function(skickad_df,
                               skriv_till_diagramfil = TRUE,
                               filnamn_diagram,
                               utan_diagramtitel = FALSE,
-                              diagram_spara_annat_format = NA,           # ange filändelsen för det format som du vill spara diagrammet i (svg, eps, jpg m.fl, alla som funkar i ggsave)
+                              diagram_bildformat = "png",           # ange filändelsen för det format som du vill spara diagrammet i (svg, eps, jpg m.fl, alla som funkar i ggsave)
                               y_axis_borjar_pa_noll = TRUE,              # sätt till FALSE om y-axeln ska börja på annat värde än 0
                               y_axis_100proc = FALSE){                   # sätt till TRUE om y-axeln ska vara mellan 0 och 100
   
@@ -856,7 +865,7 @@ SkapaLinjeDiagram <- function(skickad_df,
     bredd <- diagramfil_bredd
     hojd <- diagramfil_hojd
     
-    if (!all(is.na(diagram_spara_annat_format))) filnamn_diagram <- filnamn_diagram %>% str_replace(".png", paste0(".", diagram_spara_annat_format))
+    if (diagram_bildformat != "png") filnamn_diagram <- filnamn_diagram %>% str_replace(".png", paste0(".", diagram_bildformat))
     
     fullpath <- paste0(output_mapp, filnamn_diagram)
     ggsave(fullpath, width = bredd, height = hojd)
@@ -888,7 +897,7 @@ skriv_till_diagramfil <- function(ggplot_objekt,
                                   lagg_pa_logga = TRUE,
                                   logga_scaling = 15,
                                   logga_path = NA,
-                                  diagram_spara_annat_format = NA
+                                  diagram_bildformat = "png"
                                   ) {   
   
   g <- ggplot_objekt
@@ -896,7 +905,7 @@ skriv_till_diagramfil <- function(ggplot_objekt,
   bredd <- diagramfil_bredd
   hojd <- diagramfil_hojd
   
-  if (!all(is.na(diagram_spara_annat_format))) filnamn_diagram <- filnamn_diagram %>% str_replace(".png", paste0(".", diagram_spara_annat_format))
+  if (diagram_bildformat != "png") filnamn_diagram <- filnamn_diagram %>% str_replace(".png", paste0(".", diagram_bildformat))
   
   fullpath <- paste0(output_mapp, filnamn_diagram)
   ggsave(fullpath, width = bredd, height = hojd)
