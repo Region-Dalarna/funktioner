@@ -1077,6 +1077,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   # kontrollera hur många contentsvariabler som finns i databasen
   antal_contvar <- length(varlist_giltiga_varden$contentscode)
   
+  # här skapar vi en lista med parametrar som ska skickas med till funktionen, den som är först i hämta data-funktionen
   funktion_parametrar <- pmap_chr(list(varlist_koder, varlist_giltiga_varden, varlist_giltiga_varden_koder), 
                                   function(var_koder, varden_klartext, varden_koder) {
     
@@ -1585,7 +1586,7 @@ sortera_px_variabler <- function(lista, sorterings_vars = c("Tid"), sortera_pa_k
 # ======================== skapa demo-diagrambild =====================
 
 demo_diagrambild_skapa <- function(
-    diagramskript_filnamn,
+    diagramskript_filnamn,          # det räcker med filnamn om skriptet ligger i det lokala github-repot för diagramfiler, annars anges mapp i parametern mapp_diagramskript_ej_github
     parameter_lista = list(),       # man kan skicka med parametrar men ska inte skicka med output_mapp, den tilldelas i skriptet nedan för att kunna tas bort
     parameter_output_mapp = NA,     # behövs bara om parametern heter annat än output_mapp eller utmapp
     github_kor_commit_och_push = TRUE,         # kan sättas till FALSE om man vill köra igenom flera skript och commita och pusha efter att man reviderat alla skript
