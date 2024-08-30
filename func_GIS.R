@@ -232,26 +232,104 @@ spatial_join_med_ovrkat <- function(gislager_grunddata,
   
 } # slut funktion
 
+# =================================== Supercross-funktioner =====================================
 
 
-# Rutlager till recode-fil
-# Instruktioner
-# Denna algoritm skapar en recode-fil i textformat (.txt) från ett rutlager (polygon). Nya geografiska områden kan skapas av rutorna i ett rutlager och dessa områden måste sparas i en egen kolumn.
-# Således krävs två kolumner i ett polygonlager för att algoritmen ska kunna köras, en med RutID och en med de områden som ska bli recodes i Supercross. Några inställningar behöver göras för att textrecode-filen ska fungera att ladda in i Supercross på Mona.
-# 
-# Inställningar
-# Följande inställningar måste göras för att algoritmen ska kunna köras:
-#   Rutlager (polygon)
-# RutID-kolumn (i rutlagret)
-# Kolumn med områden som ska göras recode på (i rutlagret)
-# Rutstorlek
-# Typ av databas i Supercross
-# Första raderna i recode-filen (ska normalt sett inte ändras)
-# Prefix för RutID som används i recode-filen (normalt sett länskoden)
-# Utdatafil (välj var den skapade recodefilen ska heta och i vilken mapp den ska sparas)
-# 
-# Output
-# Utdata från algoritmen är en fil med en textrecode som kan laddas upp på Mona genom att välja sidan My Files från Monas inloggningsmeny och därefter Upload. När filen har laddats upp kan den hämtas i mappen InBox i Documents på den egna Mona-lagringsytan. Filen kan kopieras därifrån till valfri mapp och därifrån laddas in i Supercross som en textrecode via knappen Load som finns i Fields-dialogrutan.
+geopackage_skapa_fran_rutor_csv_xlsx_supercross <- function(sokvag_filnamn_vekt,         # vektor med full sökväg, dvs mapp + filnamn, kan vara flatten csv eller xlsx från Superross
+                                                            byt_ut_c_mot_varde = 2.5,    # om det finns värden som är "..C" så byts dessa ut mot detta värde, vill man behålla "..C" så kör man NA här
+                                                            output_mapp = NA             # om NA, samma som indatamapp
+) {
+  
+  # =====================================================================================================================================
+  #
+  # Skript för att läsa in csv-filer med rutor från Supercross och exportera en färdig geopackage-fil, där rutan är runt mittpunkten och
+  # inte i nedre vänstra hörnet där koordinaten egentligen är. CSV-filen sparas som flattend CSV-fil i Supercross.
+  #
+  # =====================================================================================================================================
+  
+  if (!require("pacman")) install.packages("pacman")
+  p_load(tidyverse,
+         readxl,
+         sf)
+  
+  #library(mapview)
+  
+  # ========================= inställningar för varje körning ====================================================
+  
+  walk2(sokvag_filnamn_vekt, basename(sokvag_filnamn_vekt), function(full_sokvag, filnamn) {
+    
+    if (str_sub(filnamn, -4) == ".csv") {
+      
+      # extrahera enhet (dvs. befolkning eller sysselsatta) ur csv-filen från Supercross 
+      inlas_typ <- readLines(full_sokvag, n = 5, encoding = "latin1") %>% .[1]
+      rut_storlek <- str_extract(inlas_typ, '(?<=\").*?(?=\")') %>% 
+        str_remove("SWEREF99") %>% 
+        parse_number()
+      antal_enhet <- if(str_detect(tolower(filnamn), "syss")) "syss" else "bef"
+      ar_txt <- parse_number(filnamn)
+      
+      rut_txt <- if (rut_storlek == 1000) "km" else paste0(rut_storlek, "m")
+      
+      # här läser vi in själva csv-filen
+      in_df <- read_csv(full_sokvag, col_names = TRUE, show_col_types = FALSE) %>%
+        select(-any_of(c("Region", "Dagbefolkning"))) %>% 
+        rename(rutid = 1, !!sym(antal_enhet) := 2) %>%
+        mutate(rutid = rutid %>% as.character()) %>% 
+        mutate(x_koord = as.character(as.numeric(str_sub(rutid, 1,6))+(rut_storlek/2)),                           # flytta x-koordinaten halva rutstorleken för att få en mittpunkt i rutan
+               y_koord = as.character(as.numeric(str_sub(rutid, 7,13))+(rut_storlek/2)),                            # flytta y-koordinaten halva rutstorleken för att få en mittpunkt i rutan
+               ar = ar_txt) %>% 
+        filter(!!sym(antal_enhet) > 0) %>% 
+        relocate(ar, .before = 1) %>% 
+        relocate(!!sym(antal_enhet), .after = last_col())
+    } else if (str_sub(filnamn, -5) == ".xlsx") {
+      
+      inlas_typ <- read_xlsx(full_sokvag, skip = 2, n_max = 1) %>% dplyr::pull()
+      rut_storlek <- inlas_typ %>% 
+        str_remove("SWEREF99") %>% 
+        parse_number()
+      antal_enhet <- if(str_detect(tolower(filnamn), "syss")) "syss" else "bef"
+      ar_txt <- parse_number(filnamn %>% str_remove(as.character(rut_storlek)))
+      
+      rut_txt <- if (rut_storlek == 1000) "km" else paste0(rut_storlek, "m")
+      
+      in_df <- read_xlsx(full_sokvag) %>% 
+        rename(rutid = 1, !!sym(antal_enhet) := 2) %>%
+        filter(!is.na(!!sym(antal_enhet))) %>% 
+        mutate(rutid = rutid %>% as.character()) %>% 
+        mutate(x_koord = as.character(as.numeric(str_sub(rutid, 1,6))+(rut_storlek/2)),                           # flytta x-koordinaten halva rutstorleken för att få en mittpunkt i rutan
+               y_koord = as.character(as.numeric(str_sub(rutid, 7,13))+(rut_storlek/2)),                            # flytta y-koordinaten halva rutstorleken för att få en mittpunkt i rutan
+               ar = ar_txt) %>% 
+        relocate(ar, .before = 1) %>% 
+        relocate(!!sym(antal_enhet), .after = last_col())
+      
+      if (!is.na(byt_ut_c_mot_varde)) {
+        in_df <- in_df %>% 
+          mutate(!!sym(antal_enhet) := if_else(as.character(!!sym(antal_enhet)) == "..C", 
+                                               as.character(byt_ut_c_mot_varde), 
+                                               as.character(!!sym(antal_enhet))) %>%
+                   as.numeric())
+      } 
+      
+    } else {
+      stop("Filen är inte en csv-fil eller xlsx-fil, denna funktion fungerar bara med dessa två format") 
+    }
+    
+    if (is.na(output_mapp)) {
+      utmapp <- dirname(full_sokvag)
+    } else {
+      utmapp <- output_mapp
+    }
+    
+    # kontrollera att utmapp slutar med /, annars lägger vi till det på slutet
+    utmapp <- if_else(str_ends(utmapp, "/"), utmapp, str_c(utmapp, "/"))
+    
+    gis_punkt <- st_as_sf(in_df, coords = c("x_koord", "y_koord"), crs = 3006)
+    gis_export <- st_buffer(gis_punkt, (rut_storlek/2) , endCapStyle = "SQUARE")
+    st_write(gis_export, paste0(utmapp, rut_txt, "rut_", antal_enhet, "_", ar_txt,  ".gpkg"), delete_dsn = TRUE)
+  })
+} # slut funktion
+
+
 
 skapa_supercross_recode_fran_rutlager <- function(gis_lager,
                                                   rutid_kol = NA,      # finns en funktion för att hitta rutid-kolumnen men man kan skicka med den här 
@@ -263,6 +341,27 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
                                                   rutstorlek = NA,
                                                   lanskod = "20", 
                                                   header = c("HEADER", "\tVERSION 2", "\tUNICODE", "\tESCAPE_CHAR & ITEM_BY_CODE", "END HEADER", "")) {
+  
+  # Rutlager till recode-fil
+  # Instruktioner
+  # Denna algoritm skapar en recode-fil i textformat (.txt) från ett rutlager (polygon). Nya geografiska områden kan skapas av rutorna i ett rutlager och dessa områden måste sparas i en egen kolumn.
+  # Således krävs två kolumner i ett polygonlager för att algoritmen ska kunna köras, en med RutID och en med de områden som ska bli recodes i Supercross. Några inställningar behöver göras för att textrecode-filen ska fungera att ladda in i Supercross på Mona.
+  # 
+  # Inställningar
+  # Följande inställningar måste göras för att algoritmen ska kunna köras:
+  #   Rutlager (polygon)
+  # RutID-kolumn (i rutlagret)
+  # Kolumn med områden som ska göras recode på (i rutlagret)
+  # Rutstorlek
+  # Typ av databas i Supercross
+  # Första raderna i recode-filen (ska normalt sett inte ändras)
+  # Prefix för RutID som används i recode-filen (normalt sett länskoden)
+  # Utdatafil (välj var den skapade recodefilen ska heta och i vilken mapp den ska sparas)
+  # 
+  # Output
+  # Utdata från algoritmen är en fil med en textrecode som kan laddas upp på Mona genom att välja sidan My Files från Monas inloggningsmeny och därefter Upload. När filen har laddats upp kan den hämtas i mappen InBox i Documents på den egna Mona-lagringsytan. Filen kan kopieras därifrån till valfri mapp och därifrån laddas in i Supercross som en textrecode via knappen Load som finns i Fields-dialogrutan.
+  
+  
   
   # kolla om bara en kolumn heter något med rut, i så fall är det rutid-kolumnen
   if (is.na(rutid_kol[1]) & sum(str_detect(tolower(names(gis_lager)), "rut")) == 1) rutid_kol <- names(gis_lager)[str_which(tolower(names(gis_lager)), "rut")]
