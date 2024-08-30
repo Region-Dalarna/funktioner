@@ -1686,10 +1686,30 @@ demo_diagrambild_skapa <- function(
       index_parameter_slut <- str_which(diagram_skript, "\\{") %>% min()
       
       mellanslag_txt <- str_extract(diagram_skript[index_parameter_slut-2], "^\\s*")
-      ny_rad <- paste0(mellanslag_txt, "demo = FALSE,             # sätts till TRUE om man bara vill se ett exempel på diagrammet i webbläsaren och inget annat")
+      ny_rad <- paste0(mellanslag_txt, "demo = FALSE             # sätts till TRUE om man bara vill se ett exempel på diagrammet i webbläsaren och inget annat")
+      # rad att ha efter den nya raden
+      ny_rad_tva <- paste0(mellanslag_txt, ") {")                
+      
+      # om det finns en slutparantes eller start-måsvinge på raden innan så tar vi bort det (för att lägga till efter demo = FALSE)
+      ny_rad_innan <- diagram_skript[index_parameter_slut-1] %>% 
+        str_remove("\\)") %>% 
+        str_remove("\\{")
+      
+      finns_kommatecken_fore_hasch <- str_detect(ny_rad_innan, ",.*#")
+      
+      if (!finns_kommatecken_fore_hasch) {
+        # sätt ett komma sist på raden innan demo = FALSE då vi lägger till demo som sista parameter, och då behövs ett komma sist på raden innan
+        if (str_detect(ny_rad_innan, "#")) {                       # Kolla om det finns ett # i strängen
+          # Sätt ett kommatecken före första # och före eventuella mellanslag innan #
+          ny_rad_innan <- str_replace(ny_rad_innan, "\\s*#", ",#")
+        } else {
+          # Om inget # finns, sätt ett kommatecken efter sista tecknet som inte är ett mellanslag
+          ny_rad_innan <- str_replace(ny_rad_innan, "(\\S)\\s*$", "\\1,")
+        }
+      }
       
       # skriv en ny vektor med demo som parameter
-      diagram_skript_ny <- c(diagram_skript[1:(index_parameter_slut-2)], ny_rad, diagram_skript[(index_parameter_slut-1):length(diagram_skript)])
+      diagram_skript_ny <- c(diagram_skript[1:(index_parameter_slut-2)], ny_rad_innan, ny_rad, ny_rad_tva, diagram_skript[(index_parameter_slut+1):length(diagram_skript)])
       reviderat <- TRUE
       if (length(index_demokod) > 0) index_demokod <- index_demokod + 1       # om det finns demokod redan så ökar vi elementet med 1 då vi lägger till en rad, men om den inte finns så låter vi den vara 0
     } # slut test om demo finns som parameter
@@ -1783,4 +1803,3 @@ hitta_funktioner_i_fil_ej_inuti_andra_funktioner <- function(filnamn) {
   # Returnera namnen på de yttre funktionerna
   return(funktion_namn)
 }  
-
