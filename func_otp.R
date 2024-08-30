@@ -259,7 +259,7 @@ skapa_isokroner_otp <- function(
     
     malpunkt_namn <- punkter_queries %>%
       filter(punkt_lat == !!lat & punkt_lon == !!lon) %>%
-      pull(malpunkt)
+      dplyr::pull(malpunkt)
     
     if(length(malpunkt_namn) == 0) {
       malpunkt_namn <- "Saknar namn"  # Om ingen matchning hittas
