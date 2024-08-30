@@ -1690,14 +1690,28 @@ demo_diagrambild_skapa <- function(
       # rad att ha efter den nya raden
       ny_rad_tva <- paste0(mellanslag_txt, ") {")                
       
+      slut_rad <- diagram_skript[index_parameter_slut] %>% 
+        str_remove("\\)") %>% 
+        str_remove("\\{") %>% 
+        str_trim()
+      
+      slut_index <- if (nchar(slut_rad) > 0) 0 else 1
+      
       # om det finns en slutparantes eller start-måsvinge på raden innan så tar vi bort det (för att lägga till efter demo = FALSE)
-      ny_rad_innan <- diagram_skript[index_parameter_slut-1] %>% 
+      ny_rad_innan <- diagram_skript[index_parameter_slut-slut_index] %>% 
         str_remove("\\)") %>% 
         str_remove("\\{")
       
-      finns_kommatecken_fore_hasch <- str_detect(ny_rad_innan, ",.*#")
+      # en funktion som kontrollerar om det finns kommatecken i en sträng som ligger utanför
+      # citationstecken (enkla eller dubbla)
+      finns_kommatecken_utanfor_citat <- function(text) {
+        ren_strang <- str_replace_all(text, '["\'].*?,.*?["\']', '')
+        finns_kommatecken_utanfor_citat <- str_detect(ren_strang, ",")
+        return(finns_kommatecken_utanfor_citat)
+      }
       
-      if (!finns_kommatecken_fore_hasch) {
+      # om det inte finns ett kommatecken sist i textsträngen så lägger vi till det, men innan ett eventuellt första #
+      if (!finns_kommatecken_utanfor_citat(ny_rad_innan)) {
         # sätt ett komma sist på raden innan demo = FALSE då vi lägger till demo som sista parameter, och då behövs ett komma sist på raden innan
         if (str_detect(ny_rad_innan, "#")) {                       # Kolla om det finns ett # i strängen
           # Sätt ett kommatecken före första # och före eventuella mellanslag innan #
@@ -1709,7 +1723,7 @@ demo_diagrambild_skapa <- function(
       }
       
       # skriv en ny vektor med demo som parameter
-      diagram_skript_ny <- c(diagram_skript[1:(index_parameter_slut-2)], ny_rad_innan, ny_rad, ny_rad_tva, diagram_skript[(index_parameter_slut+1):length(diagram_skript)])
+      diagram_skript_ny <- c(diagram_skript[1:(index_parameter_slut-1-slut_index)], ny_rad_innan, ny_rad, ny_rad_tva, diagram_skript[(index_parameter_slut+1):length(diagram_skript)])
       reviderat <- TRUE
       if (length(index_demokod) > 0) index_demokod <- index_demokod + 1       # om det finns demokod redan så ökar vi elementet med 1 då vi lägger till en rad, men om den inte finns så låter vi den vara 0
     } # slut test om demo finns som parameter
