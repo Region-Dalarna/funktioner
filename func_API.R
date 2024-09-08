@@ -466,7 +466,7 @@ svenska_tecken_byt_ut <- function(textstrang){
 hamta_regionkod_med_knas_regionkod <- function(api_url, skickade_regionkoder, skickad_fran_variabel, dubbelkolumn = "klartext"){
   # används för de myndigheter som hittar på egna läns- och kommunkoder
   # men lägger de riktiga tillsammans med klartext i klartextkolumnen
-  # det funk-ar att skicka en api-url men också en lista med pxmeta-data
+  # det funkar att skicka en api-url men också en lista med pxmeta-data
   
   pxmeta <- if (is.list(api_url)) api_url else pxweb_get(api_url)  
   
@@ -481,7 +481,77 @@ hamta_regionkod_med_knas_regionkod <- function(api_url, skickade_regionkoder, sk
   
 }
 
+regsokoder_bearbeta <- function(api_url, regsokoder, var_namn = "region", behall_bara_regsokoder = TRUE) {
+  # används för extrahera regsokoder när man skickar med läns- och kommunkoder
+  # så man skickar deso-, läns- elle kommunkoder och får regsokoder i retur
+  # alla regsokoder för de kommuner eller län man skickar koder för
+  # anropar tatortskoder_bearbeta så se beskrivning av den funktionen nedan
+  # går att skicka api_url eller en lista med pxmeta-data
+  #
+  # i vissa tabeller kan man ta ut både regsokoder och kommuner, om behall_bara_regsokoder sätts
+  # till TRUE så behåller man bara regsokoderna för dessa kommuner men inte kommunkoden för hela kommunen
+  
+  regsokoder_retur <- tatortskoder_bearbeta(api_url, regsokoder, var_namn)
 
+  if (behall_bara_regsokoder) {
+    regsokoder_retur <- regsokoder_retur[str_length(regsokoder_retur) > 4]
+  }
+  
+  return_(regsokoder_retur)
+}
+
+desokoder_bearbeta <- function(api_url, desokoder, var_namn = "region", behall_bara_desokoder = TRUE) {
+  # används för extrahera desokoder när man skickar med läns- och kommunkoder
+  # så man skickar deso-, läns- elle kommunkoder och får desokoder i retur
+  # alla desokoder för de kommuner eller län man skickar koder för
+  # anropar tatortskoder_bearbeta så se beskrivning av den funktionen nedan
+  # går att skicka api_url eller en lista med pxmeta-data
+  #
+  # i vissa tabeller kan man ta ut både desokoder och kommuner, om behall_bara_desokoder sätts
+  # till TRUE så behåller man bara desokoderna för dessa kommuner men inte kommunkoden för hela kommunen
+  
+ desokoder_retur <-  tatortskoder_bearbeta(api_url, desokoder, var_namn)
+   
+ if (behall_bara_desokoder) {
+    desokoder_retur <- desokoder_retur[str_length(desokoder_retur) > 4]
+  }
+  
+  return(desokoder_retur)
+}
+
+tatortskoder_bearbeta <- function(api_url, tatortskoder, var_namn = "region") {
+  # används för extrahera tätortskoder när man skickar med läns- och kommunkoder
+  # med denna funktion fungerar det att skicka tätortskoder men också
+  # läns, eller kommunkoder där man i dessa fall får samtliga tätortskoder för 
+  # de kommuner eller län som man skickat koder för
+  # det funkar att skicka en api-url men också en lista med pxmeta-data
+  
+  if (all(tatortskoder == "*")) return(tatortskoder) else {
+    pxmeta <- if (is.list(api_url)) api_url else pxweb_get(api_url)
+    
+    # hämtar alla giltiga tätortskoder
+    giltiga_tatortskoder <- hamta_giltiga_varden_fran_tabell(
+      api_url = pxmeta,
+      variabel = var_namn
+    )
+    
+    # sorterar ut läns-, kommun- och tätortskoder för sig
+    kommun_koder <- tatortskoder[str_length(tatortskoder) == 4]
+    lan_koder <- tatortskoder[str_length(tatortskoder) == 2]
+    tatort_koder <- tatortskoder[str_length(tatortskoder) > 4]
+    
+    # extraherar giltiga tätortskoder för läns- och kommun-koder samt behåll bara giltiga tätortskoder
+    tatortskoder_kommun <- giltiga_tatortskoder[str_sub(giltiga_tatortskoder, 1, 4) %in% kommun_koder]
+    tatortskoder_lan <- giltiga_tatortskoder[str_sub(giltiga_tatortskoder, 1, 2) %in% lan_koder]
+    tatort_koder <- giltiga_tatortskoder[giltiga_tatortskoder %in% tatort_koder]
+    
+    # slå ihop de tre vektorerna ovan till en vektor
+    tatortskoder_retur <- c(tatortskoder_kommun, tatortskoder_lan, tatort_koder)
+    
+    return(tatortskoder_retur)
+    
+  } # slut if-sats att det inte är "*" medskickat 
+} # slut funktion
 
 # ================================================= kolada-funktioner ========================================================
 
@@ -1629,6 +1699,8 @@ demo_diagrambild_skapa <- function(
       utmappnamn <- "utmapp"
     } else if ("output_mapp_figur" %in% names(parametrar)){
       utmappnamn <- "output_mapp_figur"
+    } else if ("outputmapp_figur" %in% names(parametrar)){
+      utmappnamn <- "outputmapp_figur"
     } else {
       stop("Parameternamnet för output_mapp kan inte hittas. Ange det med parametern 'parameter_output_mapp' i denna funktion.")
     }
@@ -1715,7 +1787,7 @@ demo_diagrambild_skapa <- function(
         # sätt ett komma sist på raden innan demo = FALSE då vi lägger till demo som sista parameter, och då behövs ett komma sist på raden innan
         if (str_detect(ny_rad_innan, "#")) {                       # Kolla om det finns ett # i strängen
           # Sätt ett kommatecken före första # och före eventuella mellanslag innan #
-          ny_rad_innan <- str_replace(ny_rad_innan, "\\s*#", ",#")
+          ny_rad_innan <- str_replace(ny_rad_innan, "(\\s*)#", ",\\1#")
         } else {
           # Om inget # finns, sätt ett kommatecken efter sista tecknet som inte är ett mellanslag
           ny_rad_innan <- str_replace(ny_rad_innan, "(\\S)\\s*$", "\\1,")
