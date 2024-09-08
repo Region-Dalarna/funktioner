@@ -892,7 +892,7 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
    if (length(filtrera) > 1) filtrera <- paste0(filtrera, collapse = "|")
    if (length(filtrera) > 0 & str_detect(filtrera, "\\&")) {        # om filtrera innehåller ett eller flera &-tecken
      sok_vekt <- str_split(filtrera, "\\&") %>% unlist()            # ta isär söksträngen på &-tecken och lägg i en vektor
-     retur_df <- retur_df %>% filter(reduce(sok_vekt, ~ .x & str_detect(namn, .y), .init = TRUE))    # använd reduce för att behålla alla rader som innehåller samtliga elelment i sok__vekt
+     retur_df <- retur_df %>% filter(reduce(sok_vekt, ~ .x & str_detect(tolower(namn), tolower(.y)), .init = TRUE))    # använd reduce för att behålla alla rader som innehåller samtliga elelment i sok__vekt
    } else {                                                         # om filtrera inte innehåller &-tecken
      retur_df <- retur_df %>% filter(str_detect(tolower(namn), tolower(filtrera)))  
    }
