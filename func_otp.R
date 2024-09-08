@@ -79,6 +79,9 @@ otp_stang_server <- function(program_fil = "java.exe",
 otp_testa_server <- function(otp_url = 'http://localhost:8801',
                              bara_text_konsol = FALSE){
   # Funktion för att testa om en otp-server är igång
+  proxy_paslagen <- otp_testa_http_proxy()
+  # stäng av proxy
+  if (proxy_paslagen) otp_stang_av_http_proxy()
   
   # Skicka en GET-förfrågan till OTP-servern
   response <- GET(otp_url)
@@ -87,11 +90,21 @@ otp_testa_server <- function(otp_url = 'http://localhost:8801',
   if (status_code(response) == 200) {
     if (bara_text_konsol){
       cat("OTP-servern är igång och tillgänglig.\n")
-    } else return(TRUE)
+      if (proxy_paslagen) otp_satt_pa_http_proxy()    # sätt på proxy om den var påslagen när funktionen anropades
+    } else {
+      if (proxy_paslagen) otp_satt_pa_http_proxy()    # sätt på proxy om den var påslagen när funktionen anropades
+      return(TRUE)
+    }
+      
   } else {
     if (bara_text_konsol){
       cat("OTP-servern är inte tillgänglig. Statuskod:", status_code(response), "\n")
-    } else return(FALSE)
+      if (proxy_paslagen) otp_satt_pa_http_proxy()    # sätt på proxy om den var påslagen när funktionen anropades
+      return(TRUE)
+    } else {
+      if (proxy_paslagen) otp_satt_pa_http_proxy()    # sätt på proxy om den var påslagen när funktionen anropades
+      return(FALSE)
+    }
   }
 }
 
@@ -100,11 +113,8 @@ otp_starta_server <- function(vanta_tills_klar = TRUE) {
   # om vanta_tills_klar är TRUE så körs inte skriptet vidare förrän otp-servern
   #                        är helt klar att köra vilket kan ta upp till någon minut
   
-  old_http_proxy <- Sys.getenv("http_proxy")
-  old_https_proxy <- Sys.getenv("https_proxy")
   # vi behöver stänga av proxy för att otp-lösningen ska fungera
-  Sys.setenv(http_proxy = "")
-  Sys.setenv(https_proxy = "")
+  otp_stang_av_http_proxy()
 
   # för att kolla vilka pid-id:n som eventuellt redan körs för java.exe, så att vi kan stänga av enbart de processer vi startar nedan
   fore_processer <- otp_hamta_pid_for_processer() 
@@ -119,13 +129,13 @@ otp_starta_server <- function(vanta_tills_klar = TRUE) {
   
   if(length(fore_processer) > 0) efter_processer <- efter_processer[!efter_processer %in% fore_processer]
   if(length(efter_processer) == 0) efter_processer <- NULL
-  #Sys.setenv(http_proxy = old_http_proxy)
-  #Sys.setenv(https_proxy = old_https_proxy)
   
   # vänta max 1 minut (60 sekunder) och kolla varannan sekund om servern är up and running
   if (vanta_tills_klar) otp_vanta_tills_otp_server_ar_klar(timeout = 60,
                                                            interval = 2)
   
+  # här sätter vi på proxy igen så att source till github etc. fungerar igen
+  otp_satt_pa_http_proxy()
   return(efter_processer)
 }
 
@@ -191,8 +201,24 @@ otp_bygg_ny_graf <- function(otp_jar_mapp = "c:/otp/",
   }
 } # slut funktion otp_bygg_ny_graf()
 
+otp_satt_pa_http_proxy <- function(){
+  # för att kunna köra otp som lokal server behöver man stänga av proxy
+  # denna funktion sätter på den igen så att man kan source:a skript från github etc. igen
+  Sys.setenv(http_proxy = "http://mwg.ltdalarna.se:9090")
+  Sys.setenv(https_proxy = "http://mwg.ltdalarna.se:9090")
+}
   
-# ================ test att göra en funktion av skapa isokroner  ============================
+otp_stang_av_http_proxy <- function() {
+  # för att kunna köra otp som lokal server behöver man stänga av proxy
+  Sys.setenv(http_proxy = "")
+  Sys.setenv(https_proxy = "")
+}
+
+otp_testa_http_proxy <- function() {
+  # testa om proxy är på (TRUE) eller av (FALSE)
+  if (Sys.getenv("http_proxy") == "http://mwg.ltdalarna.se:9090") return(TRUE) else return(FALSE)
+}
+# ================ Funktion för att skapa isokroner  ============================
 
 skapa_isokroner_otp <- function(
     datum = "2024-06-10",         # datum för tillgänglighetskörningen
@@ -233,7 +259,9 @@ skapa_isokroner_otp <- function(
   
   otp_isochrone <- 'http://localhost:8801/otp/traveltime/isochrone'
   
-  otp_starta_server()
+  otp_stang_av_http_proxy()
+  # start server om den inte redan är igång
+  if (!otp_testa_server()) otp_starta_server()
 
   # skapa funktioner 
   
@@ -284,17 +312,17 @@ skapa_isokroner_otp <- function(
   
   # skapa ett sf-objekt som heter malpunkter utifrån skickad sf
   malpunkter <- malpunkter_sf %>% 
-    select(any_of(c("geometry" = geo_kolumn, "malpunkt_namn" = namn_kolumn)))
+    select(any_of(c("malpunkt_namn" = namn_kolumn, "geometry" = geo_kolumn)))
   
   if (is.null(namn_kolumn)) malpunkter <- malpunkter %>% mutate(malpunkt_namn = NA)
   
   punkter_queries <- pmap(malpunkter, ~ {
     # startpunkt data
-    lonlat <- st_coordinates(..1)
+    lonlat <- st_coordinates(..2)
     fromlon <- lonlat[1]
     fromlat <- lonlat[2]
     punkt_koord <- str_glue('{fromlat},{fromlon}')
-    malpunkt <- ..2
+    malpunkt <- ..1
     
     # skapa query
     # Använd as.POSIXct för att skapa datum-tid-sträng med rätt format och tidszon (den som den lokala datorn använder)
@@ -320,11 +348,62 @@ skapa_isokroner_otp <- function(
   
   
   # cont <- result[[1]]
-  source("G:/skript/gis/otp/test/test_extrahera_isokron.R", encoding = "utf-8")
-  list_sf <- map(result, ~ extrahera_iso_geo(.x)) %>% flatten
+  #source("G:/skript/gis/otp/test/test_extrahera_isokron.R", encoding = "utf-8")
+  list_sf <- map(result, ~ otp_extrahera_iso_geo(.x)) %>% flatten
   
+  otp_satt_pa_http_proxy()
   return(list_sf)
 
+}
+
+
+otp_extrahera_iso_geo <- function(cont) {
+  # Konvertera raw data till JSON
+  json_data <- fromJSON(rawToChar(cont$content))
+  
+  # Extrahera geometridata från json_data
+  features <- json_data$features
+  
+  # Funktion för att hantera varje feature
+  multipolygons <- map(features, function(feature) {
+    coords <- feature$geometry$coordinates
+    if (feature$geometry$type == "MultiPolygon") {
+      polygons <- map(coords, function(polygon) {
+        map(polygon, function(ring) {
+          matrix(unlist(ring), ncol = 2, byrow = TRUE)
+        })
+      })
+      st_multipolygon(polygons)
+    } else if (feature$geometry$type == "Polygon") {
+      polygons <- map(coords, function(ring) {
+        matrix(unlist(ring), ncol = 2, byrow = TRUE)
+      })
+      st_polygon(polygons)
+    } else {
+      NULL
+    }
+  })
+  
+  # Filtrera bort eventuella NULL-värden
+  multipolygons <- compact(multipolygons)
+  
+  # hämta tidvärden för isokronerna, så att vi kan lägga in dem i det färdiga sf-objektet
+  time_values <- map_chr(features, ~ .x$properties$time)
+  
+  
+  # Skapa ett sf-objekt
+  retur_sf <- st_sf(
+    geometry = st_sfc(multipolygons),
+    crs = 4326  # Se till att använda rätt CRS om du vet vilken som är korrekt
+  ) %>% 
+    mutate(tid = time_values %>% as.numeric,
+           malpunkt_namn = cont$malpunkt_namn,
+           malpunkt_bara = cont$malpunkt_bara)
+  
+  retur_sf <- list(retur_sf)
+  names(retur_sf) <- cont$malpunkt_namn
+  
+  return(retur_sf)
 }
 
 # ================================ gtfs-skript ====================================
