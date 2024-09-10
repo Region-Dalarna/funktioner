@@ -91,7 +91,7 @@ otp_testa_server <- function(otp_url = 'http://localhost:8801',
     return(999)  # Returnera värdet "999"
   })
   
-  if (proxy_paslagen) otp_satt_pa_http_proxy() else otp_stang_av_http_proxy()    # sätt på proxy om den var påslagen när funktionen anropades
+  if (proxy_paslagen_status) otp_satt_pa_http_proxy() else otp_stang_av_http_proxy()    # sätt på proxy om den var påslagen när funktionen anropades
   
   # Kontrollera statuskoden
   if (status_code(response) == 200) {
