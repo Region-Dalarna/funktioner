@@ -1472,5 +1472,44 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
    dbExecute(con, paste0("create schema if not exists ", schema_namn, ";"))
  }
  
+ sf_skapa_fran_df_med_rutkolumner <- function(skickad_df, x_kol, y_kol, rutstorlek = NA){
+   
+   if (is.na(rutstorlek)) rutstorlek <- rutstorlek_estimera(skickad_df[[x_kol]], skickad_df[[y_kol]])
+   
+   # skapa en punktgeometri av x- och y-kolumnerna där koordinaten är nedre vänstra hörnet
+   retur_sf <- skickad_df %>% 
+     mutate(x_ny = !!sym(x_kol)/(rutstorlek/2),
+            y_ny = !!sym(y_kol)/(rutstorlek/2)) %>%
+     st_as_sf(coords = c("x_ny", "y_ny"), crs = 3006) %>% 
+     st_cast("POINT")
+   
+   return(retur_sf)
+   
+ }
+ 
+ 
+ rutstorlek_estimera <- function(x, y) {
+   
+   # Kombinera x- och y-koordinaterna till en enda vektor
+   coords <- c(x ,y)
+   
+   # Kontrollera om det finns något värde som slutar på 100, 200, 300 eller 400
+   if (any(coords %% 1000 %in% c(100, 200, 300, 400))) {
+     return(100)
+   }
+   
+   # Kontrollera om det finns värden som slutar på 500 och på 1000
+   if (any(coords %% 1000 == 500) && any(coords %% 1000 == 0)) {
+     return(500)
+   }
+   
+   # Om alla värden slutar på 1000
+   if (all(coords %% 1000 == 000)) {
+     return(1000)
+   }
+   
+   # Default, if no match is found (this case shouldn't happen given your rules)
+   return(NA)
+ }
  
  
