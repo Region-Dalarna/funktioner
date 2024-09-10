@@ -436,5 +436,7 @@ diagramfarger <- function(farg = "gron_sex"){
   
   kon_bakgrund <- c("#e2a855", "#459079", "#00B4E4", "#0074A2")
   
+  rsp_enkat <- c("#178571", "#0e5a4c", "#158daf", "#00577b", "#BFBFBF")            # "#158daf"
+  
   return(get(farg))
 }
