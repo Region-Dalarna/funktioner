@@ -79,36 +79,39 @@ otp_stang_server <- function(program_fil = "java.exe",
 otp_testa_server <- function(otp_url = 'http://localhost:8801',
                              bara_text_konsol = FALSE){
   # Funktion för att testa om en otp-server är igång
-  proxy_paslagen <- otp_testa_http_proxy()
+  proxy_paslagen_status <- otp_testa_http_proxy()
   # stäng av proxy
-  if (proxy_paslagen) otp_stang_av_http_proxy()
+  otp_stang_av_http_proxy()
   
-  # Skicka en GET-förfrågan till OTP-servern
-  response <- GET(otp_url)
+  # Skicka en GET-förfrågan till OTP-servern, returnera 999 om det blir fel och skriv ut felmeddelandet i konsolen
+  response <- tryCatch({
+    GET(otp_url)
+  }, error = function(e) {
+    #message("Ett fel inträffade: ", e$message)  # Skriv ut felmeddelandet i konsolen
+    return(999)  # Returnera värdet "999"
+  })
+  
+  if (proxy_paslagen) otp_satt_pa_http_proxy() else otp_stang_av_http_proxy()    # sätt på proxy om den var påslagen när funktionen anropades
   
   # Kontrollera statuskoden
   if (status_code(response) == 200) {
     if (bara_text_konsol){
       cat("OTP-servern är igång och tillgänglig.\n")
-      if (proxy_paslagen) otp_satt_pa_http_proxy()    # sätt på proxy om den var påslagen när funktionen anropades
     } else {
-      if (proxy_paslagen) otp_satt_pa_http_proxy()    # sätt på proxy om den var påslagen när funktionen anropades
       return(TRUE)
     }
       
   } else {
     if (bara_text_konsol){
       cat("OTP-servern är inte tillgänglig. Statuskod:", status_code(response), "\n")
-      if (proxy_paslagen) otp_satt_pa_http_proxy()    # sätt på proxy om den var påslagen när funktionen anropades
       return(TRUE)
     } else {
-      if (proxy_paslagen) otp_satt_pa_http_proxy()    # sätt på proxy om den var påslagen när funktionen anropades
       return(FALSE)
     }
   }
 }
 
-otp_starta_server <- function(vanta_tills_klar = TRUE) {
+otp_starta_server <- function(vanta_tills_klar = TRUE, vanta_sekunder = 120) {
   # Funktion för att starta en otp-server (kräver att den är uppsatt på korrekt sätt innan)
   # om vanta_tills_klar är TRUE så körs inte skriptet vidare förrän otp-servern
   #                        är helt klar att köra vilket kan ta upp till någon minut
@@ -131,7 +134,7 @@ otp_starta_server <- function(vanta_tills_klar = TRUE) {
   if(length(efter_processer) == 0) efter_processer <- NULL
   
   # vänta max 1 minut (60 sekunder) och kolla varannan sekund om servern är up and running
-  if (vanta_tills_klar) otp_vanta_tills_otp_server_ar_klar(timeout = 60,
+  if (vanta_tills_klar) otp_vanta_tills_otp_server_ar_klar(timeout = vanta_sekunder,
                                                            interval = 2)
   
   # här sätter vi på proxy igen så att source till github etc. fungerar igen
@@ -220,7 +223,7 @@ otp_testa_http_proxy <- function() {
 }
 # ================ Funktion för att skapa isokroner  ============================
 
-skapa_isokroner_otp <- function(
+otp_skapa_isokroner <- function(
     datum = "2024-06-10",         # datum för tillgänglighetskörningen
     tid = "08:00",                # tid för tillgänglighetskörningen
     iso_intervaller = c(60, 90),  # hur många isokron-polygoner vill vi ha och med vilka tidsintervall (anges i minuter)
@@ -255,13 +258,16 @@ skapa_isokroner_otp <- function(
          tictoc)
   
   #source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_otp.R")
+  proxy_status <- otp_testa_http_proxy()
+  
+  otp_satt_pa_http_proxy()
   source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R")
   
   otp_isochrone <- 'http://localhost:8801/otp/traveltime/isochrone'
   
   otp_stang_av_http_proxy()
   # start server om den inte redan är igång
-  if (!otp_testa_server()) otp_starta_server()
+  if (!otp_testa_server()) otp_starta_server(vanta_sekunder = 120)
 
   # skapa funktioner 
   
@@ -351,7 +357,8 @@ skapa_isokroner_otp <- function(
   #source("G:/skript/gis/otp/test/test_extrahera_isokron.R", encoding = "utf-8")
   list_sf <- map(result, ~ otp_extrahera_iso_geo(.x)) %>% flatten
   
-  otp_satt_pa_http_proxy()
+  # lämna proxy_status som det var när funktionen anropades
+  if (proxy_status) otp_satt_pa_http_proxy() else otp_stang_av_http_proxy()
   return(list_sf)
 
 }
@@ -396,7 +403,7 @@ otp_extrahera_iso_geo <- function(cont) {
     geometry = st_sfc(multipolygons),
     crs = 4326  # Se till att använda rätt CRS om du vet vilken som är korrekt
   ) %>% 
-    mutate(tid = time_values %>% as.numeric,
+    mutate(tid_min = time_values %>% as.numeric %>% { . / 60 },
            malpunkt_namn = cont$malpunkt_namn,
            malpunkt_bara = cont$malpunkt_bara)
   
