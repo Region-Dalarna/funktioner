@@ -706,7 +706,7 @@ SkapaLinjeDiagram <- function(skickad_df,
     max_varde_plot_df <- plot_df %>% group_by(across(any_of(variabel_vekt))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == max(summ)) %>% slice(1) %>% dplyr::pull()
     min_varde_plot_df <- plot_df %>% group_by(across(any_of(variabel_vekt))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == min(summ)) %>% slice(1) %>% dplyr::pull()
     
-  } else {
+  } else { 
     min_varde_plot_df <- min(plot_df["total"])
   }
   if (min_varde_plot_df < 0 & max_varde_plot_df < 0) min_och_max_negativa <- TRUE else min_och_max_negativa <- FALSE
