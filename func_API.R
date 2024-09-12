@@ -1195,12 +1195,16 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
           first()) {
         
           # variabler som går att eliminera (dvs. inte ha med i uttaget)
-        if (!(str_detect(tolower(var_kod), "alder|ålder") & !alder_ar_klartext) | str_detect(tolower(var_kod), "grupp")){
+         if (!(str_detect(tolower(var_kod), "alder|ålder") & !alder_ar_klartext) |
+             str_detect(tolower(var_kod), "grupp") |
+             (str_detect(tolower(var_kod), "alder") & str_detect(tolower(var_kod), "kon") & str_detect(tolower(var_kod), "fodel"))){
           paste0("  ", tolower(var_kod) %>% str_replace_all(" ", "_"), '_vekt <- if (!all(is.na(', tolower(var_kod), '_klartext))) hamta_kod_med_klartext(px_meta, ', tolower(var_kod) %>% str_replace_all(" ", "_"), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '") else NA\n')
         } else NA
       } else {    # variabler som inte går att eliminera (göra uttag utan) men som är klartext till kod
         #if (!str_detect(tolower(var_kod), "alder|ålder") | str_detect(tolower(var_kod), "grupp")) paste0("  ", tolower(var_kod) %>% str_replace_all(" ", "_"), '_vekt <- hamta_kod_med_klartext(px_meta, ', tolower(var_kod) %>% str_replace_all(" ", "_"), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '")\n')
-        if (!(str_detect(tolower(var_kod), "alder|ålder") & !alder_ar_klartext) | str_detect(tolower(var_kod), "grupp")) paste0("  ", tolower(var_kod) %>% str_replace_all(" ", "_"), '_vekt <- hamta_kod_med_klartext(px_meta, ', tolower(var_kod) %>% str_replace_all(" ", "_"), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '")\n')
+        if (!(str_detect(tolower(var_kod), "alder|ålder") & !alder_ar_klartext) |
+            str_detect(tolower(var_kod), "grupp") |
+            (str_detect(tolower(var_kod), "alder") & str_detect(tolower(var_kod), "kon") & str_detect(tolower(var_kod), "fodel"))) paste0("  ", tolower(var_kod) %>% str_replace_all(" ", "_"), '_vekt <- hamta_kod_med_klartext(px_meta, ', tolower(var_kod) %>% str_replace_all(" ", "_"), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '")\n')
       }
     } else NA           # om det är koder för region eller ålder så ska de inte med på dessa rader
        
