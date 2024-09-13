@@ -168,8 +168,11 @@ SkapaStapelDiagram <- function(skickad_df,
       min_varde_plot_df <- plot_df %>% filter(total < 0) %>% group_by(across(all_of(skickad_x_var))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == min(summ)) %>% slice(1) %>% dplyr::pull()
     } else {
       if (diagram_facet) {
-        max_varde_plot_df <- plot_df %>% group_by(across(any_of(c(as.character(skickad_x_var), as.character(facet_grp), as.character(skickad_x_grupp))))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == max(summ)) %>% slice(1) %>% dplyr::pull()
-        min_varde_plot_df <- plot_df %>% group_by(across(any_of(c(as.character(skickad_x_var), as.character(facet_grp), as.character(skickad_x_grupp))))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == min(summ)) %>% slice(1) %>% dplyr::pull()
+        # skapa en vektor med de variabler som kan vara med, ta bort om något är NA
+        variabel_vekt <- c(as.character(skickad_x_var), as.character(facet_grp), as.character(skickad_x_grupp)) %>% .[!is.na(.)]
+        
+        max_varde_plot_df <- plot_df %>% group_by(across(any_of(variabel_vekt))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == max(summ)) %>% slice(1) %>% dplyr::pull()
+        min_varde_plot_df <- plot_df %>% group_by(across(any_of(variabel_vekt))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == min(summ)) %>% slice(1) %>% dplyr::pull()
       } else {
         # om det bara finns positiva eller negativa värden beräknas max- och min-värden som vanligt
         max_varde_plot_df <- plot_df %>% group_by(across(all_of(skickad_x_var))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == max(summ)) %>% slice(1) %>% dplyr::pull()
@@ -698,9 +701,12 @@ SkapaLinjeDiagram <- function(skickad_df,
   
   if (y_axis_100proc) max_varde_plot_df <- 100 else max_varde_plot_df <- max(plot_df["total"])    # om vi skickat med att vi vill ha låsa y-axelns maxvärde till 100 så fixar vi det här - slice(1) utfall att det finns flera grupper som uppnår maxvärde (då tar vi bara en av dem)
   if (diagram_facet) {
-    max_varde_plot_df <- plot_df %>% group_by(across(any_of(c(as.character(skickad_x_var), as.character(facet_grp), as.character(skickad_x_grupp))))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == max(summ)) %>% slice(1) %>% dplyr::pull()
-    min_varde_plot_df <- plot_df %>% group_by(across(any_of(c(as.character(skickad_x_var), as.character(facet_grp), as.character(skickad_x_grupp))))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == min(summ)) %>% slice(1) %>% dplyr::pull()
-  } else {
+    variabel_vekt <- c(as.character(skickad_x_var), as.character(facet_grp), as.character(skickad_x_grupp)) %>% .[!is.na(.)]
+    
+    max_varde_plot_df <- plot_df %>% group_by(across(any_of(variabel_vekt))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == max(summ)) %>% slice(1) %>% dplyr::pull()
+    min_varde_plot_df <- plot_df %>% group_by(across(any_of(variabel_vekt))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == min(summ)) %>% slice(1) %>% dplyr::pull()
+    
+  } else { 
     min_varde_plot_df <- min(plot_df["total"])
   }
   if (min_varde_plot_df < 0 & max_varde_plot_df < 0) min_och_max_negativa <- TRUE else min_och_max_negativa <- FALSE
