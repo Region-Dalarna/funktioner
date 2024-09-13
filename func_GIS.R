@@ -1472,15 +1472,15 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
    dbExecute(con, paste0("create schema if not exists ", schema_namn, ";"))
  }
  
- sf_skapa_fran_df_med_rutkolumner <- function(skickad_df, x_kol, y_kol, rutstorlek = NA){
+ sf_skapa_fran_df_med_rutkolumner <- function(skickad_df, x_kol, y_kol, rutstorlek = NA, vald_crs = 3006){
    
    if (is.na(rutstorlek)) rutstorlek <- rutstorlek_estimera(skickad_df[[x_kol]], skickad_df[[y_kol]])
    
    # skapa en punktgeometri av x- och y-kolumnerna där koordinaten är nedre vänstra hörnet
    retur_sf <- skickad_df %>% 
-     mutate(x_ny = !!sym(x_kol)/(rutstorlek/2),
-            y_ny = !!sym(y_kol)/(rutstorlek/2)) %>%
-     st_as_sf(coords = c("x_ny", "y_ny"), crs = 3006) %>% 
+     mutate(x_ny = !!sym(x_kol)+(rutstorlek/2),
+            y_ny = !!sym(y_kol)+(rutstorlek/2)) %>%
+     st_as_sf(coords = c("x_ny", "y_ny"), crs = vald_crs) %>% 
      st_cast("POINT")
    
    return(retur_sf)
