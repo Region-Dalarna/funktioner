@@ -1115,7 +1115,8 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   tabell_variabler <- pxvarlist(list(title = NULL, variables = px_meta_enkel_list))
   
   # om det finns fler än en tabell så kollar vi om det finns värden som överlappar mellan tabellerna
-  px_meta_overlappande_varden <- if (length(url_scb) > 1) varden_overlappande_pxweb_hantera(px_meta_list, url_scb, var_kod = "Tid") else NULL  
+  px_meta_overlappande_varden <- if (length(url_scb) > 1) overlappande_varden_pxweb_hantera(px_meta_list, url_scb, var_kod = "Tid") else NULL  
+  overlapp_txt <- if (is.null(px_meta_overlappande_varden)) "" else "\t"
   
   # om det finns år och månader så sorterar vi dessa i listan så det blir snyggare när de listas som möjliga värden i parameterlistan
   if ("tid" %in% tolower(tabell_variabler$koder)) {
@@ -1183,7 +1184,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   
   # skapa variabel-lista för queryn
   varlist_skriptrader <- paste0("list(\n", 
-                                paste(map_chr(varlist_koder, ~paste0("  \"", .x, "\" = ", str_c(tolower(.x) %>% str_replace_all(" ", "_"), "_vekt"))), collapse = ",\n"), 
+                                paste(map_chr(varlist_koder, ~paste0("  \t\"", .x, "\" = ", str_c(tolower(.x) %>% str_replace_all(" ", "_"), "_vekt"))), collapse = ",\n"), 
                                 ")") %>% 
     str_replace("contentscode_vekt", "cont_vekt") #%>% 
     #str_replace("tid_vekt", "tid_koder")
@@ -1274,27 +1275,28 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   
   # här hakar vi på skript för skript som har flera tabeller och överlappande värden, annars gör vi ingenting
   if (!is.null(px_meta_overlappande_varden)) {
-    overlappning_special <- map_chr(over_lappning_resultat, function(item) {
+    overlappning_special <- map_chr(px_meta_overlappande_varden, function(item) {
       url <- item$url
       ar <- item$overlappande_varden
       
-      # Skapa texten
-      glue(
-        '\n',
-        '  # special, ta bort överlappande värden mellan tabeller där de förekommer, värden från nyaste tabellerna behålls\n',
-        '  if (url_uttag == "{url}") {{\n',
-        '    if (tid_koder == "*") tid_vekt <- giltiga_ar\n',
-        '    tid_vekt <- tid_vekt %>% .[. != "{paste(ar, collapse = \'" & . != "\') }"]\n',
-        '  }}\n\n',
-        '  if (length(tid_vekt) > 0) {{\n',
-      )
-    }) # slut map_chr
+      # Skapa skriptet för tabeller som har överlapp som gör att vi tar bort
+      # överlappande värden i den tabell som har tidigast år
+      paste0(
+        "\n",
+        "\t# special, ta bort överlappande värden mellan tabeller där de förekommer, värden från nyaste tabellerna behålls\n",
+        "\tif (url_uttag == '", url, "') {\n",
+        "\t\tif (tid_koder == \"*\") tid_vekt <- giltiga_ar\n",
+        "\t\ttid_vekt <- tid_vekt[!tid_vekt %in% c('", paste(ar, collapse = "', '"), "')]\n",
+        "\t}\n\n",
+        "\tif (length(tid_vekt) > 0) {\n"
+      ) # slut paste0
+    })  # slut map_chr
     
     # lägg ihop med tid_skriptrader så att dessa rader ovan kommer efter de vanliga tid-skriptraderna
-    tid_skriptrader <- paste0(tid_skriptrader, overlappning_special)
+    tid_skriptrader <- paste0(tid_skriptrader, "\n",  overlappning_special)
     
     # ge ett värde till avslutning av if-sats utfall att tid_vekt inte innehåller några värden
-    overlappning_if_tid_vekt_ar_noll <- "\n} # test om det finns giltig(a) tid-kod(er) i aktuell tabell\n"
+    overlappning_if_tid_vekt_ar_noll <- "   } # test om det finns giltig(a) tid-kod(er) i aktuell tabell\n"
     
   } else overlappning_if_tid_vekt_ar_noll <- NULL   # slut if-sats om det finns överlappande värden
   
@@ -1308,8 +1310,8 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   long_format_skriptrader <- if (antal_contvar > 1){
     
     paste0('  # man kan välja bort long-format, då låter vi kolumnerna vara wide om det finns fler innehållsvariabler, annars\n',
-           '  # pivoterar vi om till long-format, dock ej om det bara finns en innehållsvariabel\n',
-           '  if (long_format & !wide_om_en_contvar) px_df <- px_df %>% konvertera_till_long_for_contentscode_variabler(url_uttag)\n\n')
+           overlapp_txt, '  # pivoterar vi om till long-format, dock ej om det bara finns en innehållsvariabel\n',
+           overlapp_txt, '  if (long_format & !wide_om_en_contvar) px_df <- px_df %>% konvertera_till_long_for_contentscode_variabler(url_uttag)\n\n')
       
     } else NULL # slut if-sats som kontrollera om vi vill ha df i long-format, blir "" om vi inte har fler än en cont_variabler i tabellen
   
@@ -1325,12 +1327,12 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     variabler_med_klartext <- tabell_variabler$klartext[match(variabler_med_kod, tabell_variabler$koder)]
     var_vektor_skriptdel <- paste0(
     '  var_vektor <- ', capture.output(dput(variabler_med_kod))%>% paste0(collapse = ""), '\n',
-    '  var_vektor_klartext <- ', capture.output(dput(variabler_med_klartext)) %>% paste0(collapse = ""), '\n'
+    overlapp_txt, '  var_vektor_klartext <- ', capture.output(dput(variabler_med_klartext)) %>% paste0(collapse = ""), '\n'
     )
   } else {                                    # om det inte finns någon kolumn som vi vill ta med koder för
-    var_vektor_skriptdel <- glue(
+    var_vektor_skriptdel <- paste0(
       '  var_vektor <- NA\n',
-      '  var_vektor_klartext <- NA\n',
+      overlapp_txt,  '  var_vektor_klartext <- NA\n'
     )
   }  # slut if-sats om det finns variabler med kod
   
@@ -1353,7 +1355,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     
     # om vi har flera url:er måste vi skapa en funktion som hämtar data från varje url och sätter ihop med map
     hamta_funktion_txt <- "\n\n hamta_data <- function(url_uttag) {\n\n"
-    hamta_funktion_slut_txt <- paste0('  return(px_df)\n', overlappning_if_tid_vekt_ar_noll,  '} # slut hämta data-funktion \n\n')
+    hamta_funktion_slut_txt <- paste0(overlapp_txt, '  return(px_df)\n', overlappning_if_tid_vekt_ar_noll,  '  } # slut hämta data-funktion \n\n')
     map_funktion_txt <- '  px_alla <- map(url_list, ~ hamta_data(.x)) %>% list_rbind()\n\n'
     px_retur_txt <- "px_alla"
     
@@ -1368,7 +1370,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   } 
   
   # Skapar själva strängen med skriptet för att hämta data med pxweb
-  query_code <- paste0(
+  query_code <- c(
     'hamta_', funktion_namn, ' <- function(\n',
     funktion_parametrar, '\n',
     '){\n\n',
@@ -1433,6 +1435,23 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     '  if (returnera_df) return(', px_retur_txt, ')\n\n',
     '}'
   )
+  
+  # om vi har överlappande år i flera tabeller så vill vi skjuta in
+  # koden lite till för att bli mer lättläst, sker nedan i så fall
+  if (!is.null(px_meta_overlappande_varden)){
+    
+    # startrad för den del vi vill lägga till ett tabtecken för
+    start_index <- which(str_detect(query_code, "if \\(length\\(tid_vekt\\) > 0\\)"))
+    # slutrad för den del vi vill lägga till ett tabtecken för
+    end_index <- which(str_detect(query_code, "return\\(px_df\\)"))
+    
+    # Lägg till ett tab-tecken för elementen mellan start_index och end_index
+    query_code[(start_index + 1):(end_index - 1)] <- paste0("\t", query_code[(start_index + 1):(end_index - 1)])
+    
+    # Konvertera query_code till en enda lång textsträng
+    query_code <- query_code %>% paste0(collapse = "")
+    
+  } else query_code <- query_code %>% paste0(collapse = "")
   
   # Skriv ut den genererade koden - om man vill kolla att skriptet verkar stämma
   #cat(query_code)
@@ -1636,7 +1655,7 @@ sortera_px_variabler <- function(lista, sorterings_vars = c("Tid"), sortera_pa_k
   return(retur_lista)
 }
 
-varden_overlappande_pxweb_hantera <- function(px_meta_lista, url_scb, var_kod = "Tid") {
+overlappande_varden_pxweb_hantera <- function(px_meta_lista, url_scb, var_kod = "Tid") {
   
   # returnerar en lista med URL:er och värden för de tabeller som har överlappande värden
   # används primärt för att hantera scb-tabeller med överlappande år, dvs. för att i ett nästa
@@ -1653,6 +1672,11 @@ varden_overlappande_pxweb_hantera <- function(px_meta_lista, url_scb, var_kod = 
     tid_variabel <- variabler[map_chr(variabler, "code") == var_kod][[1]]
     return(tid_variabel$values)
   }
+  
+  # Sortera tabellerna efter högsta värde för den variabel vi vill kontrollera
+  sorted_indices <- order(map_chr(px_meta_lista, ~ max(extrahera_varden(.x$variables))), decreasing = TRUE)
+  px_meta_lista <- px_meta_lista[sorted_indices]
+  url_scb <- url_scb[sorted_indices]
   
   # En lista för att lagra resultat (URL och överlappande värden)
   overlappande_url_varden <- list()
