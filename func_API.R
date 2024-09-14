@@ -1114,6 +1114,9 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   px_meta_enkel_list <- extrahera_unika_varden_flera_scb_tabeller(px_meta_list)
   tabell_variabler <- pxvarlist(list(title = NULL, variables = px_meta_enkel_list))
   
+  # om det finns fler än en tabell så kollar vi om det finns värden som överlappar mellan tabellerna
+  px_meta_overlappande_varden <- if (length(url_scb) > 1) varden_overlappande_pxweb_hantera(px_meta_list, url_scb, var_kod = "Tid") else NULL  
+  
   # om det finns år och månader så sorterar vi dessa i listan så det blir snyggare när de listas som möjliga värden i parameterlistan
   if ("tid" %in% tolower(tabell_variabler$koder)) {
     px_meta_enkel_list <- sortera_px_variabler(px_meta_enkel_list, sorterings_vars = "tid", sortera_pa_kod = TRUE)
@@ -1182,8 +1185,8 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   varlist_skriptrader <- paste0("list(\n", 
                                 paste(map_chr(varlist_koder, ~paste0("  \"", .x, "\" = ", str_c(tolower(.x) %>% str_replace_all(" ", "_"), "_vekt"))), collapse = ",\n"), 
                                 ")") %>% 
-    str_replace("contentscode_vekt", "cont_vekt") %>% 
-    str_replace("tid_vekt", "tid_koder")
+    str_replace("contentscode_vekt", "cont_vekt") #%>% 
+    #str_replace("tid_vekt", "tid_koder")
   
   # skapa skriptrader för klartext-variabler som måste omvandlas till koder till query-listan, dvs. "vekt_" och sedan variabelnamnet
   var_klartext_skriptrader <- map(varlist_koder, function(var_kod) {
@@ -1261,13 +1264,39 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   
   tid_skriptrader <- if ("år" %in% tolower(names(varlist_giltiga_varden))) {                      # hlv
     paste0('  giltiga_ar <- hamta_giltiga_varden_fran_tabell(px_meta, "år")\n',
-           '  if (all(tid_koder != "*")) tid_koder <- tid_koder %>% as.character() %>% str_replace("9999", max(giltiga_ar)) %>% .[. %in% giltiga_ar] %>% unique()\n')
+           '  tid_vekt <- if (all(tid_koder != "*")) tid_koder %>% as.character() %>% str_replace("9999", max(giltiga_ar)) %>% .[. %in% giltiga_ar] %>% unique() else giltiga_ar\n')
   }
   
   tid_skriptrader <- if ("tid" %in% tolower(names(varlist_giltiga_varden))) {                     # scb
    paste0('  giltiga_ar <- hamta_giltiga_varden_fran_tabell(px_meta, "tid")\n',
-                            '  if (all(tid_koder != "*")) tid_koder <- tid_koder %>% as.character() %>% str_replace("9999", max(giltiga_ar)) %>% .[. %in% giltiga_ar] %>% unique()\n')
+                            '  tid_vekt <- if (all(tid_koder != "*")) tid_koder %>% as.character() %>% str_replace("9999", max(giltiga_ar)) %>% .[. %in% giltiga_ar] %>% unique() else giltiga_ar\n')
   }
+  
+  # här hakar vi på skript för skript som har flera tabeller och överlappande värden, annars gör vi ingenting
+  if (!is.null(px_meta_overlappande_varden)) {
+    overlappning_special <- map_chr(over_lappning_resultat, function(item) {
+      url <- item$url
+      ar <- item$overlappande_varden
+      
+      # Skapa texten
+      glue(
+        '\n',
+        '  # special, ta bort överlappande värden mellan tabeller där de förekommer, värden från nyaste tabellerna behålls\n',
+        '  if (url_uttag == "{url}") {{\n',
+        '    if (tid_koder == "*") tid_vekt <- giltiga_ar\n',
+        '    tid_vekt <- tid_vekt %>% .[. != "{paste(ar, collapse = \'" & . != "\') }"]\n',
+        '  }}\n\n',
+        '  if (length(tid_vekt) > 0) {{\n',
+      )
+    }) # slut map_chr
+    
+    # lägg ihop med tid_skriptrader så att dessa rader ovan kommer efter de vanliga tid-skriptraderna
+    tid_skriptrader <- paste0(tid_skriptrader, overlappning_special)
+    
+    # ge ett värde till avslutning av if-sats utfall att tid_vekt inte innehåller några värden
+    overlappning_if_tid_vekt_ar_noll <- "\n} # test om det finns giltig(a) tid-kod(er) i aktuell tabell\n"
+    
+  } else overlappning_if_tid_vekt_ar_noll <- NULL   # slut if-sats om det finns överlappande värden
   
   
   cont_skriptrader <- if ("contentscode" %in% tolower(names(varlist_giltiga_varden))) {
@@ -1324,7 +1353,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     
     # om vi har flera url:er måste vi skapa en funktion som hämtar data från varje url och sätter ihop med map
     hamta_funktion_txt <- "\n\n hamta_data <- function(url_uttag) {\n\n"
-    hamta_funktion_slut_txt <- '  return(px_df)\n  }\n\n'
+    hamta_funktion_slut_txt <- paste0('  return(px_df)\n', overlappning_if_tid_vekt_ar_noll,  '} # slut hämta data-funktion \n\n')
     map_funktion_txt <- '  px_alla <- map(url_list, ~ hamta_data(.x)) %>% list_rbind()\n\n'
     px_retur_txt <- "px_alla"
     
@@ -1547,91 +1576,41 @@ extrahera_unika_varden_flera_scb_tabeller <- function(px_meta) {
     tibble(values = variable$values, valueTexts = variable$valueTexts)
   }
   
-  # En funktion för att uppdatera en lista med unika variabler med nya värden och valueTexts
-  update_unique_variables <- function(unique_vars, new_var) {
-    # Skapar en tibble för nya värden och texter
-    new_pairs <- create_value_pairs(new_var)
+  # Slå samman alla variabler från alla tabeller
+  all_variables <- lapply(px_meta, function(px) px$variables) %>% flatten()
+  
+  # Skapa en tom lista för unika variabler
+  unique_vars <- list()
+  
+  # Iterera över alla variabler och kombinera unika värden och valueTexts
+  for (var in all_variables) {
+    existing_index <- which(map_chr(unique_vars, "code") == var$code)
     
-    # Kontrollerar om variabeln redan finns i listan av unika variabler
-    if (any(map_chr(unique_vars, "code") == new_var$code)) {
-      existing_index <- which(map_chr(unique_vars, "code") == new_var$code)
+    if (length(existing_index) > 0) {
+      # Kombinera värden om variabeln redan finns
       existing_var <- unique_vars[[existing_index]]
       existing_pairs <- create_value_pairs(existing_var)
+      new_pairs <- create_value_pairs(var)
       
-      # Sammanslå de existerande och nya paren, och ta bort dubbletter
+      # Kombinera värdeparen och ta bort dubbletter
       combined_pairs <- distinct(bind_rows(existing_pairs, new_pairs))
       
-      # Uppdatera den existerande variabeln med de kombinerade paren
+      # Uppdatera den befintliga variabeln med de kombinerade paren
       unique_vars[[existing_index]] <- list(
-        code = new_var$code,
-        text = new_var$text,
-        elimination = new_var$elimination,
+        code = var$code,
+        text = var$text,
+        elimination = var$elimination,
         values = combined_pairs$values,
         valueTexts = combined_pairs$valueTexts
       )
     } else {
-      # Om variabeln inte finns, lägg till den nya variabeln till listan
-      unique_vars <- append(unique_vars, list(new_var))
+      # Om variabeln inte finns, lägg till den
+      unique_vars <- append(unique_vars, list(var))
     }
-    unique_vars
   }
   
-  # Använd 'reduce' för att iterera över 'px_meta' och uppdatera unika variabler
-  unika_variabler <- reduce(px_meta, function(ack_variabler, px) {
-    map(px$variables, function(variabel) {
-      update_unique_variables(ack_variabler, variabel)
-    }) %>% 
-      flatten() %>% 
-      # Använd en anpassad funktion för att endast behålla unika 'code'
-      { 
-        existing_codes <- map_chr(., "code")
-        .[!duplicated(existing_codes)]
-      }
-  }, .init = list())
-  
-  return(unika_variabler)
+  return(unique_vars)
 }
-
-# extrahera_unika_varden_flera_scb_tabeller <- function(px_meta) {
-#   
-#   # funktion för att skapa en lista som innehåller alla variabler i skickade listor (en för varje scb-tabell)
-#   # och samtliga unika värden i alla listor (en för varje scb_tabell)
-#   
-#   # funktionen används i skapa hämta-data-skriptet men kan användas fristående också om man vill ha en lista med alla variabler
-#   # i flera scb-tabeller och samtliga unika värden för varje variabel
-#   
-#   # Hämta namnen i kod, klartext samt elimination för variablerna från den första listan
-#   variabel_namn <- map_chr(px_meta[[1]]$variables, 'code')
-#   variabel_namn_klartext <- map_chr(px_meta[[1]]$variables, 'text')
-#   variabel_namn_elim <- map(px_meta[[1]]$variables, 'elimination')
-#   
-#   # Skapa en lista för att hålla de unika värdena för varje variabel
-#   unika_variabler <- pmap(list(variabel_namn, variabel_namn_klartext, variabel_namn_elim), function(namn, klartext, elim) {
-#     
-#     # Hitta rätt variabel baserat på 'code' och extrahera 'values'
-#     alla_values <- map(px_meta, ~ .x$variables %>% 
-#                          keep(~ .x$code == namn) %>% 
-#                          map('values') %>% 
-#                          unlist()) %>% 
-#       unlist() %>% 
-#       unique()
-#     
-#     # Hitta rätt variabel baserat på 'code' och extrahera 'valueTexts'
-#     alla_valueTexts <- map(px_meta, ~ .x$variables %>% 
-#                              keep(~ .x$code == namn) %>% 
-#                              map('valueTexts') %>% 
-#                              unlist()) %>% 
-#       unlist() %>% 
-#       unique()
-#     
-#     #if (tolower(.x$code) == "tid") alla_valueTexts <- alla_valueTexts %>% sort()
-#     
-#     # Skapa en lista med 'code', unika 'values' och 'valueTexts'
-#     list(code = namn, text = klartext, elimination = elim, values = alla_values, valueTexts = alla_valueTexts)
-#   })
-#   
-#   return(unika_variabler)
-# }
 
 sortera_px_variabler <- function(lista, sorterings_vars = c("Tid"), sortera_pa_kod = TRUE) {
   
@@ -1655,6 +1634,64 @@ sortera_px_variabler <- function(lista, sorterings_vars = c("Tid"), sortera_pa_k
   })
   
   return(retur_lista)
+}
+
+varden_overlappande_pxweb_hantera <- function(px_meta_lista, url_scb, var_kod = "Tid") {
+  
+  # returnerar en lista med URL:er och värden för de tabeller som har överlappande värden
+  # används primärt för att hantera scb-tabeller med överlappande år, dvs. för att i ett nästa
+  # steg kunna ta bort de år i äldre tabeller som finns i nyare tabeller
+  #
+  # px_meta_list innehåller en lista med flera pxweb-tabeller, 
+  # url_scb innehåller en lista med URL:er till pxweb-tabeller, 
+  # var_code är variabelkoden för den variabel vi vill kontroller. 
+  # Funktionen returnerar en lista med URL:er och de överlappande åren.
+  # Det behöver inte nödvändigtvis vara år, utan det kan vara andra variabler man gör detta för.
+  
+  # En funktion för att extrahera alla värden från en specifik variabel
+  extrahera_varden <- function(variabler) {
+    tid_variabel <- variabler[map_chr(variabler, "code") == var_kod][[1]]
+    return(tid_variabel$values)
+  }
+  
+  # En lista för att lagra resultat (URL och överlappande värden)
+  overlappande_url_varden <- list()
+  
+  # En vektor som ska lagra giltiga värden för varje tabell
+  giltiga_varden_lista <- list()
+  
+  # Iterera över tabeller och kontrollera överlappande värden
+  map2(px_meta_lista, seq_along(px_meta_lista), function(px_meta, i) {
+    aktuella_varden <- extrahera_varden(px_meta$variables)
+    
+    # Kontrollera tidigare värden för att hitta överlapp
+    if (i > 1) {
+      tidigare_varden <- unlist(giltiga_varden_lista[1:(i - 1)])
+      overlappande_varden <- aktuella_varden[aktuella_varden %in% tidigare_varden]
+      
+      # Om det finns överlappande värden, lagra URL och de överlappande värdena
+      if (length(overlappande_varden) > 0) {
+        overlappande_url_varden <<- append(overlappande_url_varden, list(
+          list(url = url_scb[i], overlappande_varden = overlappande_varden)
+        ))
+        
+        # Ta bort de överlappande värdena från den aktuella tabellen
+        aktuella_varden <- aktuella_varden[!aktuella_varden %in% overlappande_varden]
+      }
+    }
+    
+    # Lagra de giltiga värdena för den aktuella tabellen
+    giltiga_varden_lista[[i]] <<- aktuella_varden
+    
+    
+  })
+  
+  # Om inga överlappande värden finns, returnera NULL
+  if (length(overlappande_url_varden) == 0) {
+    return(NULL)
+  }
+  
+  return(overlappande_url_varden)
 }
 
 # ======================== skapa demo-diagrambild =====================
