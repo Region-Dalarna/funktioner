@@ -213,6 +213,24 @@ skapa_sf_fran_csv_eller_excel_supercross <- function(fil_med_sokvag,            
   
 } # slut funktion
 
+sf_fran_df_med_x_y_kol <- function(skickad_df, 
+                                   x_kol, 
+                                   y_kol,
+                                   rutstorlek = NA,              # om man vill ange själv, annars kontrolleras för det automatiskt.
+                                   polygonlager = TRUE,          # polygonlager = FALSE -> punktlager
+                                   vald_crs = 3006){
+  
+  if(is.na(rutstorlek)) rutstorlek = rutstorlek_estimera(skickad_df[[x_kol]], skickad_df[[y_kol]])
+  
+  retur_sf <- sf_skapa_fran_df_med_rutkolumner(skickad_df = skickad_df, x_kol = x_kol, 
+                                   y_kol = y_kol, rutstorlek = rutstorlek, vald_crs = vald_crs)
+  
+  if (polygonlager) retur_sf <- st_buffer(retur_sf,(rutstorlek/2), endCapStyle = "SQUARE")
+  
+  return(retur_sf)
+  
+} # slut funktion
+
 
 spatial_join_med_ovrkat <- function(gislager_grunddata, 
                                     gislager_omr,
@@ -871,6 +889,295 @@ koppla_punkter_postgis_tabell_till_pgr_graf <-
   } # slut funktion
 
 
+postgres_lista_roller_anvandare <- function(
+    pg_db_user = key_list(service = "rd_geodata")$username,
+    pg_db_pwd = key_get("rd_geodata", key_list(service = "rd_geodata")$username),
+    pg_db_host = "WFALMITVS526.ltdalarna.se",
+    pg_db_port = 5432,
+    pg_db_name_db = "geodata"
+    
+  ) {
+  
+  
+  con <- dbConnect(          # use in other settings
+    RPostgres::Postgres(),
+    # without the previous and next lines, some functions fail with bigint data 
+    #   so change int64 to integer
+    bigint = "integer",  
+    user = pg_db_user,
+    password = pg_db_pwd,
+    host = pg_db_host,
+    port = pg_db_port,
+    dbname = pg_db_name_db,
+    timezone = "UTC",
+    options="-c search_path=public")
+
+  # Lista alla roller och användare
+query <- "
+  SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin
+  FROM pg_roles;
+"
+
+# Exekvera SQL-frågan och spara resultatet
+roles_and_users <- dbGetQuery(con, query)
+return(roles_and_users)
+dbDisconnect(con)
+
+}
+
+postgres_lista_behorighet_till_scheman <- function(
+    pg_db_user = key_list(service = "rd_geodata")$username,
+    pg_db_pwd = key_get("rd_geodata", key_list(service = "rd_geodata")$username),
+    pg_db_host = "WFALMITVS526.ltdalarna.se",
+    pg_db_port = 5432,
+    pg_db_name_db = "geodata"
+    
+) {
+  
+  
+  con <- dbConnect(          # use in other settings
+    RPostgres::Postgres(),
+    # without the previous and next lines, some functions fail with bigint data 
+    #   so change int64 to integer
+    bigint = "integer",  
+    user = pg_db_user,
+    password = pg_db_pwd,
+    host = pg_db_host,
+    port = pg_db_port,
+    dbname = pg_db_name_db,
+    timezone = "UTC",
+    options="-c search_path=public")
+
+  
+  query <- "
+  WITH privilege_summary AS (
+    SELECT 
+      grantee AS role_or_user,
+      table_schema,
+      CASE
+        WHEN STRING_AGG(privilege_type, ',') LIKE '%INSERT%' OR
+             STRING_AGG(privilege_type, ',') LIKE '%UPDATE%' OR
+             STRING_AGG(privilege_type, ',') LIKE '%DELETE%' THEN 'write'
+        WHEN STRING_AGG(privilege_type, ',') LIKE '%SELECT%' THEN 'read'
+        ELSE 'no access'
+      END AS access_type
+    FROM 
+      information_schema.role_table_grants
+    GROUP BY 
+      grantee, table_schema
+  )
+  SELECT 
+    role_or_user,
+    table_schema,
+    MAX(access_type) AS access_level
+  FROM 
+    privilege_summary
+  GROUP BY 
+    role_or_user, table_schema
+  ORDER BY 
+    role_or_user, table_schema;
+"
+  
+  # Exekvera SQL-frågan och spara resultatet
+  permissions_per_schema <- dbGetQuery(con, query)
+  
+  return(permissions_per_schema)
+  dbDisconnect(con)
+}
+
+postgres_test <- function(pg_db_user = key_list(service = "rd_geodata")$username,
+                          pg_db_pwd = key_get("rd_geodata", key_list(service = "rd_geodata")$username),
+                          pg_db_host = "WFALMITVS526.ltdalarna.se",
+                          pg_db_port = 5432,
+                          pg_db_name_db = "geodata"
+                          
+) {
+  
+  
+  con <- dbConnect(          # use in other settings
+    RPostgres::Postgres(),
+    # without the previous and next lines, some functions fail with bigint data 
+    #   so change int64 to integer
+    bigint = "integer",  
+    user = pg_db_user,
+    password = pg_db_pwd,
+    host = pg_db_host,
+    port = pg_db_port,
+    dbname = pg_db_name_db,
+    timezone = "UTC",
+    options="-c search_path=public")
+  
+  
+  query <- "
+  SELECT 
+    member.rolname AS user_or_role,
+    role.rolname AS inherited_role
+  FROM 
+    pg_auth_members m
+  JOIN 
+    pg_roles member ON m.member = member.oid
+  JOIN 
+    pg_roles role ON m.roleid = role.oid
+  ORDER BY 
+    member.rolname, role.rolname;
+"
+  # Exekvera SQL-frågan och spara resultatet
+  test <- dbGetQuery(con, query)
+  
+  return(test)
+  dbDisconnect(con)
+}
+
+postgres_alla_rattigheter <- function(
+    pg_db_user = key_list(service = "rd_geodata")$username,
+    pg_db_pwd = key_get("rd_geodata", key_list(service = "rd_geodata")$username),
+    pg_db_host = "WFALMITVS526.ltdalarna.se",
+    pg_db_port = 5432,
+    pg_db_name_db = "geodata"
+) {
+  
+  
+  con <- dbConnect(          # use in other settings
+    RPostgres::Postgres(),
+    # without the previous and next lines, some functions fail with bigint data 
+    #   so change int64 to integer
+    bigint = "integer",  
+    user = pg_db_user,
+    password = pg_db_pwd,
+    host = pg_db_host,
+    port = pg_db_port,
+    dbname = pg_db_name_db,
+    timezone = "UTC",
+    options="-c search_path=public")
+  
+#   query <- "
+#   WITH schema_privileges AS (
+#     SELECT 
+#       grantee AS user,
+#       table_schema,
+#       CASE
+#         WHEN STRING_AGG(privilege_type, ',') LIKE '%INSERT%' OR
+#              STRING_AGG(privilege_type, ',') LIKE '%UPDATE%' OR
+#              STRING_AGG(privilege_type, ',') LIKE '%DELETE%' THEN 'write'
+#         WHEN STRING_AGG(privilege_type, ',') LIKE '%SELECT%' THEN 'read'
+#         ELSE 'no access'
+#       END AS access_type
+#     FROM 
+#       information_schema.role_table_grants
+#     GROUP BY 
+#       grantee, table_schema
+#   )
+#   SELECT 
+#     u.rolname AS user,
+#     s.schema_name,
+#     COALESCE(p.access_type, 'no access') AS access_level
+#   FROM 
+#     pg_roles u
+#   CROSS JOIN 
+#     (SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT LIKE 'pg_%' AND schema_name <> 'information_schema') s
+#   LEFT JOIN 
+#     schema_privileges p ON u.rolname = p.user AND s.schema_name = p.table_schema
+#   WHERE 
+#     u.rolcanlogin = TRUE -- Endast användare som kan logga in
+#   ORDER BY 
+#     user, schema_name;
+# "
+  
+  query <- "
+  WITH recursive role_inheritance AS (
+    -- Start med att samla alla användare och roller de är medlemmar i
+    SELECT 
+      member.oid AS user_oid,
+      member.rolname AS user_or_role,
+      role.oid AS inherited_role_oid,
+      role.rolname AS inherited_role
+    FROM 
+      pg_auth_members m
+    JOIN 
+      pg_roles member ON m.member = member.oid
+    JOIN 
+      pg_roles role ON m.roleid = role.oid
+    
+    UNION ALL
+    
+    -- Rekursivt hämta ärvda roller längre upp i hierarkin
+    SELECT 
+      ri.user_oid,
+      ri.user_or_role,
+      role.oid AS inherited_role_oid,
+      role.rolname AS inherited_role
+    FROM 
+      role_inheritance ri
+    JOIN 
+      pg_auth_members m ON ri.inherited_role_oid = m.member
+    JOIN 
+      pg_roles role ON m.roleid = role.oid
+  ),
+  all_users AS (
+    SELECT oid AS user_oid, rolname AS role_or_user, rolsuper FROM pg_roles WHERE rolcanlogin = TRUE
+  ),
+  all_schemas AS (
+    SELECT schema_name 
+    FROM information_schema.schemata
+    WHERE schema_name NOT LIKE 'pg_%' AND schema_name != 'information_schema'
+  ),
+  privileges AS (
+    SELECT 
+      grantee AS role_or_user,
+      table_schema,
+      CASE
+        WHEN STRING_AGG(privilege_type, ',') LIKE '%INSERT%' OR
+             STRING_AGG(privilege_type, ',') LIKE '%UPDATE%' OR
+             STRING_AGG(privilege_type, ',') LIKE '%DELETE%' THEN 'write'
+        WHEN STRING_AGG(privilege_type, ',') LIKE '%SELECT%' THEN 'read'
+        ELSE 'no access'
+      END AS access_type
+    FROM 
+      information_schema.role_table_grants
+    GROUP BY 
+      grantee, table_schema
+  ),
+  combined_access AS (
+    SELECT 
+      u.role_or_user,
+      s.schema_name,
+      CASE
+        -- Om användaren är en superanvändare, ge dem skrivbehörigheter till alla scheman
+        WHEN u.rolsuper THEN 'write'
+        -- Annars, hämta de faktiska behörigheterna
+        ELSE COALESCE(p.access_type, 'no access')
+      END AS access_type
+    FROM 
+      (SELECT role_or_user, rolsuper FROM all_users UNION SELECT inherited_role AS role_or_user, FALSE AS rolsuper FROM role_inheritance) u
+    CROSS JOIN 
+      all_schemas s
+    LEFT JOIN 
+      privileges p ON u.role_or_user = p.role_or_user AND s.schema_name = p.table_schema
+  )
+  -- Eliminera dubbletter och prioritera 'write' över 'read' och 'no access'
+  SELECT role_or_user, schema_name, 
+         MAX(CASE 
+               WHEN access_type = 'write' THEN 'write'
+               WHEN access_type = 'read' THEN 'read'
+               ELSE 'no access'
+             END) AS access_level
+  FROM combined_access
+  GROUP BY role_or_user, schema_name
+  ORDER BY role_or_user, schema_name;
+"
+  
+  
+  
+  # Exekvera SQL-frågan och spara resultatet
+  user_schema_permissions <- dbGetQuery(con, query)
+  
+  return(user_schema_permissions)
+  dbDisconnect(con)
+}
+
+
+
+
 skriv_geosf_till_postgis_skapa_spatialt_index <- 
   function(inlas_sf,
            inlas_tabellnamn,   # de tabellnamn de nya filerna ska få i postgis
@@ -1179,8 +1486,7 @@ join_narmaste_malpunkt_fran_n_narmaste <- function(
     pg_db_host,
     pg_db_port,
     pg_db_name_db){
-<<<<<<< HEAD
-   
+
    starttid <- Sys.time()
    
    con_join <- dbConnect(          # use in other settings
@@ -1369,194 +1675,6 @@ join_narmaste_malpunkt_fran_n_narmaste <- function(
  } # slut funktion
  
  
- 
- las_in_postgis_tabell_till_sf_objekt <- function(
-=======
-  
-  starttid <- Sys.time()
-  
-  con_join <- dbConnect(          # use in other settings
-    RPostgres::Postgres(),
-    # without the previous and next lines, some functions fail with bigint data 
-    #   so change int64 to integer
-    bigint = "integer",  
-    user = pg_db_user,
-    password = pg_db_pwd,
-    host = pg_db_host,
-    port = pg_db_port,
-    dbname = pg_db_name_db,
-    options="-c search_path=public") 
-  
-  # skapa en textsträng om namn_malpunkt_kol har ett värde (som inte är "") för att skapa kolumn och för att koda värdet
-  if (namn_malpunkt_kol == ""){ 
-    lagg_till_namn_malpunkt_kol <- ""
-    set_namn <- " "
-    from_namn <- ""
-    groupby_namn <- ""
-  } else {
-    lagg_till_namn_malpunkt_kol <- paste0(", ADD COLUMN IF NOT EXISTS ", cost_mal_start_tab_ny, "_", namn_malpunkt_kol, " text")
-    set_namn <- paste0(", ", cost_mal_start_tab_ny, "_", namn_malpunkt_kol, " = B.", namn_malpunkt_kol, " ")
-    from_namn <- paste0(", ", namn_malpunkt_kol)
-    groupby_namn <- paste0(", ", namn_malpunkt_kol)
-  }
-  
-  # skapa kolumn om den inte redan finns
-  dbExecute(con_join, paste0("ALTER TABLE ", malpunkt_schema, ".", mal_start_tabell, " ",
-                             "ADD COLUMN IF NOT EXISTS ", cost_mal_start_tab_ny, " double precision", 
-                             lagg_till_namn_malpunkt_kol, ";"))
-  
-  # och så joinar vi på kolumnen från aktuell tabell
-  dbExecute(con_join, paste0("UPDATE ", malpunkt_schema, ".", mal_start_tabell, " AS A ",
-                             "SET ", cost_mal_start_tab_ny, " = B.minavst", set_namn,
-                             "FROM (SELECT DISTINCT ON(", n_narm_tab_startid_kol, ") ",
-                             n_narm_tab_startid_kol, from_namn, ", ", cost_col_n_narmaste_tab, " AS minavst ",
-                             " FROM ", malpunkt_schema, ".", mal_n_narmaste_tab, " ",
-                             "ORDER BY ", n_narm_tab_startid_kol, ", ", cost_col_n_narmaste_tab, ") ",
-                             "AS B ",
-                             "WHERE A.", mal_start_tab_startid_kol, " = B.", n_narm_tab_startid_kol, ";"))
-  
-  
-  # MIN(", cost_col_n_narmaste_tab, ") as minavst, ", n_narm_tab_startid_kol,
-  # from_namn, " FROM ", malpunkt_schema, ".", mal_n_narmaste_tab, " ", 
-  # "GROUP BY ", n_narm_tab_startid_kol, groupby_namn, ") ",
-  # "AS B ",
-  # "WHERE A.", mal_rut_tab_rutid_kol, " = B.", n_narm_tab_startid_kol, ";"))
-  
-  dbDisconnect(con_join)           # stäng postgis-anslutningen igen
-  
-  print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "min"),2) , " minuter att köra funktionen"))
-  
-}
-
-kartifiera <- function(skickad_df, geom_nyckel){
-  
-  kartifiera_regionkoder <- unique(skickad_df[[geom_nyckel]])
-  geom_nyckel_langd <- nchar(kartifiera_regionkoder) %>% unique()
-  
-  if (length(geom_nyckel_langd) > 1) {
-    print("Skickad df:s geom_nyckel kan bara innehålla värden av samma typ. Kontrollera att så är fallet och försök igen.") 
-  } else {
-    
-    # här bestäms vilken karttyp vi har att göra med
-    if (geom_nyckel_langd == 2) kartifiera_karttyp <- "lan"
-    if (geom_nyckel_langd == 4 & all(str_detect(kartifiera_regionkoder, "^[:digit:]+$"))) kartifiera_karttyp <- "kommun" 
-    if (geom_nyckel_langd == 4 & !all(str_detect(kartifiera_regionkoder, "^[:digit:]+$"))) kartifiera_karttyp <- "nuts2"
-    if (geom_nyckel_langd == 9 & !all(str_detect(kartifiera_regionkoder, "^[:digit:]+$"))) kartifiera_karttyp <- "deso"
-    if (geom_nyckel_langd == 8 & !all(str_detect(kartifiera_regionkoder, "^[:digit:]+$"))) kartifiera_karttyp <- "regso"
-    
-    # vi hämtar gislagret för aktuell karttyp, för de geom_nyckelkoder som skickats med
-    gis_lager <- hamta_karta(karttyp = kartifiera_karttyp, regionkoder = kartifiera_regionkoder)
-    
-    # här lägger vi till rader (dvs. tabeller) som ska vara hämtbara från geodatabasen med hamta_karta()-funktionen
-    tabell_df <- hamta_karttabell()
-    
-    df_rad <- suppressWarnings(str_which(tabell_df$sokord, kartifiera_karttyp))             # vi letar upp den rad som parametern karrtyp finns på
-    
-    # om medskickade kartyp inte finns bland sökorden får pg_tabell värdet "finns ej" och då körs inte skriptet nedan
-    if (length(df_rad) == 0) pg_tab_idkol <- "finns ej" else pg_tab_idkol <- tabell_df$id_kol[df_rad] 
-    
-    join_sf <- skickad_df %>% 
-      left_join(gis_lager, by = setNames(pg_tab_idkol, geom_nyckel)) %>% 
-      st_as_sf()
-    
-    return(join_sf)
-  } # slut if-sats om det finns fler längder på geom_nyckel
-}
-
-hamta_karttabell <- function(){
-  
-  # här lägger vi till nya kolumner om det behövs
-  kolumn_namn <- c("namn", "id_kol", "lankol", "kommunkol", "sokord")
-  
-  antal_kol <- length(kolumn_namn)                            # räkna kolumnnamn i vektorn som vi skapar ovan
-  karttabell_df <- as.data.frame(matrix(nrow = 0, ncol = antal_kol)) %>%             # skapa df med 0 rader och lika många kolumner som vi har kolumnnamn ovan
-    setNames(kolumn_namn) %>%                                              # döp kolumnnamn efter vektorn vi skapade ovan
-    mutate(across(1:(antal_kol-1), as.character),                          # alla kolumner ska vara text, utom sista kolumnen som ska vara en lista med sökord
-           sokord = sokord %>% as.list())                                  # som vi initierar här
-  
-  # här lägger vi till rader (dvs. tabeller) som ska vara hämtbara från geodatabasen med hamta_karta()-funktionen
-  karttabell_df <- karttabell_df %>%  
-    add_row(namn = "kommun_scb", id_kol = "knkod", lankol = "lanskod_tx", kommunkol = "knkod", sokord = list(c("kommun", "kommuner", "kommunpolygoner"))) %>% 
-    add_row(namn = "lan_scb", id_kol = "lnkod", lankol = "lnkod", kommunkol = NA, sokord = list(c("lan", "lanspolygoner"))) %>% 
-    add_row(namn = "tatorter", id_kol = "tatortskod", lankol = "lan", kommunkol = "kommun", sokord = list(c("tatort", "tätort", "tatorter", "tätorter", "tatortspolygoner", "tätortspolygoner"))) %>% 
-    add_row(namn = "tatortspunkter", id_kol = "tatortskod", lankol = "lan", kommunkol = "kommun", sokord = list(c("tatortspunkter", "tätortspunkter"))) %>% 
-    add_row(namn = "regso", id_kol = "regsokod",  lankol = "lan", kommunkol = "kommun", sokord = list(c("regso", "regsopolygoner"))) %>% 
-    add_row(namn = "deso", id_kol = "deso", lankol = "lan", kommunkol = "kommun", sokord = list(c("deso", "desopolygoner"))) %>% 
-    add_row(namn = "nuts2", id_kol = "id", lankol = "id", kommunkol = "cntr_code", sokord = list(c("nuts2", "nuts2-områden"))) %>% 
-    add_row(namn = "laregion_scb", id_kol = "lakod", lankol = "lan", kommunkol = "kommun", sokord = list(c("la", "laomraden", "la-omraden", "la-områden", "la-omraden")))
-  
-  return(karttabell_df)
-}
-
-hamta_karta <- function(karttyp = "kommuner", regionkoder = NA, tabellnamn = NA) {
-  
-  # här lägger vi till rader (dvs. tabeller) som ska vara hämtbara från geodatabasen med hamta_karta()-funktionen
-  tabell_df <- hamta_karttabell()
-  
-  df_rad <- suppressWarnings(str_which(tabell_df$sokord, karttyp))             # vi letar upp den rad som parametern karrtyp finns på
-  
-  # om medskickade kartyp inte finns bland sökorden får pg_tabell värdet "finns ej" och då körs inte skriptet nedan
-  if (length(df_rad) == 0) pg_tabell <- "finns ej" else pg_tabell <- tabell_df$namn[df_rad] 
-  
-  # kontrollera om karttypen som skickats med i funktionen finns, om inte så körs inte skriptet nedan utan ett felmeddelande visas istället
-  if (pg_tabell != "finns ej"){
-    
-    # skriv query utifrån medskickade regionkoder, om ingen är medskickad görs en query för att hämta allt
-    if (all(!is.na(regionkoder)) & all(regionkoder != "00")) {
-      kommunkoder <- regionkoder[nchar(regionkoder) == 4]
-      if (karttyp == "nuts2") kommunkoder <- regionkoder[nchar(regionkoder) == 2]
-      lanskoder <- regionkoder[nchar(regionkoder) == 2 & regionkoder != "00"]
-      if (karttyp == "nuts2") lanskoder <- regionkoder[nchar(regionkoder) == 4]
-    } else {
-      kommunkoder <- NULL
-      lanskoder <- NULL
-    }
-    # if (is.na(kommunkoder)) kommunkoder <- NULL
-    # if (is.na(lanskoder)) lanskoder <- NULL
-    # 
-    grundquery <- paste0("SELECT * FROM karta.", pg_tabell) 
-    
-    if ((length(kommunkoder) == 0) & (length(lanskoder) == 0)) skickad_query <- paste0(grundquery, ";") else {
-      
-      # det finns lan- eller kommunkoder, så vi lägger på ett WHERE på grundqueryn
-      skickad_query <- paste0(grundquery, " WHERE ")
-      
-      # kolla om det finns länskoder i regionkoder, om så lägger vi på länskoder i queryn
-      if (length(lanskoder) != 0 & !is.na(tabell_df$lankol[df_rad])) {
-        skickad_query <- paste0(skickad_query, tabell_df$lankol[df_rad], " IN (", paste0("'", lanskoder, "'", collapse = ", "), ")")
-      }
-      
-      # kolla om det finns både läns- och kommunkoder i regionkoder, i så fall lägger vi till ett OR mellan 
-      # de båda IN-satserna - då måste tabellen ha både kommun- och länskod
-      if ((length(lanskoder) != 0 & !is.na(tabell_df$lankol[df_rad])) & (length(kommunkoder) != 0 & !is.na(tabell_df$kommunkol[df_rad]))) mellanquery <- " OR " else mellanquery <- ""
-      
-      if (length(kommunkoder) != 0 & !is.na(tabell_df$kommunkol[df_rad])){     # om det finns kommunkoder, lägg på det på tidigare query
-        skickad_query <- paste0(skickad_query, mellanquery, tabell_df$kommunkol[df_rad], " IN (", paste0("'", kommunkoder, "'", collapse = ", "), ");")
-      } else {                           # om det inte finns kommunkoder, avsluta med ett semikolon
-        skickad_query <- paste0(skickad_query, ";") 
-      }   
-      
-    } # slut if-sats för om regionkoder är medskickade, om inte så hämtas alla regioner 
-    # query klar, använd inloggningsuppgifter med keyring och skicka med vår serveradress 
-    
-    retur_sf <- suppressWarnings(las_in_postgis_tabell_till_sf_objekt(schema = "karta",
-                                                                      tabell = pg_tabell,
-                                                                      skickad_query = skickad_query,
-                                                                      pg_db_user = key_list(service = "rd_geodata")$username,
-                                                                      pg_db_pwd = key_get("rd_geodata", key_list(service = "rd_geodata")$username),
-                                                                      pg_db_host = "WFALMITVS526.ltdalarna.se",
-                                                                      pg_db_port = 5432,
-                                                                      pg_db_name_db = "geodata"))
-    
-    return(retur_sf)
-    
-    
-  } else {
-    warning(paste0("Karttypen ", karttyp, " finns inte i databasen."))
-  } # slut if-sats karttyp
-  
-} # slut funktion
-
 # ========================================================
 # Funktionen för att skapa tabellöversikt över 'malpunkter' schema
 # ========================================================
@@ -1671,7 +1789,6 @@ hamta_malpunkter <- function(karttyp, regionkoder = NA) {
 
 
 las_in_postgis_tabell_till_sf_objekt <- function(
->>>>>>> main
     schema,                 # det schema i vilken tabellen finns som man vill hämta
     tabell,                 # den tabell i postgisdatabasen man vill hämta
     skickad_query = NA,     # om man inte skickar med någon query hämtas hela tabellen
