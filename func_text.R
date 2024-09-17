@@ -80,3 +80,21 @@ dela_upp_strang_radbryt <- function(strang, max_langd, sokstrang = " "){
   }
   return(returstrang)
 }
+
+byt_ut_svenska_tecken <- function(text) {
+  # Ersätt små bokstäver
+  text <- str_replace_all(text, "å", "a")
+  text <- str_replace_all(text, "ä", "a")
+  text <- str_replace_all(text, "ö", "o")
+  
+  # Ersätt stora bokstäver
+  text <- str_replace_all(text, "Å", "A")
+  text <- str_replace_all(text, "Ä", "A")
+  text <- str_replace_all(text, "Ö", "O")
+  
+  return(text)
+}
+
+
+
+
