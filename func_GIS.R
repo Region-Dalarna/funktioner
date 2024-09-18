@@ -1319,7 +1319,7 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
        lanskoder <- NULL
      }
      # if (is.na(kommunkoder)) kommunkoder <- NULL
-     # if (is.na(lanskoder)) lanskoder <- NULL
+     # if (is.na(lanskoder)) lanskoder <- NULL 
      # 
      grundquery <- paste0("SELECT * FROM karta.", pg_tabell) 
      
