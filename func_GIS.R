@@ -9,14 +9,8 @@ p_load(sf,
        RPostgres,
        keyring)
 
-# =================== här ställer vi in mappar och filer som vi hämtar GIS-lager från =======================
-mapp_scbadmgranser <- "G:/Samhällsanalys/GIS/Grundkartor/Adm gränser med kustgränser/"
-filnamn_scbadmgranser_kommuner <- "Kommungränser_SCB_07.shp"
-filnamn_scbadmgranser_lan <- "Länsgränser_SCB_07.shp"
 
-# ===================== skapa variabler som används i funktionerna ========================
-sokvag_kommuner_sv <- paste0(mapp_scbadmgranser, filnamn_scbadmgranser_kommuner)
-sokvag_lan_sv <- paste0(mapp_scbadmgranser, filnamn_scbadmgranser_lan)
+
 
 # Denna funktion beräknar mittpunkter för två kolumner med x- och y-koordinater i 
 # textform, om koordinaterna är i nedre vänstra hörnet (som SCB:s rutor).
@@ -43,21 +37,6 @@ berakna_mittpunkter <- function(df, xruta, yruta, rutstorlek,
   return(df)
 }
 
-# hämta ett sf-objekt med kommunpolygoner enligt SCB:s gränser, dvs. snygga gränser anpassade
-# efter kustlinjer, sjöar etc. och inte lantmäteriets lite fulare. Varje kommun är enbart en polygon
-hamta_kommuner_gis <- function(){
-  retur_gis <- st_read(sokvag_kommuner_sv, crs = 3006) %>% 
-    select(c(kommunkod = KNKOD, kommun = KNNAMN, geometry))
-  return(retur_gis)
-}
-
-# hämta ett sf-objekt med kommunpolygoner enligt SCB:s gränser, dvs. snygga gränser anpassade
-# efter kustlinjer, sjöar etc. och inte lantmäteriets lite fulare. Varje kommun är enbart en polygon
-hamta_lan_gis <- function(){
-  retur_gis <- st_read(sokvag_lan_sv, crs = 3006) %>% 
-    select(c(lanskod = LNKOD, lan = FullName, geometry))
-  return(retur_gis)
-}
 
 # skicka ett sf-objekt med punkter. En kolumn i objektet innehåller en numerisk kolumn utifrån vilken
 # linjer dras mellan punkterna, från första till andra punkten, från andra till tredje punkten osv.
@@ -258,12 +237,12 @@ geopackage_skapa_fran_rutor_csv_xlsx_supercross <- function(sokvag_filnamn_vekt,
                                                             output_mapp = NA             # om NA, samma som indatamapp
 ) {
   
-  # =====================================================================================================================================
+  # 
   #
   # Skript för att läsa in csv-filer med rutor från Supercross och exportera en färdig geopackage-fil, där rutan är runt mittpunkten och
   # inte i nedre vänstra hörnet där koordinaten egentligen är. CSV-filen sparas som flattend CSV-fil i Supercross.
   #
-  # =====================================================================================================================================
+  # 
   
   if (!require("pacman")) install.packages("pacman")
   p_load(tidyverse,
@@ -1675,9 +1654,9 @@ join_narmaste_malpunkt_fran_n_narmaste <- function(
  } # slut funktion
  
  
-# ========================================================
+
 # Funktionen för att skapa tabellöversikt över 'malpunkter' schema
-# ========================================================
+
 
 #' Skapa malpunkter tabell
 #'
@@ -1789,6 +1768,7 @@ hamta_malpunkter <- function(karttyp, regionkoder = NA) {
 
 
 las_in_postgis_tabell_till_sf_objekt <- function(
+    geo_db = "geodata",
     schema,                 # det schema i vilken tabellen finns som man vill hämta
     tabell,                 # den tabell i postgisdatabasen man vill hämta
     skickad_query = NA,     # om man inte skickar med någon query hämtas hela tabellen
