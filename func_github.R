@@ -64,7 +64,7 @@ skicka_filer_till_github <- function(lokalt_repo_sokvag,        # sökväg till 
 } # slut funktion
 
 
-skapa_webbrapport_github <- function(githubmapp_lokalt,                 # sökväg till den mapp där du har github-repos (ska INTE innehålla själva repositoryt)
+skapa_webbrapport_github <- function(githubmapp_lokalt,                 # sökväg till den mapp där du har alla github-repos (ska INTE innehålla själva repositoryt), tex c:/github_repos/
                                      github_repo,                       # namn på själva github-repot, döper mappen och github-repot. Mappen skapas om den inte finns
                                      github_org = "Region-Dalarna",     # ändra till NULL om man vill lägga repo:t i sin privata github
                                      rapport_titel,                     # titel på rapporten i RMarkdown
