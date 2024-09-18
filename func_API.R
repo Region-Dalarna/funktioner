@@ -1596,7 +1596,7 @@ extrahera_unika_varden_flera_scb_tabeller <- function(px_meta) {
   }
   
   # Slå samman alla variabler från alla tabeller
-  all_variables <- lapply(px_meta, function(px) px$variables) %>% flatten()
+  all_variables <- lapply(px_meta, function(px) px$variables) %>% purrr::flatten()
   
   # Skapa en tom lista för unika variabler
   unique_vars <- list()
