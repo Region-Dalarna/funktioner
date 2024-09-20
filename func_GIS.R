@@ -9,112 +9,12 @@ p_load(sf,
        RPostgres,
        keyring)
 
+# ============================================ läs in GIS-filer ==========================================================
 
 
-
-# Denna funktion beräknar mittpunkter för två kolumner med x- och y-koordinater i 
-# textform, om koordinaterna är i nedre vänstra hörnet (som SCB:s rutor).
-#
-# Funktionen  behöver: 
-# - en dataframe som innehåller kolumner med x- och y-koordinater
-# - namn på x- och y-kolumnerna som text
-# - ett numeriskt värde för rutstorleken
-# - namn för de nya x- och y-kolumnerna med mittpunkter, annars döps de till "mitt_x" och "mitt_y"
-#
-# Retur: en df som är likadan som den som skickades men med 2 nya kolumner som
-#        innehåller mittpunkter för x- och y-koordinaten
-#
-berakna_mittpunkter <- function(df, xruta, yruta, rutstorlek, 
-                                xkolnamn = "mitt_x", ykolnamn = "mitt_y"){
-  # beräkna de nya kolumnerna
-  df[xkolnamn] <- df[xruta]+(rutstorlek/2)
-  df[ykolnamn] <- df[yruta]+(rutstorlek/2)
-  # flytta de nya kolumnerna och lägg dem efter x- och y-kolumnerna
-  df <- df %>% 
-    relocate(all_of(xkolnamn), .after = all_of(yruta)) %>% 
-    relocate(all_of(ykolnamn), .after = all_of(xkolnamn))
-  
-  return(df)
-}
-
-
-# skicka ett sf-objekt med punkter. En kolumn i objektet innehåller en numerisk kolumn utifrån vilken
-# linjer dras mellan punkterna, från första till andra punkten, från andra till tredje punkten osv.
-# till den sista punkten. Det går också att skicka med korrekt crs som ska vara samma som 
-skapa_linje_langs_med_punkter <- function(skickad_sf,                   # skickad_sf = skickat sf-objekt med punkter
-                                          kol_ord,                      # kol_ord = den kolumn som innehåller nummer som rangordnar mellan vilka punkter som linjen ska dras, den dras i samma ordning som i denna kolumn
-                                          names,                        # namn på punkterna om man vill ha med det (oklart om vi vill det)
-                                          names_bara_startpunkt = TRUE  # om man bara vill ha namn från startpunkten, annars blir namnet "startnamn - slutnamn"
-) {
-  
-  skickad_sf_crs <- st_crs(skickad_sf)
-  
-  skickad_sf <- skickad_sf %>% arrange(!!as.symbol(kol_ord))
-  
-  # dataframe med ordningsföljd utifrån en kolumn (sorteras så linjer mellan punkter dras alltid i nummer ordning)
-  idx <- data.frame(start = c(1:(nrow(skickad_sf)-1)),
-                    end = c(2:nrow(skickad_sf))) 
-  
-  
-  # cycle over the combinations
-  for (i in seq_along(idx$start)) {
-    
-    # line object from two points
-    
-    start_punkt <- skickad_sf[idx$start[i], ] %>% st_coordinates() %>% sum()
-    slut_punkt <- skickad_sf[idx$end[i], ] %>% st_coordinates() %>% sum()
-    
-    if (start_punkt >= slut_punkt){
-      wrk_line  <- skickad_sf[c(idx$start[i], idx$end[i]), ] %>% 
-        st_coordinates() %>% 
-        st_linestring() %>% 
-        st_sfc(crs = skickad_sf_crs)  
-    } else {
-      wrk_line  <- skickad_sf[c(idx$end[i], idx$start[i]), ] %>% 
-        st_coordinates() %>% 
-        st_linestring() %>% 
-        st_sfc(crs = skickad_sf_crs)
-    }
-    
-    # wrk_line  <- skickad_sf[c(idx$start[i], idx$end[i]), ] %>% 
-    #   st_coordinates() %>% 
-    #   st_linestring() %>% 
-    #   st_sfc(crs = skickad_sf_crs)  
-    
-    
-    # a single row of results dataframe
-    
-    # skapa etiketten, från till etikett om names_bara_startpunkt = FALSE, annars bara etikett för startpunkt
-    label_varde <- ifelse(names_bara_startpunkt, pull(skickad_sf, names)[idx$start[i]], 
-                          paste(pull(skickad_sf, names)[idx$start[i]], "-", pull(skickad_sf, names)[idx$end[i]]))
-    
-    line_data <- data.frame(
-      start = pull(skickad_sf, kol_ord)[idx$start[i]],
-      end = pull(skickad_sf, kol_ord)[idx$end[i]],
-      label =label_varde,
-      geometry = wrk_line
-    )
-    
-    # bind results rows to a single object
-    if (i == 1) {
-      res <- line_data
-      
-    } else {
-      res <- dplyr::bind_rows(res, line_data)
-      
-    } # /if - saving results
-    
-  } # /for
-  
-  # finalize function result
-  res <- sf::st_as_sf(res, crs = skickad_sf_crs)
-  
-  return(res)
-  
-} # /function
-
-# läs en gisfil som ligger i en zipfil direkt från url - packar upp 
 las_gisfil_fran_zipfil_via_url <- function(skickad_url){
+
+  # läs en gisfil som ligger i en zipfil direkt från url - packar upp 
   cur_tempfile <- tempfile()              # skapa temporär fil som vi laddar ner från url
   download.file(url = skickad_url, destfile = cur_tempfile)      # ladda ner fil från url till tempfil 
   out_directory <- tempfile()             # skapa outputmapp att spara uppackad zipfil till
@@ -126,9 +26,9 @@ las_gisfil_fran_zipfil_via_url <- function(skickad_url){
 }
 
 
-# läs en gisfil direkt från en zipfil
 las_gisfil_fran_zipfil_via_sokvag <- function(skickad_sokvag) {
   
+  # läs en gisfil direkt från en zipfil
   out_directory <- tempfile()                  # skapa outputmapp att spara uppackad zipfil till
   unzip(skickad_sokvag, exdir = out_directory)        # packa upp fil från skickad sökväg till outputmapp
   
@@ -137,11 +37,12 @@ las_gisfil_fran_zipfil_via_sokvag <- function(skickad_sokvag) {
   
 }
 
-# det här är en specialfunktion som används för att ladda ner polygoner för FA- och LA-regioner samt
-# läns- och kommungränser med kustgränser (blir snyggare kartor) de ligger som zipfiler i en zipfil
-# så man måste packa upp dessa i två steg
+
 unzip_zipfil_med_zipfiler <- function(skickad_url){
   
+  # det här är en specialfunktion som används för att ladda ner polygoner för FA- och LA-regioner samt
+  # läns- och kommungränser med kustgränser (blir snyggare kartor) de ligger som zipfiler i en zipfil
+  # så man måste packa upp dessa i två steg
   cur_tempfile <- tempfile()
   download.file(url = skickad_url, destfile = cur_tempfile)
   out_directory <- tempfile()
@@ -152,82 +53,6 @@ unzip_zipfil_med_zipfiler <- function(skickad_url){
   
 }
 
-# funktion för att skapa en gpkg-fil från ett uttag ur supercross där rutid är en kolumn
-
-skapa_sf_fran_csv_eller_excel_supercross <- function(fil_med_sokvag,               # fil som ska bearbetas, dvs. ett uttag från Supercross 
-                                                     rutid_kol = NA,               # finns en funktion för att hitta rutid-kolumnen men man kan skicka med den här
-                                                     rutstorlek = NA,              # om man vill ange själv, annars kontrolleras för det automatiskt.
-                                                     vald_crs = 3006) {
-  
-  rut_df <- import(fil_med_sokvag)
-  
-  # kolla om bara en kolumn heter något med rut, i så fall är det rutid-kolumnen
-  if (is.na(rutid_kol[1]) & sum(str_detect(tolower(names(rut_df)), "rut")) == 1) rutid_kol <- names(rut_df)[str_which(tolower(names(rut_df)), "rut")]
-  
-  # om det inte bara är en kolumn som heter något med "rut", välj den första kolumnen i rut_df som rutid-kolumn
-  if (is.na(rutid_kol[1])) rutid_kol <- names(rut_df)[1]
-  
-  # hitta rutstorlek genom att kontrollera tecken 11 i rutid-kolumnen. Om det är km-rutor är det bara "0" där, om det är 500-metersrutor är det bara "0" eller "5" där, och 
-  # om det är 100 metersrutor kan alla siffror finnas där, bland annat "1", "2", "3", "4" som inte kan finnas i övriga rutor. Kan bli fel om man har väldigt få rutor men
-  # sannolikheten att det ska hända är extremt liten, men då finns möjligheten att skicka med ett värde för rutstorlek
-  if (is.na(rutstorlek)) {
-    test_vekt <- rut_df[[rutid_kol]] %>% str_sub(11,11)
-    rutstorlek <- case_when(all(test_vekt == "0") ~ 1000,
-                            all(test_vekt %in% c("0", "5")) ~ 500,
-                            any(test_vekt %in% c("1", "2", "3", "4")) ~ 100)
-  }
-  
-  # skapa x- och y-koordinater från rutid-kolumnen, de läggs i mitten av rutan istället för nedre vänstra hörnet som utgör rutid:t 
-  rut_df <- rut_df %>% 
-    rename(rutid = !!rutid_kol) %>% 
-    mutate(x_koord = paste0(as.character(as.numeric(substr(rutid, 1,6))+(rutstorlek/2))),
-           y_koord = paste0(as.character(as.numeric(substr(rutid, 7,13))+(rutstorlek/2))),
-           rutid = rutid %>% as.character())
-  
-  rut_gis <- st_as_sf(rut_df, coords = c("x_koord", "y_koord"), crs = 3006)
-  
-  rut_gis_cell <- st_buffer(rut_gis,(rutstorlek/2), endCapStyle = "SQUARE")
-  
-  return(rut_gis_cell)
-  
-} # slut funktion
-
-sf_fran_df_med_x_y_kol <- function(skickad_df, 
-                                   x_kol, 
-                                   y_kol,
-                                   rutstorlek = NA,              # om man vill ange själv, annars kontrolleras för det automatiskt.
-                                   polygonlager = TRUE,          # polygonlager = FALSE -> punktlager
-                                   vald_crs = 3006){
-  
-  if(is.na(rutstorlek)) rutstorlek = rutstorlek_estimera(skickad_df[[x_kol]], skickad_df[[y_kol]])
-  
-  retur_sf <- sf_skapa_fran_df_med_rutkolumner(skickad_df = skickad_df, x_kol = x_kol, 
-                                   y_kol = y_kol, rutstorlek = rutstorlek, vald_crs = vald_crs)
-  
-  if (polygonlager) retur_sf <- st_buffer(retur_sf,(rutstorlek/2), endCapStyle = "SQUARE")
-  
-  return(retur_sf)
-  
-} # slut funktion
-
-
-spatial_join_med_ovrkat <- function(gislager_grunddata, 
-                                    gislager_omr,
-                                    omrade_kol = "omrade",
-                                    ovrig_varde = "Övriga områden") {
-  # gör en spatial join
-  retur_gis <- st_join(gislager_grunddata, gislager_omr)
-  
-  # koda de som inte är inom gislager_omr med värde från ovrig_varde
-  # retur_gis <- retur_gis %>% 
-  #   mutate({{omrade_kol}} := ifelse(is.na(!!sym(omrade_kol)), ovrig_varde, !!sym(omrade_kol)))
-  # 
-  retur_gis <- retur_gis %>% 
-    mutate(!!sym(omrade_kol) := ifelse(is.na(!!sym(omrade_kol)), ovrig_varde, !!sym(omrade_kol)))
-  
-  return(retur_gis)
-  
-} # slut funktion
 
 # =================================== Supercross-funktioner =====================================
 
@@ -248,10 +73,6 @@ geopackage_skapa_fran_rutor_csv_xlsx_supercross <- function(sokvag_filnamn_vekt,
   p_load(tidyverse,
          readxl,
          sf)
-  
-  #library(mapview)
-  
-  # ========================= inställningar för varje körning ====================================================
   
   walk2(sokvag_filnamn_vekt, basename(sokvag_filnamn_vekt), function(full_sokvag, filnamn) {
     
@@ -407,21 +228,84 @@ skapa_supercross_recode_fran_rutlager <- function(gis_lager,
 } # slut funktion
 
 
+spatial_join_med_ovrkat <- function(gislager_grunddata, 
+                                    gislager_omr,
+                                    omrade_kol = "omrade",
+                                    ovrig_varde = "Övriga områden") {
+  # gör en spatial join
+  retur_gis <- st_join(gislager_grunddata, gislager_omr)
+  
+  # koda de som inte är inom gislager_omr med värde från ovrig_varde
+  # retur_gis <- retur_gis %>% 
+  #   mutate({{omrade_kol}} := ifelse(is.na(!!sym(omrade_kol)), ovrig_varde, !!sym(omrade_kol)))
+  # 
+  retur_gis <- retur_gis %>% 
+    mutate(!!sym(omrade_kol) := ifelse(is.na(!!sym(omrade_kol)), ovrig_varde, !!sym(omrade_kol)))
+  
+  return(retur_gis)
+  
+} # slut funktion
 
-# Kod hämtad från: https://github.com/r-spatial/sf/issues/1302#issuecomment-606473789
-# Används av funktionen .st_centroid_within_geo nedan
-#
-#' Find largest ring of a multipolygon
-#'
-#' Assumes dealing with polygons
-#'
-#' @param x (sf object of polygons)
-#'
-#' @return (sf object) replaced with centroids
-#'
-#' @seealso sf:::largest_ring()
-#'
+
+skapa_sf_fran_csv_eller_excel_supercross <- function(fil_med_sokvag,               # fil som ska bearbetas, dvs. ett uttag från Supercross 
+                                                     rutid_kol = NA,               # finns en funktion för att hitta rutid-kolumnen men man kan skicka med den här
+                                                     rutstorlek = NA,              # om man vill ange själv, annars kontrolleras för det automatiskt.
+                                                     vald_crs = 3006) {
+  
+  # funktion för att skapa en gpkg-fil från ett uttag ur supercross där rutid är en kolumn
+  
+  rut_df <- import(fil_med_sokvag)
+  
+  # kolla om bara en kolumn heter något med rut, i så fall är det rutid-kolumnen
+  if (is.na(rutid_kol[1]) & sum(str_detect(tolower(names(rut_df)), "rut")) == 1) rutid_kol <- names(rut_df)[str_which(tolower(names(rut_df)), "rut")]
+  
+  # om det inte bara är en kolumn som heter något med "rut", välj den första kolumnen i rut_df som rutid-kolumn
+  if (is.na(rutid_kol[1])) rutid_kol <- names(rut_df)[1]
+  
+  # hitta rutstorlek genom att kontrollera tecken 11 i rutid-kolumnen. Om det är km-rutor är det bara "0" där, om det är 500-metersrutor är det bara "0" eller "5" där, och 
+  # om det är 100 metersrutor kan alla siffror finnas där, bland annat "1", "2", "3", "4" som inte kan finnas i övriga rutor. Kan bli fel om man har väldigt få rutor men
+  # sannolikheten att det ska hända är extremt liten, men då finns möjligheten att skicka med ett värde för rutstorlek
+  if (is.na(rutstorlek)) {
+    test_vekt <- rut_df[[rutid_kol]] %>% str_sub(11,11)
+    rutstorlek <- case_when(all(test_vekt == "0") ~ 1000,
+                            all(test_vekt %in% c("0", "5")) ~ 500,
+                            any(test_vekt %in% c("1", "2", "3", "4")) ~ 100)
+  }
+  
+  # skapa x- och y-koordinater från rutid-kolumnen, de läggs i mitten av rutan istället för nedre vänstra hörnet som utgör rutid:t 
+  rut_df <- rut_df %>% 
+    rename(rutid = !!rutid_kol) %>% 
+    mutate(x_koord = paste0(as.character(as.numeric(substr(rutid, 1,6))+(rutstorlek/2))),
+           y_koord = paste0(as.character(as.numeric(substr(rutid, 7,13))+(rutstorlek/2))),
+           rutid = rutid %>% as.character())
+  
+  rut_gis <- st_as_sf(rut_df, coords = c("x_koord", "y_koord"), crs = 3006)
+  
+  rut_gis_cell <- st_buffer(rut_gis,(rutstorlek/2), endCapStyle = "SQUARE")
+  
+  return(rut_gis_cell)
+  
+} # slut funktion
+
+
+# ============================================ geometriska funktioner =================================================
+
 st_largest_ring <- function(x) {
+
+  # Kod hämtad från: https://github.com/r-spatial/sf/issues/1302#issuecomment-606473789
+  # Används av funktionen .st_centroid_within_geo nedan
+  #
+  #' Find largest ring of a multipolygon
+  #'
+  #' Assumes dealing with polygons
+  #'
+  #' @param x (sf object of polygons)
+  #'
+  #' @return (sf object) replaced with centroids
+  #'
+  #' @seealso sf:::largest_ring()
+  #'
+
   if (nrow(x) < 1)
     return(x)
   
@@ -501,8 +385,85 @@ st_centroid_within_geo <- function(
   return(cx)
 }
 
-# =======================================================================================================
-# Här börjar postgis funktionen
+skapa_linje_langs_med_punkter <- function(skickad_sf,                   # skickad_sf = skickat sf-objekt med punkter
+                                          kol_ord,                      # kol_ord = den kolumn som innehåller nummer som rangordnar mellan vilka punkter som linjen ska dras, den dras i samma ordning som i denna kolumn
+                                          names,                        # namn på punkterna om man vill ha med det (oklart om vi vill det)
+                                          names_bara_startpunkt = TRUE  # om man bara vill ha namn från startpunkten, annars blir namnet "startnamn - slutnamn"
+) {
+  
+  # skicka ett sf-objekt med punkter. En kolumn i objektet innehåller en numerisk kolumn utifrån vilken
+  # linjer dras mellan punkterna, från första till andra punkten, från andra till tredje punkten osv.
+  # till den sista punkten. Det går också att skicka med korrekt crs som ska vara samma som 
+  
+  skickad_sf_crs <- st_crs(skickad_sf)
+  
+  skickad_sf <- skickad_sf %>% arrange(!!as.symbol(kol_ord))
+  
+  # dataframe med ordningsföljd utifrån en kolumn (sorteras så linjer mellan punkter dras alltid i nummer ordning)
+  idx <- data.frame(start = c(1:(nrow(skickad_sf)-1)),
+                    end = c(2:nrow(skickad_sf))) 
+  
+  
+  # cycle over the combinations
+  for (i in seq_along(idx$start)) {
+    
+    # line object from two points
+    
+    start_punkt <- skickad_sf[idx$start[i], ] %>% st_coordinates() %>% sum()
+    slut_punkt <- skickad_sf[idx$end[i], ] %>% st_coordinates() %>% sum()
+    
+    if (start_punkt >= slut_punkt){
+      wrk_line  <- skickad_sf[c(idx$start[i], idx$end[i]), ] %>% 
+        st_coordinates() %>% 
+        st_linestring() %>% 
+        st_sfc(crs = skickad_sf_crs)  
+    } else {
+      wrk_line  <- skickad_sf[c(idx$end[i], idx$start[i]), ] %>% 
+        st_coordinates() %>% 
+        st_linestring() %>% 
+        st_sfc(crs = skickad_sf_crs)
+    }
+    
+    # wrk_line  <- skickad_sf[c(idx$start[i], idx$end[i]), ] %>% 
+    #   st_coordinates() %>% 
+    #   st_linestring() %>% 
+    #   st_sfc(crs = skickad_sf_crs)  
+    
+    
+    # a single row of results dataframe
+    
+    # skapa etiketten, från till etikett om names_bara_startpunkt = FALSE, annars bara etikett för startpunkt
+    label_varde <- ifelse(names_bara_startpunkt, pull(skickad_sf, names)[idx$start[i]], 
+                          paste(pull(skickad_sf, names)[idx$start[i]], "-", pull(skickad_sf, names)[idx$end[i]]))
+    
+    line_data <- data.frame(
+      start = pull(skickad_sf, kol_ord)[idx$start[i]],
+      end = pull(skickad_sf, kol_ord)[idx$end[i]],
+      label =label_varde,
+      geometry = wrk_line
+    )
+    
+    # bind results rows to a single object
+    if (i == 1) {
+      res <- line_data
+      
+    } else {
+      res <- dplyr::bind_rows(res, line_data)
+      
+    } # /if - saving results
+    
+  } # /for
+  
+  # finalize function result
+  res <- sf::st_as_sf(res, crs = skickad_sf_crs)
+  
+  return(res)
+  
+} # /function
+
+
+# ================================= postgis-funktioner ================================================
+
 
 las_in_rutor_xlsx_till_postgis_skapa_pgr_graf <- 
   function(inlas_mapp = "G:/Samhällsanalys/GIS/rutor/",
@@ -513,7 +474,7 @@ las_in_rutor_xlsx_till_postgis_skapa_pgr_graf <-
            schema_natverk = "nvdb",
            tabell_natverk = "nvdb20buff30") {
     
-    # =================== Läs in och bearbeta excelfiler med rutdata ======================
+    #  Läs in och bearbeta excelfiler med rutdata 
     
     df_list <- map(inlas_filer, ~read.xlsx(paste0(inlas_mapp, .x)))
     gis_list <- list()
@@ -540,7 +501,7 @@ las_in_rutor_xlsx_till_postgis_skapa_pgr_graf <-
       # säkerställ att alla kolumnnamn är i gemener, ställer inte till problem i postigis då
       names(df_list[[df_item]]) <- tolower(names(df_list[[df_item]]))
       
-      # =================== lägg över till postgis =======================
+      # lägg över till postgis
       
       con <- dbConnect(          # use in other settings
         RPostgres::Postgres(),
@@ -557,7 +518,7 @@ las_in_rutor_xlsx_till_postgis_skapa_pgr_graf <-
       # kör sql-kod för att skapa ett nytt schema med namn definierat ovan
       dbExecute(con, paste0("create schema if not exists ", schema_rut, ";"))
       
-      # ================== skriv rut-lagren till postgis 
+      # skriv rut-lagren till postgis 
       starttid = Sys.time()
       st_write(obj = gis_list[[df_item]],
                dsn = con,
@@ -573,7 +534,7 @@ las_in_rutor_xlsx_till_postgis_skapa_pgr_graf <-
       # gör rutid till id-kolumn i tabellen
       dbExecute(con, paste0("ALTER TABLE ", schema_rut, ".", inlas_tabellnamn[df_item], " ADD PRIMARY KEY (rutid);"))
       
-      # gör en spatial join för mittpunkten i rutorna till nvdb ====================
+      # gör en spatial join för mittpunkten i rutorna till nvdb 
       
       # vi börjar med att skapa en ny kolumn i den nya tabellen
       dbExecute(con, paste0("ALTER TABLE ", schema_rut, ".", inlas_tabellnamn[df_item],
@@ -635,7 +596,7 @@ las_in_fil_skapa_punkter_till_postgis_skapa_pgr_graf <-
     # pg_db_port = den port som databasen ansluts via
     # pg_db_name_db = den databas i postgis som man ansluter till
     
-    # =================== Läs in och bearbeta excelfiler med punktkoordinater ======================
+    # Läs in och bearbeta excelfiler med punktkoordinater
     
     df_list <- map(inlas_filer, ~read.xlsx(paste0(inlas_mapp, .x)))
     gis_list <- list()
@@ -654,7 +615,7 @@ las_in_fil_skapa_punkter_till_postgis_skapa_pgr_graf <-
       # om data inte är i rätt projektionssystem, konvertera till rätt
       if (malpunkter_crs != malpunkter_till_crs) gis_list[[df_item]] <- st_transform(gis_list[[df_item]], crs = malpunkter_till_crs)
       
-      # =================== lägg över till postgis =======================
+      # lägg över till postgis
       
       con <- dbConnect(          # use in other settings
         RPostgres::Postgres(),
@@ -743,13 +704,13 @@ las_in_geosf_skapa_punkter_till_postgis_skapa_pgr_graf <-
     # pg_db_port = den port som databasen ansluts via
     # pg_db_name_db = den databas i postgis som man ansluter till
     
-    # =================== Läs in och bearbeta excelfiler med rutdata ======================
+    # Läs in och bearbeta excelfiler med rutdata
     
     
     # säkerställ att alla kolumnnamn är i gemener, ställer inte till problem i postigis då
     names(inlas_df) <- tolower(names(inlas_df))
     
-    # =================== lägg över till postgis =======================
+    # lägg över till postgis
     
     con <- dbConnect(          # use in other settings
       RPostgres::Postgres(),
@@ -766,7 +727,7 @@ las_in_geosf_skapa_punkter_till_postgis_skapa_pgr_graf <-
     # kör sql-kod för att skapa ett nytt schema med namn definierat ovan
     dbExecute(con, paste0("create schema if not exists ", schema_malpunkter, ";"))
     
-    # ================== skriv rut-lagren till postgis 
+    #  skriv rut-lagren till postgis 
     starttid = Sys.time()
     st_write(obj = inlas_df,
              dsn = con,
@@ -780,7 +741,7 @@ las_in_geosf_skapa_punkter_till_postgis_skapa_pgr_graf <-
     # gör rutid till id-kolumn i tabellen
     dbExecute(con, paste0("ALTER TABLE ", schema_malpunkter, ".", inlas_tabellnamn, " ADD PRIMARY KEY (", malpunkter_id_kol ,");"))
     
-    # gör en spatial join för mittpunkten i rutorna till nvdb ====================
+    # gör en spatial join för mittpunkten i rutorna till nvdb
     
     # vi börjar med att skapa en ny kolumn i den nya tabellen
     dbExecute(con, paste0("ALTER TABLE ", schema_malpunkter, ".", inlas_tabellnamn,
@@ -833,7 +794,7 @@ koppla_punkter_postgis_tabell_till_pgr_graf <-
     # pg_db_port = den port som databasen ansluts via
     # pg_db_name_db = den databas i postgis som man ansluter till
     
-    # =================== Läs in och bearbeta excelfiler med rutdata ======================
+    # Läs in och bearbeta excelfiler med rutdata
     
     
     con <- dbConnect(          # use in other settings
@@ -848,7 +809,7 @@ koppla_punkter_postgis_tabell_till_pgr_graf <-
       dbname = pg_db_name_db,
       options="-c search_path=public")
     
-    # gör en spatial join för mittpunkten i rutorna till nvdb ====================
+    # gör en spatial join för mittpunkten i rutorna till nvdb
     
     # vi börjar med att skapa en ny kolumn i den nya tabellen
     dbExecute(con, paste0("ALTER TABLE ", punkter_schema, ".", punkter_tabellnamn,
@@ -1187,14 +1148,14 @@ skriv_geosf_till_postgis_skapa_spatialt_index <-
     # pg_db_port = den port som databasen ansluts via
     # pg_db_name_db = den databas i postgis som man ansluter till
     
-    # =================== Läs in och bearbeta excelfiler med rutdata ======================
+    #  Läs in och bearbeta excelfiler med rutdata 
     
     
     # säkerställ att alla kolumnnamn är i gemener, ställer inte till problem i postgis då
     names(inlas_sf) <- tolower(names(inlas_sf))
     inlas_tabellnamn <- inlas_tabellnamn %>% tolower()
     
-    # =================== lägg över till postgis =======================
+    # lägg över till postgis
     
     con <- dbConnect(          # use in other settings
       RPostgres::Postgres(),
@@ -1212,7 +1173,7 @@ skriv_geosf_till_postgis_skapa_spatialt_index <-
     # kör sql-kod för att skapa ett nytt schema med namn definierat ovan
     dbExecute(con, paste0("create schema if not exists ", schema_karta, ";"))
     
-    # ================== skriv rut-lagren till postgis 
+    # skriv rut-lagren till postgis 
     starttid = Sys.time()
     st_write(obj = inlas_sf,
              dsn = con,
@@ -1521,6 +1482,8 @@ join_narmaste_malpunkt_fran_n_narmaste <- function(
    
  }
  
+# ===================================== hantera GIS i R ===============================================
+
  kartifiera <- function(skickad_df, geom_nyckel){
    
    kartifiera_regionkoder <- unique(skickad_df[[geom_nyckel]])
@@ -1686,9 +1649,7 @@ skapa_malpunkter_tabell <- function() {
   return(malpunkter_df)
 }
 
-# ========================================================
 # Huvudfunktionen för att hämta data från 'malpunkter' schema
-# ========================================================
 
 #' Hämta malpunkter data
 #'
@@ -1874,6 +1835,29 @@ postgis_skapa_schema_om_inte_finns <- function(schema_namn){
   dbExecute(con, paste0("create schema if not exists ", schema_namn, ";"))
 }
 
+
+# ========================================== hantera rutor med GIS ========================================================
+
+sf_fran_df_med_x_y_kol <- function(skickad_df, 
+                                   x_kol, 
+                                   y_kol,
+                                   rutstorlek = NA,              # om man vill ange själv, annars kontrolleras för det automatiskt.
+                                   polygonlager = TRUE,          # polygonlager = FALSE -> punktlager
+                                   vald_crs = 3006){
+  
+  if(is.na(rutstorlek)) rutstorlek = rutstorlek_estimera(skickad_df[[x_kol]], skickad_df[[y_kol]])
+  
+  retur_sf <- sf_skapa_fran_df_med_rutkolumner(skickad_df = skickad_df, x_kol = x_kol, 
+                                               y_kol = y_kol, rutstorlek = rutstorlek, vald_crs = vald_crs)
+  
+  if (polygonlager) retur_sf <- st_buffer(retur_sf,(rutstorlek/2), endCapStyle = "SQUARE")
+  
+  return(retur_sf)
+  
+} # slut funktion
+
+
+
 sf_skapa_fran_df_med_rutkolumner <- function(skickad_df, x_kol, y_kol, rutstorlek = NA, vald_crs = 3006){
   
   if (is.na(rutstorlek)) rutstorlek <- rutstorlek_estimera(skickad_df[[x_kol]], skickad_df[[y_kol]])
@@ -1912,5 +1896,32 @@ rutstorlek_estimera <- function(x, y) {
   
   # Default, if no match is found (this case shouldn't happen given your rules)
   return(NA)
+}
+
+berakna_mittpunkter <- function(df, xruta, yruta, rutstorlek, 
+                                xkolnamn = "mitt_x", ykolnamn = "mitt_y"){
+  
+  # Denna funktion beräknar mittpunkter för två kolumner med x- och y-koordinater i 
+  # textform, om koordinaterna är i nedre vänstra hörnet (som SCB:s rutor).
+  #
+  # Funktionen  behöver: 
+  # - en dataframe som innehåller kolumner med x- och y-koordinater
+  # - namn på x- och y-kolumnerna som text
+  # - ett numeriskt värde för rutstorleken
+  # - namn för de nya x- och y-kolumnerna med mittpunkter, annars döps de till "mitt_x" och "mitt_y"
+  #
+  # Retur: en df som är likadan som den som skickades men med 2 nya kolumner som
+  #        innehåller mittpunkter för x- och y-koordinaten
+  #
+  
+  # beräkna de nya kolumnerna
+  df[xkolnamn] <- df[xruta]+(rutstorlek/2)
+  df[ykolnamn] <- df[yruta]+(rutstorlek/2)
+  # flytta de nya kolumnerna och lägg dem efter x- och y-kolumnerna
+  df <- df %>% 
+    relocate(all_of(xkolnamn), .after = all_of(yruta)) %>% 
+    relocate(all_of(ykolnamn), .after = all_of(xkolnamn))
+  
+  return(df)
 }
 
