@@ -1140,7 +1140,7 @@ postgres_alla_rattigheter <- function(con = "default") {
 # ================================= postgis-funktioner ================================================
 
 
-postgis_sf_till_postgis <- 
+postgis_sf_till_postgistabell <- 
   function(inlas_sf,
            inlas_tabellnamn,   # de tabellnamn de nya filerna ska få i postgis
            schema_karta = "karta",
@@ -1203,6 +1203,30 @@ postgis_sf_till_postgis <-
     
   } # slut funktion
 
+postgis_postgistabell_till_sf <- function(
+    schema,                 # det schema i vilken tabellen finns som man vill hämta
+    tabell,                 # den tabell i postgisdatabasen man vill hämta
+    query = NA,     # om man inte skickar med någon query hämtas hela tabellen
+    con = "default"){
+  
+  starttid <- Sys.time()                                        # Starta tidstagning
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if(is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga = TRUE
+  } else  default_flagga = FALSE 
+  
+  
+  if (is.na(query)) query <- paste0("SELECT * FROM ", schema, ".", tabell)
+  retur_sf <- st_read(con, query = query)
+  
+  if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
+  message(glue("Processen tog {berakningstid} sekunder att köra"))
+  
+  return(retur_sf)
+} # slut funktion
 
 
 postgis_kopiera_tabell <- function(schema_fran, 
@@ -1262,6 +1286,24 @@ postgis_flytta_tabell <- function(schema_fran,
   
 }
 
+postgis_skapa_schema_om_inte_finns <- function(schema_namn, con = "default"){
+  
+  starttid <- Sys.time()                                        # Starta tidstagning
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if(is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga = TRUE
+  } else  default_flagga = FALSE
+  
+  # kör sql-kod för att skapa ett nytt schema med namn definierat ovan
+  dbExecute(con, paste0("create schema if not exists ", schema_namn, ";"))
+  
+  if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
+  message(glue("Processen tog {berakningstid} sekunder att köra"))
+  
+}
  
 # ======================================= pgrouting-funktioner ================================================
 
@@ -1851,43 +1893,6 @@ join_narmaste_malpunkt_fran_n_narmaste <- function(
 }
 
 
-
-las_in_postgis_tabell_till_sf_objekt <- function(
-    geo_db = "geodata",
-    schema,                 # det schema i vilken tabellen finns som man vill hämta
-    tabell,                 # den tabell i postgisdatabasen man vill hämta
-    skickad_query = NA,     # om man inte skickar med någon query hämtas hela tabellen
-    pg_db_user = key_list(service = "rd_geodata")$username,
-    pg_db_pwd = key_get("rd_geodata", key_list(service = "rd_geodata")$username),
-    pg_db_host = "WFALMITVS526.ltdalarna.se",
-    pg_db_port = 5432,
-    pg_db_name_db = "geodata"){
-  
-  starttid <- Sys.time()
-  
-  con_hamta <- dbConnect(          # use in other settings
-    RPostgres::Postgres(),
-    # without the previous and next lines, some functions fail with bigint data 
-    #   so change int64 to integer
-    bigint = "integer",  
-    user = pg_db_user,
-    password = pg_db_pwd,
-    host = pg_db_host,
-    port = pg_db_port,
-    dbname = pg_db_name_db,
-    options="-c search_path=public") 
-  
-  
-  if (is.na(skickad_query)) skickad_query <- paste0("SELECT * FROM ", schema, ".", tabell)
-  retur_sf <- st_read(con_hamta, query = skickad_query)
-  
-  dbDisconnect(con_hamta)           # stäng postgis-anslutningen igen
-  
-  print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "sec"),2) , " sekunder att läsa in tabellen."))
-  
-  return(retur_sf)
-} # slut funktion
-
 koppla_kommun_till_geokol_i_tabell <- function(
     schema,                              # det schema i vilken tabellen finns som man vill hämta
     tabell,                              # den tabell i postgisdatabasen man vill hämta
@@ -1954,7 +1959,4 @@ koppla_kommun_till_geokol_i_tabell <- function(
   
 }
 
-postgis_skapa_schema_om_inte_finns <- function(schema_namn){
-  # kör sql-kod för att skapa ett nytt schema med namn definierat ovan
-  dbExecute(con, paste0("create schema if not exists ", schema_namn, ";"))
-}
+
