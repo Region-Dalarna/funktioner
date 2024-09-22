@@ -886,7 +886,7 @@ webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel
     })
   
     return(sokord_url)
-}
+} 
  
 # ================================================= github-funktioner ========================================================
 
