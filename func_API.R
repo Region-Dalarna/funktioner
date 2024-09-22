@@ -834,6 +834,59 @@ korrigera_kolnamn_supercross <- function(skickad_fil, teckenkodstabell = "latin1
     writeLines(kon_korr, paste0(skickad_fil))                                        # skriv över med rätt tecken
   }
 }
+
+webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel", "lan", "!bransch", ".xlsx")) {
+  
+  # hämta webbsidan med tidigare statistik på Arbetsförmedlingen och spara som en vektor
+  webbsida <- suppressWarnings(readLines(skickad_url))
+  
+  # Få index för de element på webbsidan där alla sökord är med,
+  # tabort-sökord, dvs. sökord som börjar med "!" tas inte med i funktionen
+  sokord_filtered <- sokord %>% 
+    discard(~ str_starts(.x, "!"))
+  
+  sokord_index <- which(map_lgl(webbsida, function(text) {
+    all(map_lgl(sokord_filtered, function(s) {
+      str_detect(tolower(text), tolower(s))
+    }))
+  }))
+  
+  fil_strang <- webbsida[sokord_index]                          # skapa sträng med det element där båda är med
+  
+  # i den strängen, ta ut startposition för alla "/download/" som hittar i strängen (det är sökvägar)
+  start_sokvagar <- str_locate_all(fil_strang, "/download/")[[1]][,1]  
+  
+  # funktion för att ta ut fullständig url från de startpositioner vi hittade i raden ovan
+  extrahera_sokvag <- function(strang, startpos) {
+    
+    nystrang <- str_sub(strang, startpos, nchar(strang))
+    slutpos <- str_locate(nystrang, '\"')[[1]]-1
+    
+    retur_strang <- str_sub(nystrang, 1, slutpos)
+    retur_strang <- paste0("https://arbetsformedlingen.se", retur_strang)
+    return(retur_strang)
+  }       
+  
+  # vi skapar en vektor med fullständiga sökvägar för samtliga excelfiler som finns på webbsidan
+  af_urler <- start_sokvagar %>% map_chr(~ extrahera_sokvag(fil_strang, .x))
+  
+  # Filtrera de element i 'texts' där alla sökord finns
+  sokord_url <- af_urler %>%
+    #keep(~ all(map_lgl(sokord, function(s) str_detect(.x, s))))
+    keep(function(text) {
+      all(map_lgl(sokord, function(s) {
+        if (str_starts(s, "!")) {
+          # Om sökordet börjar med "!", detektera att det INTE finns i texten
+          !str_detect(text, str_remove(s, "^!"))
+        } else {
+          # Annars, detektera att sökordet finns i texten
+          str_detect(tolower(text), tolower(s))
+        }
+      }))
+    })
+  
+    return(sokord_url)
+}
  
 # ================================================= github-funktioner ========================================================
 
