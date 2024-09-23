@@ -881,7 +881,7 @@ postgres_lista_scheman_tabeller <- function(con = "default", visa_system_tabelle
   
   return(scheman_tabeller)
 }
-r
+
 
 
 postgres_lista_roller_anvandare <- function(con = "default") {
