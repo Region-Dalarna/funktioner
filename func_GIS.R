@@ -881,13 +881,7 @@ postgres_lista_scheman_tabeller <- function(con = "default", visa_system_tabelle
   
   return(scheman_tabeller)
 }
-
-# Exempel på hur du kan använda funktionen
-# con <- dbConnect(RPostgres::Postgres(), ...)
-scheman_tabeller <- list_schemas_and_tables()
-
-# Visa resultaten
-scheman_tabeller
+r
 
 
 postgres_lista_roller_anvandare <- function(con = "default") {
