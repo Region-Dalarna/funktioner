@@ -942,14 +942,28 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
     mutate(source = url %>% paste0('source("', ., '")\n'))
   
   if (!any(is.na(filtrera))) {
-   if (length(filtrera) > 1) filtrera <- paste0(filtrera, collapse = "|")
-   if (length(filtrera) > 0 & str_detect(filtrera, "\\&")) {        # om filtrera innehåller ett eller flera &-tecken
-     sok_vekt <- str_split(filtrera, "\\&") %>% unlist()            # ta isär söksträngen på &-tecken och lägg i en vektor
-     retur_df <- retur_df %>% filter(reduce(sok_vekt, ~ .x & str_detect(tolower(namn), tolower(.y)), .init = TRUE))    # använd reduce för att behålla alla rader som innehåller samtliga elelment i sok__vekt
-   } else {                                                         # om filtrera inte innehåller &-tecken
-     retur_df <- retur_df %>% filter(str_detect(tolower(namn), tolower(filtrera)))  
-   }
+    if (length(filtrera) > 1) filtrera <- paste0(filtrera, collapse = "|")
     
+    if (length(filtrera) > 0 & str_detect(filtrera, "\\&")) {  # om filtrera innehåller ett eller flera &-tecken
+      sok_vekt <- str_split(filtrera, "\\&") %>% unlist()      # ta isär söksträngen på &-tecken och lägg i en vektor
+      retur_df <- retur_df %>% 
+        filter(reduce(sok_vekt, ~ .x & {
+          if (str_detect(.y, "^!")) {
+            # Om sökordet börjar med "!", exkludera det sökordet
+            !str_detect(tolower(namn), tolower(str_remove(.y, "^!")))
+          } else {
+            str_detect(tolower(namn), tolower(.y))
+          }
+        }, .init = TRUE))
+    } else {  # om filtrera inte innehåller &-tecken
+      if (str_detect(filtrera, "^!")) {
+        # Om sökordet börjar med "!", exkludera det sökordet
+        retur_df <- retur_df %>% filter(!str_detect(tolower(namn), tolower(str_remove(filtrera, "^!"))))
+      } else {
+        retur_df <- retur_df %>% filter(str_detect(tolower(namn), tolower(filtrera)))  
+      }
+    }
+
    if (nrow(retur_df) == 0) stop("Inga filer hittades som matchade sökorden.")
   }
   if (skriv_source_konsol) {
