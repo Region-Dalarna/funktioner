@@ -10,6 +10,7 @@ p_load(sf,
        RPostgres,
        keyring)
 
+source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R", encoding = "utf-8")
 
 # ===================================== hantera GIS i R ===============================================
 
@@ -127,14 +128,11 @@ hamta_karta <- function(karttyp = "kommuner", regionkoder = NA, tabellnamn = NA)
     } # slut if-sats för om regionkoder är medskickade, om inte så hämtas alla regioner 
     # query klar, använd inloggningsuppgifter med keyring och skicka med vår serveradress 
     
-    retur_sf <- suppressWarnings(las_in_postgis_tabell_till_sf_objekt(schema = "karta",
-                                                                      tabell = pg_tabell,
-                                                                      skickad_query = skickad_query,
-                                                                      pg_db_user = key_list(service = "rd_geodata")$username,
-                                                                      pg_db_pwd = key_get("rd_geodata", key_list(service = "rd_geodata")$username),
-                                                                      pg_db_host = "WFALMITVS526.ltdalarna.se",
-                                                                      pg_db_port = 5432,
-                                                                      pg_db_name_db = "geodata"))
+    retur_sf <- suppress_specific_warning(
+      postgis_postgistabell_till_sf(schema = "karta",
+                                    tabell = pg_tabell,
+                                    query = skickad_query),
+      "Invalid time zone 'UTC', falling back to local time.")
     
     return(retur_sf)
     
@@ -1310,7 +1308,6 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default", anvandarna
         # Annars, iterera över varje rättighet och validera om den är giltig
         for (rattighet in rattigheter) {
           if (rattighet %in% postgres_lista_giltiga_rattigheter()$Rattighet) {
-            if (rattighet %in% )
             tilldela_rattigheter_query <- paste0("GRANT ", rattighet, " ON ALL TABLES IN SCHEMA ", schema_namn, " TO ", anvandarnamn, ";")
             tryCatch({
               dbExecute(con, tilldela_rattigheter_query)
