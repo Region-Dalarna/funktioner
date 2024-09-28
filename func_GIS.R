@@ -1634,6 +1634,31 @@ postgis_skapa_schema_om_inte_finns <- function(schema_namn, con = "default"){
   
 }
  
+postgis_aktivera_i_postgres_db <- function(con = "default") {
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
+  
+  # SQL-fråga för att aktivera PostGIS
+  aktivera_postgis_query <- "CREATE EXTENSION IF NOT EXISTS postgis;"
+  
+  # Kör SQL-frågan och hantera fel
+  tryCatch({
+    dbExecute(con, aktivera_postgis_query)
+    message("PostGIS-tillägget har aktiverats i databasen.")
+  }, error = function(e) {
+    message("Kunde inte aktivera PostGIS-tillägget:", e$message)
+  })
+  
+  # Koppla ner anslutningen om den skapades som default
+  if (default_flagga) dbDisconnect(con)
+}
+
 # ======================================= pgrouting-funktioner ================================================
 
 las_in_rutor_xlsx_till_postgis_skapa_pgr_graf <- 
