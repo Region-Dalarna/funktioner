@@ -1227,7 +1227,7 @@ postgres_anvandare_ta_bort <- function(con = "default", anvandarnamn) {
   
 }
 
-postgres_rattigheter_anvandare_lagg_till <- function(con = "default", anvandarnamn, databas, schema = "alla", rattigheter = c("CONNECT", "SELECT", "USAGE")) {
+postgres_rattigheter_anvandare_lagg_till <- function(con = "default", anvandarnamn, databas = "", schema = "alla", rattigheter = c("CONNECT", "SELECT", "USAGE")) {
   # för att ge läsrättigheter är det bra att lägga till c("CONNECT", "SELECT", "USAGE")
   # för att ge skrivrättigheter är det bra att lägga till c("CONNECT", "SELECT", "USAGE", "INSERT", "UPDATE", "DELETE", "CREATE")
   
