@@ -1467,6 +1467,41 @@ postgres_tabell_till_df <- function(con = "default",
 }
 
 
+postgres_tabell_ta_bort <- function(con = "default", schema, tabell) {
+  
+  starttid <- Sys.time()                                        # Starta tidstagning
+  
+  schema_tabell <- paste0(schema, ".", tabell)
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
+  
+  # Kontrollera om tabellen existerar
+  full_tabell_namn <- paste0(schema, ".", tabell)
+  tabell_finns <- dbExistsTable(con, Id(schema = schema, table = tabell))
+  
+  if (!tabell_finns) {
+    message("Tabellen '", full_tabell_namn, "' existerar inte. Ingen åtgärd vidtogs.")
+  } else {
+    # Ta bort tabellen om den existerar
+    sql <- paste0("DROP TABLE ", DBI::dbQuoteIdentifier(con, schema), ".", DBI::dbQuoteIdentifier(con, tabell), ";")
+    dbExecute(con, sql)
+    message("Tabellen '", full_tabell_namn, "' har tagits bort.")
+  }
+  
+  # Koppla ner anslutningen om den skapades som default
+  if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
+  message(glue("Processen tog {berakningstid} sekunder att köra"))
+  
+}
+
+
 # ================================= postgis-funktioner ================================================
 
 
