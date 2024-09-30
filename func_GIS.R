@@ -1500,7 +1500,7 @@ postgres_tabell_ta_bort <- function(con = "default", schema, tabell) {
   message(glue("Processen tog {berakningstid} sekunder att köra"))
   
 }
-
+ 
 
 # ================================= postgis-funktioner ================================================
 
