@@ -887,7 +887,30 @@ webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel
   
     return(sokord_url)
 } 
- 
+
+konvertera_dataset_filformat <- function(sokvag_fil,
+                                         nytt_format_filandelse,
+                                         teckenkodtabell = "Latin-1") {
+  
+  if (!require("rio")) install.packages("rio")
+  if (!require("writexl")) install.packages("writexl")
+  
+  dataset_df <- rio::import(sokvag_fil, encoding = teckenkodtabell)
+  
+  filandelse <- str_extract(sokvag_fil, "\\.[^.]+$")                               # Extrahera filändelsen inklusive punkt
+  filnamn_utan_andelse <- str_remove(sokvag_fil, "\\.[^.]+$")                      # Extrahera filnamnet utan filändelsen
+  
+  if (str_sub(nytt_format_filandelse, 1, 1) != ".") nytt_format_filandelse <- paste0(".", nytt_format_filandelse)
+  nytt_filnamn <- paste0(filnamn_utan_andelse, nytt_format_filandelse)          # Skapa nytt filnamn med ny filändelse
+  
+  if (nytt_format_filandelse == ".xlsx") {
+    writexl::write_xlsx(dataset_df, nytt_filnamn)                       # Exportera datasetet till nytt filformat
+  } else {
+    rio::export(dataset_df, nytt_filnamn)                                         # Exportera datasetet till nytt filformat
+  }
+}
+
+
 # ================================================= github-funktioner ========================================================
 
 github_lista_repos <- function(owner = "Region-Dalarna", skriv_ut_reponamn_i_konsol = TRUE) {
