@@ -10,6 +10,7 @@ p_load(sf,
        RPostgres,
        keyring)
 
+source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R", encoding = "utf-8")
 
 # ===================================== hantera GIS i R ===============================================
 
@@ -127,14 +128,11 @@ hamta_karta <- function(karttyp = "kommuner", regionkoder = NA, tabellnamn = NA)
     } # slut if-sats för om regionkoder är medskickade, om inte så hämtas alla regioner 
     # query klar, använd inloggningsuppgifter med keyring och skicka med vår serveradress 
     
-    retur_sf <- suppressWarnings(las_in_postgis_tabell_till_sf_objekt(schema = "karta",
-                                                                      tabell = pg_tabell,
-                                                                      skickad_query = skickad_query,
-                                                                      pg_db_user = key_list(service = "rd_geodata")$username,
-                                                                      pg_db_pwd = key_get("rd_geodata", key_list(service = "rd_geodata")$username),
-                                                                      pg_db_host = "WFALMITVS526.ltdalarna.se",
-                                                                      pg_db_port = 5432,
-                                                                      pg_db_name_db = "geodata"))
+    retur_sf <- suppress_specific_warning(
+      postgis_postgistabell_till_sf(schema = "karta",
+                                    tabell = pg_tabell,
+                                    query = skickad_query),
+      "Invalid time zone 'UTC', falling back to local time.")
     
     return(retur_sf)
     
@@ -812,8 +810,13 @@ uppkoppling_db <- function(
   db_port = 5432,
   db_name = "geodata",                    # Ändra till "geodata" sen
   #db_options = "-c search_path=public"
-  db_options = "-c search_path=public"
+  db_options = "-c search_path=public",
+  db_user = NA,
+  db_password = NA
 ) {
+  
+  if (is.na(db_user)) db_user <- key_list(service = service_name)$username
+  if (is.na(db_password)) db_password <- key_get(service_name, key_list(service = service_name)$username)
   
   tryCatch({
     # Etablera anslutningen
@@ -822,8 +825,8 @@ uppkoppling_db <- function(
         dbConnect(          
         RPostgres::Postgres(),
         bigint = "integer",  
-        user = key_list(service = service_name)$username,
-        password = key_get(service_name, key_list(service = service_name)$username),
+        user = db_user,
+        password = db_password,
         host = db_host,
         port = db_port,
         dbname = db_name,
@@ -840,6 +843,26 @@ uppkoppling_db <- function(
     return(NULL)
   })
   
+}
+
+postgres_lista_databaser <- function(con = "default") {
+  
+  starttid <- Sys.time()                                        # Starta tidstagning
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if(is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga = TRUE
+  } else  default_flagga = FALSE
+  
+  databaser <- dbGetQuery(ny_con, "SELECT datname FROM pg_database WHERE datistemplate = false;") %>% 
+    rename(databas = datname)
+  
+  if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
+  message(glue("Processen tog {berakningstid} sekunder att köra"))
+  
+  return(databaser)
 }
 
 postgres_lista_scheman_tabeller <- function(con = "default", visa_system_tabeller = FALSE) {
@@ -930,7 +953,7 @@ postgres_lista_behorighet_till_scheman <- function(con = "default") {
         WHEN STRING_AGG(privilege_type, ',') LIKE '%INSERT%' OR
              STRING_AGG(privilege_type, ',') LIKE '%UPDATE%' OR
              STRING_AGG(privilege_type, ',') LIKE '%DELETE%' THEN 'write'
-        WHEN STRING_AGG(privilege_type, ',') LIKE '%SELECT%' THEN 'read'
+        WHEN STRING_AGG(privilege_type, ',') LIKE '%SELECT%'THEN 'read'
         ELSE 'no access'
       END AS access_type
     FROM 
@@ -1131,13 +1154,361 @@ postgres_alla_rattigheter <- function(con = "default") {
 
 }
 
+
+# Funktion för att lägga till en användare och ge rättigheter till flera databaser
+postgres_anvandare_lagg_till <- function(con = "default", anvandarnamn, losenord) {
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  starttid <- Sys.time()                                        # Starta tidstagning
+  if(is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga = TRUE
+  } else  default_flagga = FALSE
+  
+  # Skapa användaren med specifikt lösenord (om användaren inte redan finns)
+  skapa_anvandare_query <- paste0("CREATE USER ", anvandarnamn, " WITH PASSWORD '", losenord, "';")
+  tryCatch({
+    dbExecute(con, skapa_anvandare_query)
+  }, error = function(e) {
+    message("Användaren finns redan eller något annat fel uppstod: ", e$message)
+  })
+  
+  # # Iterera över varje databas i vektorn och tilldela rättigheter
+  # for (db in databas) {
+  #   # Tilldela anslutningsrättigheter till den specifika databasen
+  #   tilldela_atkomst_query <- paste0("GRANT CONNECT ON DATABASE ", db, " TO ", anvandarnamn, ";")
+  #   dbExecute(con, tilldela_atkomst_query)
+  #   
+  #   # Tilldela alla rättigheter till alla tabeller i databasen
+  #   tilldela_rattigheter_query <- paste0("GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ", anvandarnamn, ";")
+  #   dbExecute(con, tilldela_rattigheter_query)
+  #   
+  #   message(paste("Anvandaren", anvandarnamn, "har lagts till och fatt rattigheter till databasen", db))
+  # }
+  
+  if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
+  message(glue("Processen tog {berakningstid} sekunder att köra"))
+  
+}
+
+# Funktion för att ta bort en användare helt från PostgreSQL-servern
+postgres_anvandare_ta_bort <- function(con = "default", anvandarnamn) {
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  starttid <- Sys.time()                                        # Starta tidstagning
+  if(is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga = TRUE
+  } else  default_flagga = FALSE
+  
+  # Kontrollera först om användaren har några beroenden (ägare till objekt etc.)
+  kontroll_query <- paste0("SELECT COUNT(*) AS antal FROM pg_authid WHERE rolname = '", anvandarnamn, "';")
+  antal <- dbGetQuery(con, kontroll_query)$antal
+  
+  if (antal == 0) {
+    message(paste("Anvandaren", anvandarnamn, "finns inte på servern."))
+    return()
+  }
+  
+  # Om användaren finns, försök ta bort den
+  tryCatch({
+    drop_user_query <- paste0("DROP ROLE ", anvandarnamn, ";")
+    dbExecute(con, drop_user_query)
+    message(paste("Anvandaren", anvandarnamn, "har tagits bort från servern."))
+  }, error = function(e) {
+    message(paste("Ett fel uppstod vid försök att ta bort anvandaren:", anvandarnamn))
+    message("Felmeddelande:", e$message)
+  })
+  
+  if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
+  message(glue("Processen tog {berakningstid} sekunder att köra"))
+  
+}
+
+postgres_rattigheter_anvandare_lagg_till <- function(con = "default", anvandarnamn, databas = "", schema = "alla", rattigheter = c("CONNECT", "SELECT", "USAGE")) {
+  # för att ge läsrättigheter är det bra att lägga till c("CONNECT", "SELECT", "USAGE")
+  # för att ge skrivrättigheter är det bra att lägga till c("CONNECT", "SELECT", "USAGE", "INSERT", "UPDATE", "DELETE", "CREATE")
+  
+  starttid <- Sys.time()  # Starta tidtagning
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
+  
+  if (all(rattigheter == "alla")) rattigheter <- postgres_lista_giltiga_rattigheter()$Rattighet
+  
+  # Lista över system-scheman som ska undantas
+  system_scheman <- c("pg_catalog", "information_schema", "pg_toast")
+  
+  # Iterera över varje databas i vektorn och tilldela rättigheter
+  for (db in databas) {
+    # Steg 1: Tilldela anslutningsrättigheter till den specifika databasen (CONNECT på databasnivå)
+    if ("CONNECT" %in% rattigheter) {
+      tilldela_atkomst_query <- paste0("GRANT CONNECT ON DATABASE ", db, " TO ", anvandarnamn, ";")
+      tryCatch({
+        dbExecute(con, tilldela_atkomst_query)
+        message(paste("CONNECT-rättighet har lagts till för användaren", anvandarnamn, "till databasen", db))
+      }, error = function(e) {
+        message(paste("Kunde inte lägga till CONNECT-rättighet för användaren", anvandarnamn, "i databasen", db, ":", e$message))
+      })
+      # Ta bort CONNECT från listan med rättigheter så vi inte försöker applicera den på schemanivå
+      rattigheter <- rattigheter[rattigheter != "CONNECT"]
+    }
+    
+    # Kontrollera om alla scheman ska behandlas
+    if (all(schema == "alla")) {
+      # Hämta alla scheman i databasen
+      alla_scheman_query <- paste0("SELECT schema_name FROM information_schema.schemata WHERE catalog_name = '", db, "';")
+      alla_scheman <- dbGetQuery(con, alla_scheman_query)$schema_name
+      
+    } else {
+      # Kontrollera om specifika scheman finns
+      kontroll_schema_query <- paste0("SELECT schema_name FROM information_schema.schemata WHERE catalog_name = '", db, "' AND schema_name IN (", paste(sprintf("'%s'", schema), collapse = ", "), ");")
+      alla_scheman <- dbGetQuery(con, kontroll_schema_query)$schema_name
+    }
+    
+    # Filtrera bort system-scheman från listan över scheman att bearbeta
+    scheman_att_bearbeta <- setdiff(alla_scheman, system_scheman)
+    # Filtrera också bort alla scheman som börjar med "pg_"
+    scheman_att_bearbeta <- scheman_att_bearbeta[!grepl("^pg_", scheman_att_bearbeta)]
+    
+    
+    # Iterera över varje schema som existerar och tilldela rättigheter
+    for (schema_namn in scheman_att_bearbeta) {
+      # Steg 2: Tilldela USAGE rättighet till schemat så att användaren kan komma åt tabellerna (på schemanivå)
+      if ("USAGE" %in% rattigheter) {
+        tilldela_usage_query <- paste0("GRANT USAGE ON SCHEMA ", schema_namn, " TO ", anvandarnamn, ";")
+        tryCatch({
+          dbExecute(con, tilldela_usage_query)
+          message(paste("USAGE-rättighet har lagts till för schemat", schema_namn, "för användaren", anvandarnamn))
+        }, error = function(e) {
+          message(paste("Kunde inte lägga till USAGE-rättighet för schemat", schema_namn, "för användaren", anvandarnamn, ":", e$message))
+        })
+      }
+      
+      # Ta bort USAGE från listan med rättigheter så vi inte försöker applicera den på tabellnivå
+      rattigheter <- rattigheter[rattigheter != "USAGE"]
+      
+      # Steg 3: Tilldela rättigheter på tabellnivå
+      # if (all(rattigheter == "alla")) {
+      #   tilldela_rattigheter_query <- paste0("GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA ", schema_namn, " TO ", anvandarnamn, ";")
+      #   tryCatch({
+      #     dbExecute(con, tilldela_rattigheter_query)
+      #     message(paste("Alla rättigheter har lagts till för användaren", anvandarnamn, "i schemat", schema_namn))
+      #   }, error = function(e) {
+      #     message(paste("Kunde inte lägga till ALLA rättigheter för användaren", anvandarnamn, "i schemat", schema_namn, ":", e$message))
+      #   })
+      # } else {
+        # Annars, iterera över varje rättighet och validera om den är giltig
+        for (rattighet in rattigheter) {
+          if (rattighet %in% postgres_lista_giltiga_rattigheter()$Rattighet) {
+            tilldela_rattigheter_query <- paste0("GRANT ", rattighet, " ON ALL TABLES IN SCHEMA ", schema_namn, " TO ", anvandarnamn, ";")
+            tryCatch({
+              dbExecute(con, tilldela_rattigheter_query)
+              message(paste("Rättigheten", rattighet, "har lagts till för användaren", anvandarnamn, "i schemat", schema_namn))
+            }, error = function(e) {
+              message(paste("Kunde inte lägga till rättigheten", rattighet, "för användaren", anvandarnamn, "i schemat", schema_namn, ":", e$message))
+            })
+          } else {
+            message(paste("Ogiltig rättighet:", rattighet, "- denna rättighet har inte lagts till."))
+          }
+        #}
+      }
+    }
+  }
+  
+  if (default_flagga) dbDisconnect(con)  # Koppla ner om defaultuppkopplingen har använts
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)  # Beräkna och skriv ut tidsåtgång
+  message(glue("Processen tog {berakningstid} sekunder att köra"))
+}
+
+
+# Funktion för att ta bort rättigheter från användare
+postgres_rattigheter_anvandare_ta_bort <- function(con = "default", anvandarnamn, databas, rattigheter = "alla") {
+  # för skrivrättigheter så kan c("INSERT", "UPDATE", "DELETE", "CREATE") användas
+  # för läsrättigheter så räcker det att ta bort rättigheter för "CONNECT"
+  starttid <- Sys.time()  # Starta tidtagning
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
+  
+  if (all(rattigheter == "alla")) rattigheter <- postgres_lista_giltiga_rattigheter()$Rattighet
+  
+  # Iterera över varje databas i vektorn och ta bort rättigheter
+  for (db in databas) {
+    # Ta bort anslutningsrättigheter till databasen
+    ta_bort_atkomst_query <- paste0("REVOKE CONNECT ON DATABASE ", db, " FROM ", anvandarnamn, ";")
+    dbExecute(con, ta_bort_atkomst_query)
+    
+    # Om rättigheter är "ALL", ta bort alla rättigheter från användaren för alla tabeller
+    if (all(rattigheter == "alla")) {
+      ta_bort_rattigheter_query <- paste0("REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM ", anvandarnamn, ";")
+      dbExecute(con, ta_bort_rattigheter_query)
+      message(paste("Alla rättigheter har tagits bort för användaren", anvandarnamn, "i databasen", db))
+    } else {
+      # Annars, iterera över varje rättighet och validera om den är giltig
+      for (rattighet in rattigheter) {
+        if (rattighet %in% postgres_lista_giltiga_rattigheter()$Rattighet) {
+          ta_bort_rattigheter_query <- paste0("REVOKE ", rattighet, " ON ALL TABLES IN SCHEMA public FROM ", anvandarnamn, ";")
+          dbExecute(con, ta_bort_rattigheter_query)
+          message(paste("Rättigheten", rattighet, "har tagits bort från användaren", anvandarnamn, "i databasen", db))
+        } else {
+          message(paste("Ogiltig rättighet:", rattighet, "- denna rättighet har inte tagits bort."))
+        }
+      }
+    }
+  }
+  
+  if (default_flagga) dbDisconnect(con)  # Koppla ner om defaultuppkopplingen har använts
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)  # Beräkna och skriv ut tidsåtgång
+  message(glue("Processen tog {berakningstid} sekunder att köra"))
+}
+
+# Funktion som listar rättigheterna i PostgreSQL
+postgres_lista_giltiga_rattigheter <- function() {
+  
+  postgres_giltiga_rattigheter <- c(
+    "CONNECT", "SELECT", "INSERT", "UPDATE", "DELETE",
+    "TRUNCATE", "REFERENCES", "USAGE", "EXECUTE",
+    "CREATE", "TEMP"
+  )
+  
+  # Skapa en dataframe med rättighetsnamn och deras beskrivningar
+  rattigheter_df <- data.frame(
+    Rattighet = postgres_giltiga_rattigheter,
+    Beskrivning = c(
+      "Ger användaren rättigheten att ansluta till en specifik databas.",
+      "Ger användaren rättigheten att använda SELECT-förfrågningar för att läsa från tabeller och vyer.",
+      "Ger användaren rättigheten att lägga till nya rader i en specifik tabell.",
+      "Ger användaren rättigheten att uppdatera befintliga data i en tabell eller specifika kolumner.",
+      "Ger användaren rättigheten att ta bort rader från en specifik tabell.",
+      "Ger användaren rättigheten att tömma en tabell helt utan att utlösa triggers.",
+      "Ger användaren rättigheten att skapa foreign keys som refererar till kolumner i en annan tabell.",
+      "Ger användaren rättigheten att använda objekt som sekvenser, scheman eller typer.",
+      "Ger användaren rättigheten att köra lagrade procedurer eller funktioner i databasen.",
+      "Ger användaren rättigheten att skapa nya objekt, såsom tabeller, i ett schema.",
+      "Ger användaren rättigheten att skapa temporära tabeller i databasen."
+    ),
+    stringsAsFactors = FALSE
+  )
+  
+  return(rattigheter_df)
+}
+
+postgres_losenord_byt_for_anvandare <- function(con = "default", anvandarnamn, nytt_losenord) {
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
+  
+  # SQL-fråga för att ändra lösenordet
+  satt_losenord_query <- paste0("ALTER ROLE ", anvandarnamn, " WITH PASSWORD '", nytt_losenord, "';")
+  
+  # Kör SQL-frågan och hantera fel
+  tryCatch({
+    dbExecute(con, satt_losenord_query)
+    message(paste("Lösenordet har ändrats för användaren", anvandarnamn))
+  }, error = function(e) {
+    message(paste("Kunde inte ändra lösenordet för användaren", anvandarnamn, ":", e$message))
+  })
+  
+  # Koppla ner anslutningen om den skapades som default
+  if (default_flagga) dbDisconnect(con)
+}
+
+postgres_tabell_till_df <- function(con = "default", 
+                                    schema, 
+                                    tabell,
+                                    query = NA) {
+  
+  starttid <- Sys.time()                                        # Starta tidstagning
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
+  
+  # SQL-fråga för att läsa in tabellen från ett specifikt schema
+  if (is.na(query)) sql_query <- paste0("SELECT * FROM ", schema, ".", tabell)
+  
+  # Kör SQL-frågan och hämta tabellen som en dataframe
+  tryCatch({
+    retur_df <- dbGetQuery(con, sql_query)
+    message(paste("Tabellen", tabell, "från schemat", schema, "har lästs in."))
+  }, error = function(e) {
+    message(paste("Kunde inte läsa tabellen", tabell, "från schemat", schema, ":", e$message))
+    retur_df <- NULL
+  })
+  
+  # Koppla ner anslutningen om den skapades som default
+  if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
+  message(glue("Processen tog {berakningstid} sekunder att köra"))
+  
+  return(retur_df)
+}
+
+
+postgres_tabell_ta_bort <- function(con = "default", schema, tabell) {
+  
+  starttid <- Sys.time()                                        # Starta tidstagning
+  
+  schema_tabell <- paste0(schema, ".", tabell)
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
+  
+  # Kontrollera om tabellen existerar
+  full_tabell_namn <- paste0(schema, ".", tabell)
+  tabell_finns <- dbExistsTable(con, Id(schema = schema, table = tabell))
+  
+  if (!tabell_finns) {
+    message("Tabellen '", full_tabell_namn, "' existerar inte. Ingen åtgärd vidtogs.")
+  } else {
+    # Ta bort tabellen om den existerar
+    sql <- paste0("DROP TABLE ", DBI::dbQuoteIdentifier(con, schema), ".", DBI::dbQuoteIdentifier(con, tabell), ";")
+    dbExecute(con, sql)
+    message("Tabellen '", full_tabell_namn, "' har tagits bort.")
+  }
+  
+  # Koppla ner anslutningen om den skapades som default
+  if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
+  message(glue("Processen tog {berakningstid} sekunder att köra"))
+  
+}
+ 
+
 # ================================= postgis-funktioner ================================================
 
 
 postgis_sf_till_postgistabell <- 
   function(inlas_sf,
-           inlas_tabellnamn,   # de tabellnamn de nya filerna ska få i postgis
-           schema_karta = "karta",
+           schema = "karta",
+           tabell,   # de tabellnamn de nya filerna ska få i postgis
            postgistabell_id_kol,
            postgistabell_geo_kol = NA,
            skapa_spatialt_index = TRUE,
@@ -1150,13 +1521,13 @@ postgis_sf_till_postgistabell <-
     # inlas_mapp = mapp i vilken tabellen finns som innehåller målpunkterna, måste innehålla kolumner
     #              för x- och y- koordinat
     # inlas_filer = en vektor med den eller de filer som ska läsas in, måste finnas i inlas_mapp
-    # inlas_tabellnamn = en textsträng eller vektor om det finns flera filer med tabellnamnet som 
+    # tabell      = en textsträng eller vektor om det finns flera filer med tabellnamnet som 
     #                    målpunkterna ska ha i postgisdatabasen (bör vara gemener och utan konstiga tecken)
-    # schema_karta = det schema i postgisdatabasen som målpunktstabellen ska ligga under
+    # schema = det schema i postgisdatabasen som målpunktstabellen ska ligga under
     # postgistabell_id_kol = den kolumn som innehåller ett unikt ID och görs till primärnyckelkolumn, måste finnas!
     # postgistabell_geo_kol = geometry-kolumnen
     
-    if (all(is.na(geo_kol)) & skapa_spatialt_index) stop("geo_kol måste skickas med om skapa_spatialt_index är satt till TRUE. Om du vill skapa en tabell utan geografi måste skapa_spatialt_index sättas till FALSE.")
+    if (all(is.na(postgistabell_geo_kol)) & skapa_spatialt_index) stop("postgistabell_geo_kol måste skickas med om skapa_spatialt_index är satt till TRUE. Om du vill skapa en tabell utan geografi måste skapa_spatialt_index sättas till FALSE.")
     
     starttid <- Sys.time()                                        # Starta tidstagning
     
@@ -1169,27 +1540,27 @@ postgis_sf_till_postgistabell <-
     
     # säkerställ att alla kolumnnamn är i gemener, ställer inte till problem i postgis då
     names(inlas_sf) <- tolower(names(inlas_sf))
-    inlas_tabellnamn <- inlas_tabellnamn %>% tolower()
+    tabell <- tabell %>% tolower()
     
     # kör sql-kod för att skapa ett nytt schema med namn definierat ovan
-    dbExecute(con, paste0("create schema if not exists ", schema_karta, ";"))
+    dbExecute(con, paste0("create schema if not exists ", schema, ";"))
     
     # skriv rut-lagren till postgis 
     starttid = Sys.time()
     st_write(obj = inlas_sf,
              dsn = con,
-             Id(schema=schema_karta, table = inlas_tabellnamn))
-    print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "sec"),1), " sekunder att läsa in ", inlas_tabellnamn, " till postgis."))
+             Id(schema=schema, table = tabell))
+    print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "sec"),1), " sekunder att läsa in ", tabell, " till postgis."))
     
     # skapa spatialt index, finns det sedan tidigare, ta bort - loopa så att man kan skicka fler geokolumner
     if (skapa_spatialt_index) {
       for (geokol in 1:length(postgistabell_geo_kol)) {
-        dbExecute(con, paste0("DROP INDEX IF EXISTS ", schema_karta, ".", postgistabell_geo_kol[geokol], "_idx;")) 
-        dbExecute(con, paste0("CREATE INDEX ", postgistabell_geo_kol[geokol], "_idx ON ", schema_karta, ".", inlas_tabellnamn, " USING GIST (", postgistabell_geo_kol[geokol], ");"))
+        dbExecute(con, paste0("DROP INDEX IF EXISTS ", schema, ".", postgistabell_geo_kol[geokol], "_idx;")) 
+        dbExecute(con, paste0("CREATE INDEX ", postgistabell_geo_kol[geokol], "_idx ON ", schema, ".", tabell, " USING GIST (", postgistabell_geo_kol[geokol], ");"))
       }  
     }
     # gör id_kol till id-kolumn i tabellen
-    dbExecute(con, paste0("ALTER TABLE ", schema_karta, ".", inlas_tabellnamn, " ADD PRIMARY KEY (", postgistabell_id_kol ,");"))
+    dbExecute(con, paste0("ALTER TABLE ", schema, ".", tabell, " ADD PRIMARY KEY (", postgistabell_id_kol ,");"))
     
     if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
     berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
@@ -1221,7 +1592,6 @@ postgis_postgistabell_till_sf <- function(
   
   return(retur_sf)
 } # slut funktion
-
 
 postgis_kopiera_tabell <- function(schema_fran, 
                                    tabell_fran,
@@ -1299,6 +1669,31 @@ postgis_skapa_schema_om_inte_finns <- function(schema_namn, con = "default"){
   
 }
  
+postgis_aktivera_i_postgres_db <- function(con = "default") {
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
+  
+  # SQL-fråga för att aktivera PostGIS
+  aktivera_postgis_query <- "CREATE EXTENSION IF NOT EXISTS postgis;"
+  
+  # Kör SQL-frågan och hantera fel
+  tryCatch({
+    dbExecute(con, aktivera_postgis_query)
+    message("PostGIS-tillägget har aktiverats i databasen.")
+  }, error = function(e) {
+    message("Kunde inte aktivera PostGIS-tillägget:", e$message)
+  })
+  
+  # Koppla ner anslutningen om den skapades som default
+  if (default_flagga) dbDisconnect(con)
+}
+
 # ======================================= pgrouting-funktioner ================================================
 
 las_in_rutor_xlsx_till_postgis_skapa_pgr_graf <- 
@@ -1953,4 +2348,32 @@ koppla_kommun_till_geokol_i_tabell <- function(
   
 }
 
+# ================================= Övriga funktioner ================================================
 
+
+adresser_inv_reg_folke_bearbeta <- function(skickad_df) {
+  
+  #Lagt till "," i vektorn för tecken att ta bort /leomik 20240314
+  ta_bort_vekt <- c(" nb", " bv", " uv", " 1tr", " 1 tr", ",1tr", ", 1 tr", " 2 tr", " 2tr", " vån1", " vån 1", 
+                    " vån2", " vån 2", " vån3", " vån 3", " 3tr", " 3 tr", " 4tr", " 4 tr", " vån0", " vån 0",
+                    " 6tr", " 6 tr", " 1/2tr", " 1/2 tr", " 2:a", " lgh", " läg", ",")
+  
+  ta_bort_vekt_or = paste0(ta_bort_vekt, collapse="|")                   # vi lägger hela ta_bort_vekt som en or-sats med samtliga element
+  
+  # här städar vi lite men ändrar inte originalkolumnerna utan lägger till adress_join som är den adress vi joinar på samt även postnr_join som vi också joinar på
+  #inv_adresser_df <- if (str_sub(filsokvag, nchar(filsokvag)-2, nchar(filsokvag)) == "csv") fread(filsokvag) else read_xlsx(filsokvag)
+  inv_adresser_df <- skickad_df %>% 
+    mutate(adress_join = adress %>% tolower(),                              # gör om alla till gemener, så slipper vi fel för att man kör med olika gemener och versaler
+           adress_join = adress_join %>% str_replace("(?<=[a-z])(?=\\d)", " "),                      # lägg till ett mellanslag mellan bokstäver och siffror som sitter ihop
+           adress_join = adress_join %>% str_replace("(?<=\\d)(?=[a-z])", " "),                     # lägg till ett mellanslag mellan siffror och bokstäver som sitter ihop
+           adress_join = adress_join %>% str_squish(),
+           ta_bort_pos = str_locate(adress_join, ta_bort_vekt_or)[,1] - 1,                            # först hittar vi postition för en träff med någon av elementen i ta_bort_vekt, och tar minus 1 för att hitta slutet på det vi vill behålla (alltså allt från och med ta bort-mönstret och till höger ska bort)
+           adress_join = ifelse(!is.na(ta_bort_pos), str_sub(adress_join, 1, ta_bort_pos), adress_join)
+           # ,
+           # uttags_datum = uttags_datum
+    ) %>%      # därefter tar vi bort allt från söksträngen och till höger med str_sub och med ta_bort_pos som vi skapade ovan
+    select(-ta_bort_pos)
+  
+  return(inv_adresser_df)
+  
+} # slut funktion
