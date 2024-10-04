@@ -276,7 +276,7 @@ otp_skapa_isokroner <- function(
   create_isochrone_query <- function(fromPlace, request_datetime){
     modes <- transport_mode
     time_local <- strftime(request_datetime, format="%Y-%m-%dT%H:%M:%SZ", tz=Sys.timezone())
-    query_iso <- str_glue('{otp_isochrone}?batch=true&location={fromPlace}&modes={modes}&time={time_local}&arriveBy=false')
+    query_iso <- str_glue('{otp_isochrone}?batch=true&location={fromPlace}&modes={paste0(modes, collapse = ",")}&time={time_local}&arriveBy=false')
     # 3.5h max, med 15min intervaller
     for (time in iso_intervaller){
       query_iso <- str_glue('{query_iso}&cutoff={time}M')
@@ -285,11 +285,15 @@ otp_skapa_isokroner <- function(
   }
   
   success <- function(response) {
+    #print(response)
+    
     url <- response$url
     location_info <- grep('location', str_split(url, '&')[[1]], value=TRUE)
     malpunkt <- str_split(location_info, '=')[[1]][2]
     lat <- str_split(malpunkt, ',')[[1]][1]
     lon <- str_split(malpunkt, ',')[[1]][2]
+    # malpunkt_namn <- str_extract(response$url, "<<(.*?)>>") 
+    # malpunkt_namn <- str_remove_all(malpunkt_namn, "<<|>>")
     
     malpunkt_namn <- punkter_queries %>%
       filter(punkt_lat == !!lat & punkt_lon == !!lon) %>%
@@ -337,7 +341,7 @@ otp_skapa_isokroner <- function(
     
     # lagra i dataframe
     data <- data.frame(malpunkt = malpunkt, punkt_koord = punkt_koord, punkt_lon = as.character(fromlon),
-                       punkt_lat = as.character(fromlat), query=query_iso)
+                       punkt_lat = as.character(fromlat), query=query_iso)                                 #paste0(query_iso, "<<", malpunkt, ">>"))
     #iso_queries <<- rbind(iso_queries, data)
     
   }) %>% list_rbind()

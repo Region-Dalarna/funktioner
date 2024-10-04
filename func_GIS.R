@@ -2377,3 +2377,42 @@ adresser_inv_reg_folke_bearbeta <- function(skickad_df) {
   return(inv_adresser_df)
   
 } # slut funktion
+
+library(sf)
+library(dplyr)
+
+# Funktion som skapar eller fyller på ett sf-objekt
+skapa_punkt_sf_av_koordinatpar <- function(koordinater, malpunktsnamn, sf_obj = NULL, vald_crs = 4326) {
+  # Kontrollera att antalet koordinater matchar antalet målpunktsnamn
+  if (length(koordinater) != length(malpunktsnamn)) {
+    stop("Antalet koordinater måste vara samma som antalet målpunktsnamn.")
+  }
+  
+  # Skapa en dataram från koordinater och namn
+  malpunkter_df <- data.frame(
+    id = seq_len(length(koordinater)),
+    malpunkt_namn = malpunktsnamn,
+    stringsAsFactors = FALSE
+  )
+  
+  # Extrahera latitud och longitud från koordinater
+  koordinat_matrix <- purrr::map(koordinater, ~ as.numeric(strsplit(.x, ",\\s*")[[1]])) %>% 
+    do.call(rbind, .)
+  
+  # Lägg till latitud och longitud i dataramen
+  malpunkter_df$lat <- koordinat_matrix[, 1]
+  malpunkter_df$lon <- koordinat_matrix[, 2]
+  
+  # Konvertera till sf-objekt med CRS WGS84 (EPSG:4326)
+  malpunkter_sf <- st_as_sf(malpunkter_df, coords = c("lon", "lat"), crs = vald_crs)
+  
+  # Om ett sf-objekt skickas med, fyll på det, annars returnera det nya
+  if (!is.null(sf_obj)) {
+    if (!inherits(sf_obj, "sf")) {
+      stop("Det medskickade objektet måste vara ett sf-objekt.")
+    }
+    return(bind_rows(sf_obj, malpunkter_sf))
+  } else {
+    return(malpunkter_sf)
+  }
+}
