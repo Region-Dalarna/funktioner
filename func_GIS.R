@@ -805,24 +805,28 @@ uppkoppling_db <- function(
   # Används av andra funktioner som default om inget eget objekt med databasuppkoppling har skickats till dessa funktioner
   # OBS! Ändra default för db_name till "geodata" sen
   
-  service_name = "rd_geodata",
+  service_name = NA,                                 # "rd_geodata"
   db_host = "WFALMITVS526.ltdalarna.se",
   db_port = 5432,
-  db_name = "geodata",                    # Ändra till "geodata" sen
-  #db_options = "-c search_path=public"
+  db_name = "geodata",                  
   db_options = "-c search_path=public",
   db_user = NA,
   db_password = NA
 ) {
   
-  if (is.na(db_user)) db_user <- key_list(service = service_name)$username
-  if (is.na(db_password)) db_password <- key_get(service_name, key_list(service = service_name)$username)
+  if (!is.na(service_name)) {
+    if (is.na(db_user)) db_user <- key_list(service = service_name)$username
+    if (is.na(db_password)) db_password <- key_get(service_name, key_list(service = service_name)$username)
+  } else {
+    if (is.na(db_user)) db_user <- "geodata_las"
+    if (is.na(db_password)) db_password <- "geodata_las"
+  }
   
   tryCatch({
     # Etablera anslutningen
     
     con <- suppress_specific_warning(
-        dbConnect(          
+      dbConnect(          
         RPostgres::Postgres(),
         bigint = "integer",  
         user = db_user,
@@ -1227,10 +1231,112 @@ postgres_anvandare_ta_bort <- function(con = "default", anvandarnamn) {
   
 }
 
-postgres_rattigheter_anvandare_lagg_till <- function(con = "default", anvandarnamn, databas = "", schema = "alla", rattigheter = c("CONNECT", "SELECT", "USAGE")) {
-  # för att ge läsrättigheter är det bra att lägga till c("CONNECT", "SELECT", "USAGE")
-  # för att ge skrivrättigheter är det bra att lägga till c("CONNECT", "SELECT", "USAGE", "INSERT", "UPDATE", "DELETE", "CREATE")
-  
+# postgres_rattigheter_anvandare_lagg_till <- function(con = "default", anvandarnamn, databas = "geodata", schema = "alla", rattigheter = c("CONNECT", "SELECT", "USAGE")) {
+#   # för att ge läsrättigheter är det bra att lägga till c("CONNECT", "SELECT", "USAGE")
+#   # för att ge skrivrättigheter är det bra att lägga till c("CONNECT", "SELECT", "USAGE", "INSERT", "UPDATE", "DELETE", "CREATE")
+#   
+#   starttid <- Sys.time()  # Starta tidtagning
+#   
+#   # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+#   if (is.character(con) && con == "default") {
+#     con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+#     default_flagga <- TRUE
+#   } else {
+#     default_flagga <- FALSE
+#   }
+#   
+#   if (all(rattigheter == "alla")) rattigheter <- postgres_lista_giltiga_rattigheter()$Rattighet
+#   
+#   # Lista över system-scheman som ska undantas
+#   system_scheman <- c("pg_catalog", "information_schema", "pg_toast")
+#   
+#   # Iterera över varje databas i vektorn och tilldela rättigheter
+#   for (db in databas) {
+#     # Steg 1: Tilldela anslutningsrättigheter till den specifika databasen (CONNECT på databasnivå)
+#     if ("CONNECT" %in% rattigheter) {
+#       tilldela_atkomst_query <- paste0("GRANT CONNECT ON DATABASE ", db, " TO ", anvandarnamn, ";")
+#       tryCatch({
+#         dbExecute(con, tilldela_atkomst_query)
+#         message(paste("CONNECT-rättighet har lagts till för användaren", anvandarnamn, "till databasen", db))
+#       }, error = function(e) {
+#         message(paste("Kunde inte lägga till CONNECT-rättighet för användaren", anvandarnamn, "i databasen", db, ":", e$message))
+#       })
+#       # Ta bort CONNECT från listan med rättigheter så vi inte försöker applicera den på schemanivå
+#       rattigheter <- rattigheter[rattigheter != "CONNECT"]
+#     }
+#     
+#     # Kontrollera om alla scheman ska behandlas
+#     if (all(schema == "alla")) {
+#       # Hämta alla scheman i databasen
+#       alla_scheman_query <- paste0("SELECT schema_name FROM information_schema.schemata WHERE catalog_name = '", db, "';")
+#       alla_scheman <- dbGetQuery(con, alla_scheman_query)$schema_name
+#       
+#     } else {
+#       # Kontrollera om specifika scheman finns
+#       kontroll_schema_query <- paste0("SELECT schema_name FROM information_schema.schemata WHERE catalog_name = '", db, "' AND schema_name IN (", paste(sprintf("'%s'", schema), collapse = ", "), ");")
+#       alla_scheman <- dbGetQuery(con, kontroll_schema_query)$schema_name
+#     }
+#     
+#     # Filtrera bort system-scheman från listan över scheman att bearbeta
+#     scheman_att_bearbeta <- setdiff(alla_scheman, system_scheman)
+#     # Filtrera också bort alla scheman som börjar med "pg_"
+#     scheman_att_bearbeta <- scheman_att_bearbeta[!grepl("^pg_", scheman_att_bearbeta)]
+#     
+#     
+#     # Iterera över varje schema som existerar och tilldela rättigheter
+#     for (schema_namn in scheman_att_bearbeta) {
+#       # Steg 2: Tilldela USAGE rättighet till schemat så att användaren kan komma åt tabellerna (på schemanivå)
+#       if ("USAGE" %in% rattigheter) {
+#         tilldela_usage_query <- paste0("GRANT USAGE ON SCHEMA ", schema_namn, " TO ", anvandarnamn, ";")
+#         tryCatch({
+#           dbExecute(con, tilldela_usage_query)
+#           message(paste("USAGE-rättighet har lagts till för schemat", schema_namn, "för användaren", anvandarnamn))
+#         }, error = function(e) {
+#           message(paste("Kunde inte lägga till USAGE-rättighet för schemat", schema_namn, "för användaren", anvandarnamn, ":", e$message))
+#         })
+#       }
+#       
+#       # Ta bort USAGE från listan med rättigheter så vi inte försöker applicera den på tabellnivå
+#       rattigheter <- rattigheter[rattigheter != "USAGE"]
+#       
+#       # Steg 3: Tilldela rättigheter på tabellnivå
+#       # if (all(rattigheter == "alla")) {
+#       #   tilldela_rattigheter_query <- paste0("GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA ", schema_namn, " TO ", anvandarnamn, ";")
+#       #   tryCatch({
+#       #     dbExecute(con, tilldela_rattigheter_query)
+#       #     message(paste("Alla rättigheter har lagts till för användaren", anvandarnamn, "i schemat", schema_namn))
+#       #   }, error = function(e) {
+#       #     message(paste("Kunde inte lägga till ALLA rättigheter för användaren", anvandarnamn, "i schemat", schema_namn, ":", e$message))
+#       #   })
+#       # } else {
+#         # Annars, iterera över varje rättighet och validera om den är giltig
+#         for (rattighet in rattigheter) {
+#           if (rattighet %in% postgres_lista_giltiga_rattigheter()$Rattighet) {
+#             tilldela_rattigheter_query <- paste0("GRANT ", rattighet, " ON ALL TABLES IN SCHEMA ", schema_namn, " TO ", anvandarnamn, ";")
+#             tryCatch({
+#               dbExecute(con, tilldela_rattigheter_query)
+#               message(paste("Rättigheten", rattighet, "har lagts till för användaren", anvandarnamn, "i schemat", schema_namn))
+#             }, error = function(e) {
+#               message(paste("Kunde inte lägga till rättigheten", rattighet, "för användaren", anvandarnamn, "i schemat", schema_namn, ":", e$message))
+#             })
+#           } else {
+#             message(paste("Ogiltig rättighet:", rattighet, "- denna rättighet har inte lagts till."))
+#           }
+#         #}
+#       }
+#     }
+#   }
+#   
+#   if (default_flagga) dbDisconnect(con)  # Koppla ner om defaultuppkopplingen har använts
+#   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)  # Beräkna och skriv ut tidsåtgång
+#   message(glue("Processen tog {berakningstid} sekunder att köra"))
+# }
+
+postgres_rattigheter_anvandare_lagg_till <- function(con = "default", 
+                                                     anvandarnamn, 
+                                                     databas = "geodata", 
+                                                     schema = "alla", 
+                                                     rattigheter = c("CONNECT", "SELECT", "USAGE")) {
   starttid <- Sys.time()  # Starta tidtagning
   
   # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
@@ -1257,19 +1363,15 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default", anvandarna
       }, error = function(e) {
         message(paste("Kunde inte lägga till CONNECT-rättighet för användaren", anvandarnamn, "i databasen", db, ":", e$message))
       })
-      # Ta bort CONNECT från listan med rättigheter så vi inte försöker applicera den på schemanivå
-      rattigheter <- rattigheter[rattigheter != "CONNECT"]
     }
     
     # Kontrollera om alla scheman ska behandlas
     if (all(schema == "alla")) {
-      # Hämta alla scheman i databasen
-      alla_scheman_query <- paste0("SELECT schema_name FROM information_schema.schemata WHERE catalog_name = '", db, "';")
+      # Hämta alla scheman i databasen utan att använda catalog_name
+      alla_scheman_query <- "SELECT schema_name FROM information_schema.schemata;"
       alla_scheman <- dbGetQuery(con, alla_scheman_query)$schema_name
-      
     } else {
-      # Kontrollera om specifika scheman finns
-      kontroll_schema_query <- paste0("SELECT schema_name FROM information_schema.schemata WHERE catalog_name = '", db, "' AND schema_name IN (", paste(sprintf("'%s'", schema), collapse = ", "), ");")
+      kontroll_schema_query <- paste0("SELECT schema_name FROM information_schema.schemata WHERE schema_name IN (", paste(sprintf("'%s'", schema), collapse = ", "), ");")
       alla_scheman <- dbGetQuery(con, kontroll_schema_query)$schema_name
     }
     
@@ -1278,10 +1380,9 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default", anvandarna
     # Filtrera också bort alla scheman som börjar med "pg_"
     scheman_att_bearbeta <- scheman_att_bearbeta[!grepl("^pg_", scheman_att_bearbeta)]
     
-    
     # Iterera över varje schema som existerar och tilldela rättigheter
     for (schema_namn in scheman_att_bearbeta) {
-      # Steg 2: Tilldela USAGE rättighet till schemat så att användaren kan komma åt tabellerna (på schemanivå)
+      # Steg 2: Tilldela USAGE rättighet till schemat
       if ("USAGE" %in% rattigheter) {
         tilldela_usage_query <- paste0("GRANT USAGE ON SCHEMA ", schema_namn, " TO ", anvandarnamn, ";")
         tryCatch({
@@ -1292,33 +1393,19 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default", anvandarna
         })
       }
       
-      # Ta bort USAGE från listan med rättigheter så vi inte försöker applicera den på tabellnivå
-      rattigheter <- rattigheter[rattigheter != "USAGE"]
-      
-      # Steg 3: Tilldela rättigheter på tabellnivå
-      # if (all(rattigheter == "alla")) {
-      #   tilldela_rattigheter_query <- paste0("GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA ", schema_namn, " TO ", anvandarnamn, ";")
-      #   tryCatch({
-      #     dbExecute(con, tilldela_rattigheter_query)
-      #     message(paste("Alla rättigheter har lagts till för användaren", anvandarnamn, "i schemat", schema_namn))
-      #   }, error = function(e) {
-      #     message(paste("Kunde inte lägga till ALLA rättigheter för användaren", anvandarnamn, "i schemat", schema_namn, ":", e$message))
-      #   })
-      # } else {
-        # Annars, iterera över varje rättighet och validera om den är giltig
-        for (rattighet in rattigheter) {
-          if (rattighet %in% postgres_lista_giltiga_rattigheter()$Rattighet) {
-            tilldela_rattigheter_query <- paste0("GRANT ", rattighet, " ON ALL TABLES IN SCHEMA ", schema_namn, " TO ", anvandarnamn, ";")
-            tryCatch({
-              dbExecute(con, tilldela_rattigheter_query)
-              message(paste("Rättigheten", rattighet, "har lagts till för användaren", anvandarnamn, "i schemat", schema_namn))
-            }, error = function(e) {
-              message(paste("Kunde inte lägga till rättigheten", rattighet, "för användaren", anvandarnamn, "i schemat", schema_namn, ":", e$message))
-            })
-          } else {
-            message(paste("Ogiltig rättighet:", rattighet, "- denna rättighet har inte lagts till."))
-          }
-        #}
+      # Tilldela rättigheter på tabellnivå
+      for (rattighet in setdiff(rattigheter, c("CONNECT", "USAGE"))) {
+        if (rattighet %in% postgres_lista_giltiga_rattigheter()$Rattighet) {
+          tilldela_rattigheter_query <- paste0("GRANT ", rattighet, " ON ALL TABLES IN SCHEMA ", schema_namn, " TO ", anvandarnamn, ";")
+          tryCatch({
+            dbExecute(con, tilldela_rattigheter_query)
+            message(paste("Rättigheten", rattighet, "har lagts till för användaren", anvandarnamn, "i schemat", schema_namn))
+          }, error = function(e) {
+            message(paste("Kunde inte lägga till rättigheten", rattighet, "för användaren", anvandarnamn, "i schemat", schema_namn, ":", e$message))
+          })
+        } else {
+          message(paste("Ogiltig rättighet:", rattighet, "- denna rättighet har inte lagts till."))
+        }
       }
     }
   }
@@ -1327,6 +1414,8 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default", anvandarna
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)  # Beräkna och skriv ut tidsåtgång
   message(glue("Processen tog {berakningstid} sekunder att köra"))
 }
+
+
 
 
 # Funktion för att ta bort rättigheter från användare
