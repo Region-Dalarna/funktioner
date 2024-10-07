@@ -805,18 +805,22 @@ uppkoppling_db <- function(
   # Används av andra funktioner som default om inget eget objekt med databasuppkoppling har skickats till dessa funktioner
   # OBS! Ändra default för db_name till "geodata" sen
   
-  service_name = "rd_geodata",
+  service_name = NA,                                 # "rd_geodata"
   db_host = "WFALMITVS526.ltdalarna.se",
   db_port = 5432,
-  db_name = "geodata",                    # Ändra till "geodata" sen
-  #db_options = "-c search_path=public"
+  db_name = "geodata",                  
   db_options = "-c search_path=public",
   db_user = NA,
   db_password = NA
 ) {
   
-  if (is.na(db_user)) db_user <- key_list(service = service_name)$username
-  if (is.na(db_password)) db_password <- key_get(service_name, key_list(service = service_name)$username)
+  if (!is.na(service_name)) {
+    if (is.na(db_user)) db_user <- key_list(service = service_name)$username
+    if (is.na(db_password)) db_password <- key_get(service_name, key_list(service = service_name)$username)
+  } else {
+    if (is.na(db_user)) db_user <- "rd_geodata"
+    if (is.na(db_password)) db_password <- "rd_geodata"
+  }
   
   tryCatch({
     # Etablera anslutningen
@@ -855,7 +859,7 @@ postgres_lista_databaser <- function(con = "default") {
     default_flagga = TRUE
   } else  default_flagga = FALSE
   
-  databaser <- dbGetQuery(ny_con, "SELECT datname FROM pg_database WHERE datistemplate = false;") %>% 
+  databaser <- dbGetQuery(con, "SELECT datname FROM pg_database WHERE datistemplate = false;") %>% 
     rename(databas = datname)
   
   if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
