@@ -818,8 +818,8 @@ uppkoppling_db <- function(
     if (is.na(db_user)) db_user <- key_list(service = service_name)$username
     if (is.na(db_password)) db_password <- key_get(service_name, key_list(service = service_name)$username)
   } else {
-    if (is.na(db_user)) db_user <- "rd_geodata"
-    if (is.na(db_password)) db_password <- "rd_geodata"
+    if (is.na(db_user)) db_user <- "geodata_las"
+    if (is.na(db_password)) db_password <- "geodata_las"
   }
   
   tryCatch({
