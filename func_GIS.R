@@ -893,12 +893,23 @@ postgres_lista_scheman_tabeller <- function(con = "default", visa_system_tabelle
   # Loopa igenom varje schema och hämta tabeller
   for (schema in scheman$schema_name) {
     tabeller <- dbGetQuery(con, sprintf(
-      "SELECT table_name AS tabell_namn FROM information_schema.tables WHERE table_schema = '%s'",
+      "SELECT table_name AS tabell_namn FROM information_schema.tables WHERE table_schema = '%s' AND (table_type IN ('BASE TABLE', 'VIEW', 'MATERIALIZED VIEW'))",
+      #"SELECT table_name AS tabell_namn FROM information_schema.tables WHERE table_schema = '%s'",
       schema
     ))
     
     # Lägg till tabellerna i listan för respektive schema
     scheman_tabeller[[schema]] <- tabeller$tabell_namn
+    
+    # Hämta materialiserade vyer för respektive schema
+    matviews <- dbGetQuery(con, sprintf(
+      "SELECT matviewname AS tabell_namn FROM pg_matviews WHERE schemaname = '%s'",
+      schema
+    ))
+    
+    # Lägg till materialiserade vyer till listan för respektive schema
+    scheman_tabeller[[schema]] <- c(scheman_tabeller[[schema]], matviews$tabell_namn)
+    
   }
   
   
@@ -908,7 +919,6 @@ postgres_lista_scheman_tabeller <- function(con = "default", visa_system_tabelle
   
   return(scheman_tabeller)
 }
-
 
 
 postgres_lista_roller_anvandare <- function(con = "default") {
