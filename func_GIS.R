@@ -814,12 +814,21 @@ uppkoppling_db <- function(
   db_password = NA
 ) {
   
+  # om inte service_name har ett värde så är default-värdet "geodata_las"
   if (!is.na(service_name)) {
     if (is.na(db_user)) db_user <- key_list(service = service_name)$username
     if (is.na(db_password)) db_password <- key_get(service_name, key_list(service = service_name)$username)
   } else {
     if (is.na(db_user)) db_user <- "geodata_las"
     if (is.na(db_password)) db_password <- "geodata_las"
+  }
+  
+  current_hostname <- Sys.info()[["nodename"]]
+  
+  if (str_detect(toupper(db_host), toupper(current_hostname))) {
+    db_host <- "localhost"
+  } else {
+    db_host <- "WFALMITVS526.ltdalarna.se"
   }
   
   tryCatch({
