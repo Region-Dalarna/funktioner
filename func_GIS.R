@@ -823,7 +823,7 @@ uppkoppling_db <- function(
     if (is.na(db_password)) db_password <- "geodata_las"
   }
   
-  current_hostname <- Sys.info()[["nodename"]]
+  current_hostname <- Sys.info()[["nodename"]] 
   
   if (str_detect(toupper(db_host), toupper(current_hostname))) {
     db_host <- "localhost"
