@@ -1609,6 +1609,54 @@ postgres_tabell_ta_bort <- function(con = "default", schema, tabell) {
   
 }
  
+postgres_schema_ta_bort <- function(con = "default", schema) {
+  
+  starttid <- Sys.time()  # Starta tidstagning
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
+  
+  # Kontrollera om schemat existerar
+  schema_finns <- dbGetQuery(con, paste0("
+    SELECT schema_name
+    FROM information_schema.schemata
+    WHERE schema_name = '", schema, "';"))
+  
+  if (nrow(schema_finns) == 0) {
+    message("Schemat '", schema, "' existerar inte. Ingen åtgärd vidtogs.")
+  } else {
+    # Hämta alla tabeller i schemat
+    tabeller <- dbGetQuery(con, paste0("
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = '", schema, "';"))
+    
+    if (nrow(tabeller) > 0) {
+      # Om schemat innehåller tabeller, skriv ut deras namn och avbryt borttagning
+      message("Schemat '", schema, "' innehåller följande tabeller och kan inte tas bort:")
+      print(tabeller)
+      message("Ta bort dessa tabeller innan du försöker ta bort schemat.")
+    } else {
+      # Om inga tabeller finns, ta bort schemat
+      sql <- paste0("DROP SCHEMA ", DBI::dbQuoteIdentifier(con, schema), ";")
+      dbExecute(con, sql)
+      message("Schemat '", schema, "' har tagits bort.")
+    }
+  }
+  
+  # Koppla ner anslutningen om den skapades som default
+  if (default_flagga) dbDisconnect(con)
+  
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)  # Beräkna och skriv ut tidsåtgång
+  message(glue("Processen tog {berakningstid} sekunder att köra"))
+  
+}
+
 
 # ================================= postgis-funktioner ================================================
 
