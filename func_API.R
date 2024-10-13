@@ -463,7 +463,9 @@ svenska_tecken_byt_ut <- function(textstrang){
   return(retur_strang)
 }
 
-hamta_regionkod_med_knas_regionkod <- function(api_url, skickade_regionkoder, skickad_fran_variabel, dubbelkolumn = "klartext"){
+hamta_regionkod_med_knas_regionkod <- function(api_url, skickade_regionkoder, skickad_fran_variabel, dubbelkolumn = "klartext", 
+                                               returnera_nyckeltabell = FALSE                  # om man vill returnera både felaktiga och korrekta koder
+                                               ){
   # används för de myndigheter som hittar på egna läns- och kommunkoder
   # men lägger de riktiga tillsammans med klartext i klartextkolumnen
   # det funkar att skicka en api-url men också en lista med pxmeta-data
@@ -473,9 +475,20 @@ hamta_regionkod_med_knas_regionkod <- function(api_url, skickade_regionkoder, sk
   regionkodtabell <- pxvardelist(pxmeta, skickad_fran_variabel) %>% 
     region_kolumn_splitta_kod_klartext(dubbelkolumn)
   
-  retur_regionkoder <- regionkodtabell %>% 
-    filter(regionkod %in% skickade_regionkoder) %>% 
+  retur_regionkoder <- regionkodtabell
+  # sortera ut skickade regionkoder om inte "*" skickats
+  if (!all(skickade_regionkoder == "*")) {
+    retur_regionkoder <- retur_regionkoder %>%
+      filter(regionkod %in% skickade_regionkoder)
+  }
+  
+  if (!returnera_nyckeltabell) { 
+    retur_regionkoder <- retur_regionkoder %>% 
     dplyr::pull(kod)
+  } else {
+    retur_regionkoder <- retur_regionkoder %>% 
+      rename(felaktig_kod = kod)
+  }
   
   return(retur_regionkoder)
   
@@ -1162,6 +1175,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
                                               skapa_temp_test_fil = TRUE,
                                               skapa_diagram_i_testfil = TRUE
                                               ) {
+  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_text.R", encoding = "utf-8", echo = FALSE)
   
   # funktion för att skapa ett skript för att hämta data från SCB:s pxweb-api
   
@@ -1196,6 +1210,13 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
                         str_detect(skickad_url_pxweb, "statistik.sjv.se") ~ "Jordbruksverkets") %>% 
                         unique()
   
+  org_kortnamn <- case_when(str_detect(skickad_url_pxweb, "https://www.statistikdatabasen.scb.se") ~ "scb",
+                        str_detect(skickad_url_pxweb, "https://api.scb.se") ~ "scb",
+                        str_detect(skickad_url_pxweb, "http://fohm-app.folkhalsomyndigheten.se") ~ "fohm",
+                        str_detect(skickad_url_pxweb, "statistik.tillvaxtanalys.se") ~ "tva",
+                        str_detect(skickad_url_pxweb, "statistik.sjv.se") ~ "sjv") %>%
+    unique()
+  
   if (!require("pacman")) install.packages("pacman")
   #source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R")
   
@@ -1217,6 +1238,13 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     px_meta_enkel_list <- sortera_px_variabler(px_meta_enkel_list, sorterings_vars = "år", sortera_pa_kod = TRUE)
   }
   
+  if ("månad" %in% tolower(tabell_variabler$koder) & any(str_detect(url_scb, "https://statistik.tillvaxtanalys.se"))) {
+    px_meta_enkel_list <- sortera_px_variabler(px_meta_enkel_list, sorterings_vars = "månad", sortera_pa_kod = FALSE)
+  }
+  
+  if ("år" %in% tolower(tabell_variabler$koder) & any(str_detect(url_scb, "https://statistik.tillvaxtanalys.se"))) {
+    px_meta_enkel_list <- sortera_px_variabler(px_meta_enkel_list, sorterings_vars = "år", sortera_pa_kod = TRUE)
+  }
   # vi skapar en lista som heter px_meta som liknar en lista man får med en vanlig pxweb_get()-funktion
   px_meta <- list(title = px_meta_list[[1]]$title, variables = px_meta_enkel_list)
 
@@ -1248,12 +1276,17 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     ar_elimination <- varlista_info$elimination[varlista_info$kod == var_koder]            # hämta information om aktuell variabel kan elimineras ur tabellen
     elim_info_txt <- if(ar_elimination) " NA = tas inte med i uttaget, " else ""    # skapa text som används som förklaring vid parametrarna i funktionen
     
-    retur_txt <- case_when(str_detect(tolower(var_koder), "fodel") ~ paste0(tolower(var_koder) %>% str_replace_all(" ", "_"), '_klartext = "*",\t\t\t# ', elim_info_txt, ' Finns: ', paste0('"', varden_klartext, '"', collapse = ", ")),
-                           str_detect(tolower(var_koder), "region|lan") ~ paste0(tolower(var_koder), '_vekt = "', default_region, '",\t\t\t# Val av region. Finns: ', paste0('"', varden_koder, '"', collapse = ", ")),
-                           tolower(var_koder) %in% c("tid") ~ paste0(tolower(var_koder), '_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', varden_klartext, '"', collapse = ", ")),
+    retur_txt <- case_when(str_detect(tolower(var_koder), "fodel") ~ paste0(tolower(var_koder) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_klartext = "*",\t\t\t# ', elim_info_txt, ' Finns: ', paste0('"', varden_klartext, '"', collapse = ", ")),
+                           # gammal nedan, testar att alltid döpa variabeln till region_vekt
+                           #str_detect(tolower(var_koder), "region|lan|län") ~ paste0(tolower(var_koder) %>% byt_ut_svenska_tecken(), '_vekt = "', default_region, '",\t\t\t# Val av region. Finns: ', paste0('"', varden_koder, '"', collapse = ", ")),
+                           str_detect(tolower(var_koder), "region|lan|län|kommun") ~ paste0('region_vekt = "', default_region, '",\t\t\t# Val av region. Finns: ', paste0('"', varden_koder, '"', collapse = ", ")),
+                           # gammal nedan, testar att alltid döpa till tid_koder
+                           #tolower(var_koder) %in% c("tid") ~ paste0(tolower(var_koder) %>% byt_ut_svenska_tecken(), '_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', varden_klartext, '"', collapse = ", ")),
+                           tolower(var_koder) %in% c("tid") ~ paste0('tid_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', varden_klartext, '"', collapse = ", ")),
+                           tolower(var_koder) %in% c("år", "månader") & org_kortnamn == "fohm" ~ paste0('tid_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', varden_klartext, '"', collapse = ", ")),
                            # Funktion för att ta lägsta och högsta värde i ålder är borttagen genom att jag satt length(varden_klartext) > 0, ska vara typ kanske 90. Större än 0 = alla så därför är den i praktiken avstängd. 
                            tolower(var_koder) %in% c("alder", "ålder") ~ paste0(tolower(var_koder), alder_txt,' = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', if(alder_ar_klartext) varden_klartext else varden_koder , '"', collapse = ", ")),                                                 # gammalt: if (length(varden_klartext) < 0) paste0(tolower(var_koder), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', varden_klartext, '"', collapse = ", ")) else paste0(tolower(var_koder), '_koder = "*",\t\t\t # Finns: ', min(varden_klartext), " - ", max(varden_klartext)),
-                           TRUE ~ paste0(tolower(var_koder) %>% str_replace_all(" ", "_"), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', varden_klartext %>% unique(), '"', collapse = ", ")) %>% str_replace("contentscode", "cont")) 
+                           TRUE ~ paste0(tolower(var_koder) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', varden_klartext %>% unique(), '"', collapse = ", ")) %>% str_replace("contentscode", "cont")) 
     
   }) %>% 
     c(., if (antal_contvar > 1) 'long_format = TRUE,\t\t\t# TRUE = konvertera innehållsvariablerna i datasetet till long-format \n\t\t\twide_om_en_contvar = TRUE,\t\t\t# TRUE = om man vill behålla wide-format om det bara finns en innehållsvariabel, FALSE om man vill konvertera till long-format även om det bara finns en innehållsvariabel' else "") %>%
@@ -1262,8 +1295,8 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     str_remove("\t\t\t\n")
   
   # om inte inte län finns som region, byt ut "20" mot "00" eller "*" i funktion_parametrar
-  if (any(c("region", "lan") %in% tolower(varlist_koder))){
-    region_variabel <- varlist_koder[str_detect(tolower(varlist_koder), "region|lan") & !str_detect(tolower(varlist_koder), "fodelse")] %>% tolower()
+  if (any(c("region", "lan", "län", "kommun") %in% tolower(varlist_koder))){
+    region_variabel <- varlist_koder[str_detect(tolower(varlist_koder), "region|lan|län|kommun") & !str_detect(tolower(varlist_koder), "fodelse")] %>% tolower() %>% byt_ut_svenska_tecken()
     if (!default_region %in% varlist_giltiga_varden_koder[[region_variabel]]) {
       funktion_parametrar <- str_replace(funktion_parametrar, glue('{region_variabel}_vekt = "{default_region}"'), glue('{region_variabel}_vekt = \"00\"'))
       if (!"00" %in% varlist_giltiga_varden_koder[[region_variabel]]) {
@@ -1274,15 +1307,19 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   
   # skapa variabel-lista för queryn
   varlist_skriptrader <- paste0("list(\n", 
-                                paste(map_chr(varlist_koder, ~paste0("  \t\"", .x, "\" = ", str_c(tolower(.x) %>% str_replace_all(" ", "_"), "_vekt"))), collapse = ",\n"), 
+                                paste(map_chr(varlist_koder, ~paste0("  \t\"", .x, "\" = ", str_c(tolower(.x) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), "_vekt"))), collapse = ",\n"), 
                                 ")") %>% 
-    str_replace("contentscode_vekt", "cont_vekt") #%>% 
+    str_replace("contentscode_vekt", "cont_vekt") %>%
+    str_replace("manad_vekt", "tid_vekt") %>% 
+    str_replace("ar_vekt", "tid_vekt") %>% 
+    str_replace("lan_vekt", "region_vekt") %>% 
+    str_replace("kommun_vekt", "region_vekt")
     #str_replace("tid_vekt", "tid_koder")
   
   # skapa skriptrader för klartext-variabler som måste omvandlas till koder till query-listan, dvs. "vekt_" och sedan variabelnamnet
   var_klartext_skriptrader <- map(varlist_koder, function(var_kod) {
     # koda klartext till vekt för variabler som inte innehåller region, tid, contentscode eller som innehåller "fodel"
-    if ((!str_detect(tolower(var_kod), "region|lan|contentscode") | str_detect(tolower(var_kod), "fodel|grupp")) & !tolower(var_kod) %in% c("tid")) {
+    if ((!str_detect(tolower(var_kod), "region|lan|län|kommun|contentscode") | str_detect(tolower(var_kod), "fodel|grupp")) & !tolower(var_kod) %in% c("tid", "år", "månad")) {
       if (px_meta$variables %>%
           keep(~ .x$code == var_kod) %>% 
           map_lgl(~ .x$elimination) %>%
@@ -1292,13 +1329,13 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
          if (!(str_detect(tolower(var_kod), "alder|ålder") & !alder_ar_klartext) |
              str_detect(tolower(var_kod), "grupp") |
              (str_detect(tolower(var_kod), "alder") & str_detect(tolower(var_kod), "kon") & str_detect(tolower(var_kod), "fodel"))){
-          paste0("  ", tolower(var_kod) %>% str_replace_all(" ", "_"), '_vekt <- if (!all(is.na(', tolower(var_kod), '_klartext))) hamta_kod_med_klartext(px_meta, ', tolower(var_kod) %>% str_replace_all(" ", "_"), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '") else NA\n')
+          paste0("  ", tolower(var_kod) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_vekt <- if (!all(is.na(', tolower(var_kod) %>% byt_ut_svenska_tecken(), '_klartext))) hamta_kod_med_klartext(px_meta, ', tolower(var_kod) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '") else NA\n')
         } else NA
       } else {    # variabler som inte går att eliminera (göra uttag utan) men som är klartext till kod
         #if (!str_detect(tolower(var_kod), "alder|ålder") | str_detect(tolower(var_kod), "grupp")) paste0("  ", tolower(var_kod) %>% str_replace_all(" ", "_"), '_vekt <- hamta_kod_med_klartext(px_meta, ', tolower(var_kod) %>% str_replace_all(" ", "_"), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '")\n')
         if (!(str_detect(tolower(var_kod), "alder|ålder") & !alder_ar_klartext) |
             str_detect(tolower(var_kod), "grupp") |
-            (str_detect(tolower(var_kod), "alder") & str_detect(tolower(var_kod), "kon") & str_detect(tolower(var_kod), "fodel"))) paste0("  ", tolower(var_kod) %>% str_replace_all(" ", "_"), '_vekt <- hamta_kod_med_klartext(px_meta, ', tolower(var_kod) %>% str_replace_all(" ", "_"), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '")\n')
+            (str_detect(tolower(var_kod), "alder") & str_detect(tolower(var_kod), "kon") & str_detect(tolower(var_kod), "fodel"))) paste0("  ", tolower(var_kod) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_vekt <- hamta_kod_med_klartext(px_meta, ', tolower(var_kod) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '")\n')
       }
     } else NA           # om det är koder för region eller ålder så ska de inte med på dessa rader
        
@@ -1306,6 +1343,10 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     list_c() %>% 
     .[!is.na(.)] %>% 
     str_c(collapse = "")
+  
+  # vi lägger på en radbrytning om det finns värden här, annars inte
+  if (var_klartext_skriptrader != "") var_klartext_skriptrader <- paste0('  # Gör om från klartext till kod som databasen förstår\n',
+                                                                         var_klartext_skriptrader, "\n") else NULL
   
   # om vi har 1-årsgrupper för åldrar så ändrar vi från alder_klartext till alder_koder
   # i skriptraderna som gör om klartextvariabler till koder
@@ -1325,7 +1366,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
         map_lgl(~ .x$elimination) %>%
         first()) {
       if (!tolower(var_kod) %in% c("region", "lan")) {  
-        paste0('  if (all(is.na(', tolower(var_kod), '_klartext))) varlista <- varlista[names(varlista) != "', var_kod, '"]')
+        paste0('  if (all(is.na(', tolower(var_kod) %>% byt_ut_svenska_tecken(), '_klartext))) varlista <- varlista[names(varlista) != "', var_kod, '"]')
       } else NA
     }  else NA 
   }) %>% 
@@ -1336,33 +1377,87 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   # om vi har 1-årsgrupper för åldrar så ändrar vi från alder_klartext till alder_koder i elimineringsraderna
   if (any(c("alder", "ålder") %in% names(varlist_giltiga_varden))) {
     if (length(varlist_giltiga_varden$alder) > 90) {
-      var_klartext_tabort_NA_skriptrader <- str_replace_all(var_klartext_tabort_NA_skriptrader, "alder_klartext", "alder_koder")
+      if (var_klartext_tabort_NA_skriptrader != "") {
+        var_klartext_tabort_NA_skriptrader <- str_replace_all(var_klartext_tabort_NA_skriptrader, "alder_klartext", "alder_koder")
+      }
     }
   }
   
+  # vi lägger på två radbrytningar på ta bort variabler om de är NA efter variabel-listan om det finns värden här, annars inte
+  if (var_klartext_tabort_NA_skriptrader != "") var_klartext_tabort_NA_skriptrader <- paste0(var_klartext_tabort_NA_skriptrader, "\n\n")
+  
   # extrahera tabell-id från url:en så att vi kan lägga in det i filnamnet
-  tabell_id <- url_scb %>% str_extract("/[^/]+$") %>% str_sub(2) %>% paste0(collapse = "_")
+  tabell_id <- url_scb %>% str_remove("/$") %>% str_remove(".px$") %>% str_extract("/[^/]+$") %>% str_sub(2) %>% paste0(collapse = "_")
   if (nchar(tabell_id) > 40) tabell_id <- ""
   
   # skapa filnamn-suffix som vi använder till filnamnet för hämta data-funktionen
-  filnamn_suffix <- map_chr(varlist_koder, ~ tolower(.x) %>% str_replace_all(" ", "_")) %>% .[. != "contentscode"] %>% c(tabell_namn, ., tabell_id, "scb") %>% str_c(collapse = "_")
+  filnamn_suffix <- map_chr(varlist_koder, ~ tolower(.x) %>% str_replace_all(" ", "_")) %>% .[. != "contentscode"] %>% c(tabell_namn, ., tabell_id, org_kortnamn) %>% str_c(collapse = "_") %>% byt_ut_svenska_tecken()
   
   # skapa ett namn för själva funktionen där inte tabell-id är med
   funktion_namn <- filnamn_suffix %>% str_remove(paste0("_", tabell_id))
   
-  # hantera tid-variabler (heter år i hlv)
+  # hantera region i databaser med felaktiga länsnamn och där de korrekta koderna ligger tillsammans med klartext i samma kolumn
+
+  if (org_kortnamn %in% c("tva", "sjv")) {
+    region_special_skriptrader <- paste0(
+      '  # Hantera region-koder när regionkoderna ligger tillsammans med klartext i samma kolumn, och det är löpnummer istället för koder för län och kommuner\n',
+      '  region_vekt <- hamta_regionkod_med_knas_regionkod(px_meta, region_vekt, "', region_variabel, '")           # konvertera korrekta läns- och kommunkoder till de löpnummer som används i denna databas\n\n'
+    )
+  } else region_special_skriptrader <- NULL
+  
+  if (org_kortnamn %in% c("fohm") & "region" %in% tolower(varlist_koder)) {
+    region_variabel <- varlist_koder[str_detect(tolower(varlist_koder), "region")]
+    region_special_fohm_skriptrader <- paste0(
+      '  # speciallösning för Folkhälsomyndigheten där vi tar bort regionkoder som ligger i klartextkolumnen\n',
+      '  px_df <- region_kolumn_splitta_kod_klartext(px_df, "', region_variabel, '")\n\n')
+  } else region_special_fohm_skriptrader <- NULL
+  # hantera tid-variabler (heter år i hlv) 
   tid_skriptrader <- NULL             # om ingadera finns så blir det NULL
   
   tid_skriptrader <- if ("år" %in% tolower(names(varlist_giltiga_varden))) {                      # hlv
     paste0('  giltiga_ar <- hamta_giltiga_varden_fran_tabell(px_meta, "år")\n',
-           '  tid_vekt <- if (all(tid_koder != "*")) tid_koder %>% as.character() %>% str_replace("9999", max(giltiga_ar)) %>% .[. %in% giltiga_ar] %>% unique() else giltiga_ar\n')
-  }
-  
+           '  tid_vekt <- if (all(tid_koder != "*")) tid_koder %>% as.character() %>% str_replace("9999", max(giltiga_ar)) %>% .[. %in% giltiga_ar] %>% unique() else giltiga_ar\n\n')
+  } else tid_skriptrader
+
+    if (any(c("månad", "år") %in% tolower(names(varlist_giltiga_varden)))) {                      # hlv
+    tid_variabel <- varlist_koder[str_detect(tolower(varlist_koder), "månad|år")]
+    tid_klartext <- tid_variabel %>% svenska_tecken_byt_ut() %>% tolower() %>% paste0(., "_klartext")
+    giltig_var <- ifelse(tolower(tid_variabel) == "månad", "giltiga_manader", paste0("giltiga_", tid_variabel %>% tolower %>% svenska_tecken_byt_ut()))
+    tid_skriptrader <- paste0('  px_meta$variables <- sortera_px_variabler(px_meta$variables, sorterings_vars = "', tid_variabel, '", sortera_pa_kod = FALSE)        # sortera om månader så att de kommer i kronologisk ordning\n',
+           '  ', tid_klartext, ' <- ', tid_klartext, ' %>%           # ersätt "9999" med senaste ', tolower(tid_variabel), '\n',
+           '     str_replace_all("9999", hamta_giltiga_varden_fran_tabell(px_meta, "', tid_variabel, '", klartext = TRUE) %>% max())\n',
+           '  ', giltig_var, ' <- hamta_giltiga_varden_fran_tabell(px_meta, "', tid_variabel, '")\n\n',
+           '  if (all(', tid_klartext, ' == "*")) {\n',
+           '      tid_vekt <- ', giltig_var, '\n',
+           '  } else {\n',
+           '     tid_vekt <- map(', tid_klartext, ', function(period) {\n',
+           '        if (str_detect(period, ":")){     # kontrollera om det finns ett kolon = intervall\n',
+           '           intervall <- map_chr(str_split(period, ":") %>% unlist(), ~ hamta_kod_med_klartext(px_meta, .x, "', tid_variabel, '"))\n',
+           '           retur_txt <- ', tid_klartext, '[which(', tid_klartext, ' == intervall[1]):which(', tid_klartext, ' == intervall[2])]\n',
+           '        } else retur_txt <- hamta_kod_med_klartext(px_meta, period, "', tid_variabel, '")\n',
+           '     }) %>% unlist()\n',
+           '     index_period <- map_lgl(px_meta$variables, ~ .x$text == "', tid_variabel, '")          # hitta platsen i px_meta$variables där variabeln "', tid_variabel, '" finns\n',
+           '     period_varden <- px_meta$variables[[which(index_period)]]$values         # läs in alla värden för variabeln "', tid_variabel, '"\n',
+           '    tid_vekt <- tid_vekt[match(period_varden[period_varden %in% tid_vekt], tid_vekt)]        # sortera om tid_vekt utifrån ordningen i px_meta (som vi sorterade ovan) \n',
+           '   }\n\n')
+  } else tid_skriptrader <- tid_skriptrader
+
   tid_skriptrader <- if ("tid" %in% tolower(names(varlist_giltiga_varden))) {                     # scb
    paste0('  giltiga_ar <- hamta_giltiga_varden_fran_tabell(px_meta, "tid")\n',
-                            '  tid_vekt <- if (all(tid_koder != "*")) tid_koder %>% as.character() %>% str_replace("9999", max(giltiga_ar)) %>% .[. %in% giltiga_ar] %>% unique() else giltiga_ar\n')
-  }
+                            '  tid_vekt <- if (all(tid_koder != "*")) tid_koder %>% as.character() %>% str_replace("9999", max(giltiga_ar)) %>% .[. %in% giltiga_ar] %>% unique() else giltiga_ar\n\n')
+  } else tid_skriptrader
   
+  # lägg till kommentar innan tid-skriptraderna om de finns och inte är NULL
+  if (!is.null(tid_skriptrader)) tid_skriptrader <- paste0('  # Hantera tid-koder\n', tid_skriptrader)
+  
+  # skapa skriptrader för att hantera region-koder som ligger i samma kolumn som klartext efter uttaget till px_df
+  region_special_px_df_skriptrader <- if (is.null(region_special_skriptrader)) {
+    NULL
+  } else {
+    paste0(
+      #'  regionvariabel <- '
+      '  px_df <- px_df %>% region_kolumn_splitta_kod_klartext("', region_variabel, '")\n')
+  }
   # här hakar vi på skript för skript som har flera tabeller och överlappande värden, annars gör vi ingenting
   if (!is.null(px_meta_overlappande_varden)) {
     overlappning_special <- map_chr(px_meta_overlappande_varden, function(item) {
@@ -1393,7 +1488,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   
   cont_skriptrader <- if ("contentscode" %in% tolower(names(varlist_giltiga_varden))) {
     paste0('  cont_vekt <-  hamta_kod_med_klartext(px_meta, cont_klartext, "contentscode")\n',
-                             '  if (length(cont_vekt) > 1) wide_om_en_contvar <- FALSE\n')
+                             '  if (length(cont_vekt) > 1) wide_om_en_contvar <- FALSE\n\n')
   } else NULL
   
   # skapa skript där användaren kan konvertera datasetet till long_format om det finns mer än en innehållsvariabel
@@ -1489,20 +1584,20 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     '  px_meta <- pxweb_get(url_uttag)\n\n',
     '  varlist_koder <- pxvarlist(px_meta)$koder\n',
     '  varlist_bada <- pxvarlist(px_meta)\n\n',
-    '  # Gör om från klartext till kod som databasen förstår\n',
-    var_klartext_skriptrader, '\n',
+    var_klartext_skriptrader,
     var_klartext_alder_skriptrader,
-    cont_skriptrader, '\n',
-    '  # Hantera tid-koder\n',
-    tid_skriptrader, '\n',
-    #variabler_med_kod_skriptrader, '\n',
+    cont_skriptrader,
+    region_special_skriptrader,
+    tid_skriptrader,
     '  # query-lista till pxweb-uttag\n',
     '  varlista <- ', varlist_skriptrader, '\n\n',
-    var_klartext_tabort_NA_skriptrader, '\n\n',
-    #variabler_med_kod_skriptrader, '\n\n',
+    var_klartext_tabort_NA_skriptrader,
+    '  # Hämta data med varlista\n',
     '  px_uttag <- pxweb_get(url = url_uttag, query = varlista)\n\n',
     var_vektor_skriptdel, '\n',
+    '  # gör om pxweb-uttaget till en dataframe\n',
     '  px_df <- as.data.frame(px_uttag)\n',
+    region_special_px_df_skriptrader,
     '  if (!all(is.na(var_vektor))) {\n',
     '      # om man vill ha med koder också för variabler utöver klartext så läggs de på här (om det finns värden i var_vektor)\n',
     '      px_df <- px_df %>%\n',
@@ -1514,6 +1609,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     '            relocate(any_of(names(var_vektor)[varflytt_index]), .before = any_of(var_vektor_klartext[varflytt_index]))\n',
     '      }\n',
     '  }\n\n',
+    region_special_fohm_skriptrader,
     long_format_skriptrader,
     hamta_funktion_slut_txt,
     map_funktion_txt,
@@ -1522,8 +1618,8 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     '    write.xlsx(', px_retur_txt, ', paste0(output_mapp, excel_filnamn))\n',
     '  }\n\n',
     '  # Returnera data som en dataframe om användern valt det\n',
-    '  if (returnera_df) return(', px_retur_txt, ')\n\n',
-    '}'
+    '  if (returnera_df) return(', px_retur_txt, ')\n',
+    '} # slut hämta data-funktion'
   )
   
   # om vi har överlappande år i flera tabeller så vill vi skjuta in
@@ -1577,6 +1673,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     region_i_glue <- if("region" %in% names(varlist_giltiga_varden)) "{region_txt}" else ""
     regionkod_i_glue <- if("region" %in% names(varlist_giltiga_varden)) "{regionfil_txt}" else "" 
     
+    tid_varnamn <- NULL
     tid_txt <- if("tid" %in% names(varlist_giltiga_varden)) {
       tid_varnamn <- varlista_info$namn[tolower(varlista_info$kod) == "tid"]
       paste0(' ', tid_varnamn, ' {min(', tabell_namn, '_df$', tid_varnamn, ')} - {max(', tabell_namn, '_df$', tid_varnamn, ')}')
@@ -1584,7 +1681,8 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
         tid_varnamn <- varlista_info$namn[tolower(varlista_info$kod) == "år"]
         paste0(' ', tid_varnamn, ' {min(', tabell_namn, '_df$', tid_varnamn, ')} - {max(', tabell_namn, '_df$', tid_varnamn, ')}')
     } else ""
-    tid_filnamn_txt <- if(any(c("tid", "år") %in% names(varlist_giltiga_varden))) paste0('_ar{min(', tabell_namn, '_df$', tid_varnamn, ')}_{max(', tabell_namn, '_df$', tid_varnamn, ')}')
+    tid_filnamn_txt <- if(any(c("tid", "år") %in% names(varlist_giltiga_varden))) paste0('_ar{min(', tabell_namn, '_df$', tid_varnamn, ')}_{max(', tabell_namn, '_df$', tid_varnamn, ')}') else NULL
+    if (is.null(tid_filnamn_txt)) tid_filnamn_txt <- if(any(c("månad", "månader") %in% names(varlist_giltiga_varden))) paste0('_manad{min(', tabell_namn, '_df$', tid_varnamn, ')}_{max(', tabell_namn, '_df$', tid_varnamn, ')}') else NULL
     
     # om skriptet skapas på Regionala utvecklingsförvaltningen på Region Dalarna så 
     #         läggs '\nBearbetning: Samhällsanalys, Region Dalarna"' till i diagram_capt, ananrs inte
@@ -1672,6 +1770,24 @@ kontrollera_pxweb_url <- function(url_scb_lista) {
       retur_url <- paste(start_url, rev_delar[1], rev_nya, rev_delar[3], sep = "/")             # hela den reviderade url:en
 
       return(retur_url)
+    } else if (str_detect(.x, "statistik.tillvaxtanalys.se")) {
+    
+    retur_url <- .x %>% 
+      str_replace("statistik.tillvaxtanalys.se", "statistik.tillvaxtanalys.se:443") %>%
+      str_replace("pxweb/sv", "api/v1/sv") %>%
+      str_remove("Tillv%C3%A4xtanalys%20statistikdatabas__")  
+      
+    return(retur_url)
+      
+    } else if (str_detect(.x, "statistik.sjv.se")) {
+      
+      retur_url <- .x %>% 
+        str_replace("/pxweb/", "/api/v1/") %>%
+        str_remove("Jordbruksverkets%20statistikdatabas__") %>% 
+        str_replace("__", "/")
+      
+      return(retur_url)
+      
     } else {
     return(.x)
   }

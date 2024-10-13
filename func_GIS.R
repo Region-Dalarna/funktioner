@@ -1600,6 +1600,19 @@ postgres_tabell_ta_bort <- function(con = "default", schema, tabell) {
   
 }
  
+postgres_schema_finns <- function(con, schema_namn) {
+  query <- sprintf("
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.schemata
+      WHERE schema_name = '%s'
+    ) AS schema_exists;
+  ", schema_namn)
+  
+  result <- dbGetQuery(con, query)
+  return(result$schema_exists[1])
+}
+
 
 # ================================= postgis-funktioner ================================================
 
@@ -1611,6 +1624,7 @@ postgis_sf_till_postgistabell <-
            postgistabell_id_kol,
            postgistabell_geo_kol = NA,
            skapa_spatialt_index = TRUE,
+           nytt_schema_oppet_for_geodata_las = TRUE,             # om TRUE så öppnas läsrättigheter för användaren geodata_las (vilket är det som ska användas om det inte finns mycket goda skäl att låta bli)
            #postgistabell_till_crs,
            con = "default"
   ) {
@@ -1641,15 +1655,55 @@ postgis_sf_till_postgistabell <-
     names(inlas_sf) <- tolower(names(inlas_sf))
     tabell <- tabell %>% tolower()
     
-    # kör sql-kod för att skapa ett nytt schema med namn definierat ovan
-    dbExecute(con, paste0("create schema if not exists ", schema, ";"))
+    # kör sql-kod för att skapa ett nytt schema med namn definierat ovan om det inte redan finns
+    schema_finns <- postgres_schema_finns(con_geodata, schema)
     
-    # skriv rut-lagren till postgis 
-    starttid = Sys.time()
-    st_write(obj = inlas_sf,
-             dsn = con,
-             Id(schema=schema, table = tabell))
-    print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "sec"),1), " sekunder att läsa in ", tabell, " till postgis."))
+    if (!schema_finns) {
+      dbExecute(con, paste0("create schema if not exists ", schema, ";"))
+    
+      if (nytt_schema_oppet_for_geodata_las) {
+      sql_command <- sprintf("                                          # skapa sql-kommando för att öppna schemat och framtida tabeller för geodata_las
+        ALTER DEFAULT PRIVILEGES IN SCHEMA %s
+        GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %s;
+        ", schema, "geodata_las")
+      dbExecute(con_geodata, sql_command)                               # kör sql-kommandot som skapats ovan
+      } 
+    }
+      
+    # Kontrollera om tabellen redan finns
+    tabell_finns <- DBI::dbExistsTable(con, DBI::Id(schema = schema, table = tabell))
+    
+    if (tabell_finns) { 
+      # Töm tabellen men behåll struktur och behörigheter
+      dbExecute(con, paste0("TRUNCATE TABLE ", schema, ".", tabell, ";"))
+      
+      # Infoga ny data
+      system.time({
+      st_write(
+        obj = inlas_sf,
+        dsn = con,
+        layer = DBI::Id(schema = schema, table = tabell),
+        append = TRUE)
+      }) # slut system.time
+      
+    } else { 
+      
+      # Skriv data och skapa ny tabell
+      system.time({
+      st_write(
+        obj = inlas_sf,
+        dsn = con,
+        layer = DBI::Id(schema = schema, table = tabell),
+        append = FALSE)
+      }) # slut system.time
+    }
+    
+    # # skriv rut-lagren till postgis 
+    # starttid = Sys.time()
+    # st_write(obj = inlas_sf,
+    #          dsn = con,
+    #          Id(schema=schema, table = tabell))
+    # print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "sec"),1), " sekunder att läsa in ", tabell, " till postgis."))
     
     # skapa spatialt index, finns det sedan tidigare, ta bort - loopa så att man kan skicka fler geokolumner
     if (skapa_spatialt_index) {
