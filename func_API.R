@@ -1314,7 +1314,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     str_replace("ar_vekt", "tid_vekt") %>% 
     str_replace("lan_vekt", "region_vekt") %>% 
     str_replace("kommun_vekt", "region_vekt")
-    #str_replace("tid_vekt", "tid_koder")
+    #str_replace("tid_vekt", "tid_koder") 
   
   # skapa skriptrader för klartext-variabler som måste omvandlas till koder till query-listan, dvs. "vekt_" och sedan variabelnamnet
   var_klartext_skriptrader <- map(varlist_koder, function(var_kod) {
