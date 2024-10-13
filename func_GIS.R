@@ -1610,6 +1610,7 @@ postgres_tabell_ta_bort <- function(con = "default", schema, tabell) {
 }
  
 <<<<<<< HEAD
+<<<<<<< HEAD
 postgres_schema_finns <- function(con, schema_namn) {
   query <- sprintf("
     SELECT EXISTS (
@@ -1622,6 +1623,8 @@ postgres_schema_finns <- function(con, schema_namn) {
   result <- dbGetQuery(con, query)
   return(result$schema_exists[1])
 =======
+=======
+>>>>>>> main
 postgres_schema_ta_bort <- function(con = "default", schema) {
   
   starttid <- Sys.time()  # Starta tidstagning
@@ -1668,6 +1671,9 @@ postgres_schema_ta_bort <- function(con = "default", schema) {
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)  # Beräkna och skriv ut tidsåtgång
   message(glue("Processen tog {berakningstid} sekunder att köra"))
   
+<<<<<<< HEAD
+>>>>>>> main
+=======
 >>>>>>> main
 }
 
