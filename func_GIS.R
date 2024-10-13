@@ -814,12 +814,21 @@ uppkoppling_db <- function(
   db_password = NA
 ) {
   
+  # om inte service_name har ett värde så är default-värdet "geodata_las"
   if (!is.na(service_name)) {
     if (is.na(db_user)) db_user <- key_list(service = service_name)$username
     if (is.na(db_password)) db_password <- key_get(service_name, key_list(service = service_name)$username)
   } else {
     if (is.na(db_user)) db_user <- "geodata_las"
     if (is.na(db_password)) db_password <- "geodata_las"
+  }
+  
+  current_hostname <- Sys.info()[["nodename"]] 
+  
+  if (str_detect(toupper(db_host), toupper(current_hostname))) {
+    db_host <- "localhost"
+  } else {
+    db_host <- "WFALMITVS526.ltdalarna.se"
   }
   
   tryCatch({
@@ -1600,6 +1609,7 @@ postgres_tabell_ta_bort <- function(con = "default", schema, tabell) {
   
 }
  
+<<<<<<< HEAD
 postgres_schema_finns <- function(con, schema_namn) {
   query <- sprintf("
     SELECT EXISTS (
@@ -1611,6 +1621,54 @@ postgres_schema_finns <- function(con, schema_namn) {
   
   result <- dbGetQuery(con, query)
   return(result$schema_exists[1])
+=======
+postgres_schema_ta_bort <- function(con = "default", schema) {
+  
+  starttid <- Sys.time()  # Starta tidstagning
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
+  
+  # Kontrollera om schemat existerar
+  schema_finns <- dbGetQuery(con, paste0("
+    SELECT schema_name
+    FROM information_schema.schemata
+    WHERE schema_name = '", schema, "';"))
+  
+  if (nrow(schema_finns) == 0) {
+    message("Schemat '", schema, "' existerar inte. Ingen åtgärd vidtogs.")
+  } else {
+    # Hämta alla tabeller i schemat
+    tabeller <- dbGetQuery(con, paste0("
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = '", schema, "';"))
+    
+    if (nrow(tabeller) > 0) {
+      # Om schemat innehåller tabeller, skriv ut deras namn och avbryt borttagning
+      message("Schemat '", schema, "' innehåller följande tabeller och kan inte tas bort:")
+      print(tabeller)
+      message("Ta bort dessa tabeller innan du försöker ta bort schemat.")
+    } else {
+      # Om inga tabeller finns, ta bort schemat
+      sql <- paste0("DROP SCHEMA ", DBI::dbQuoteIdentifier(con, schema), ";")
+      dbExecute(con, sql)
+      message("Schemat '", schema, "' har tagits bort.")
+    }
+  }
+  
+  # Koppla ner anslutningen om den skapades som default
+  if (default_flagga) dbDisconnect(con)
+  
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)  # Beräkna och skriv ut tidsåtgång
+  message(glue("Processen tog {berakningstid} sekunder att köra"))
+  
+>>>>>>> main
 }
 
 
