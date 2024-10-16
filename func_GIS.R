@@ -1743,7 +1743,7 @@ postgis_sf_till_postgistabell <-
         obj = inlas_sf,
         dsn = con,
         layer = DBI::Id(schema = schema, table = tabell),
-        append = TRUE)
+        append = FALSE)                  # här har jag ändrat till FALSE pga uppstod problem då vi ju vill skriva över och inte bara lägga till rader
       }) # slut system.time
       
     } else { 
