@@ -359,7 +359,7 @@ otp_skapa_isokroner <- function(
   
   # cont <- result[[1]]
   #source("G:/skript/gis/otp/test/test_extrahera_isokron.R", encoding = "utf-8")
-  list_sf <- map(result, ~ otp_extrahera_iso_geo(.x)) %>% flatten
+  list_sf <- map(result, ~ otp_extrahera_iso_geo(.x)) %>% purrr::flatten()
   
   # lämna proxy_status som det var när funktionen anropades
   if (proxy_status) otp_satt_pa_http_proxy() else otp_stang_av_http_proxy()
