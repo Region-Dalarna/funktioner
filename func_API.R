@@ -639,7 +639,8 @@ ladda_funk_parametrar <- function(funktion) {
   st_var <- formals({{funktion}})
   
   for (varname in names(st_var)) {
-    assign(varname, st_var[[varname]], envir = .GlobalEnv)
+    assign(varname, eval(st_var[[varname]]), envir = .GlobalEnv)
+    #assign(varname, st_var[[varname]], envir = .GlobalEnv)
   }
   
 } # slut funktion
