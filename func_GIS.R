@@ -84,6 +84,9 @@ hamta_karta <- function(karttyp = "kommuner", regionkoder = NA, tabellnamn = NA)
   
   df_rad <- suppressWarnings(str_which(tabell_df$sokord, karttyp))             # vi letar upp den rad som parametern karrtyp finns på
   
+  # om det blir fler träffar, kolla vilken karta där sökordet stämmer helt med karttyp
+  if (length(df_rad) > 0) df_rad <- df_rad[map_lgl(df_rad, ~ karttyp %in% tabell_df$sokord[[.x]])]
+  
   # om medskickade kartyp inte finns bland sökorden får pg_tabell värdet "finns ej" och då körs inte skriptet nedan
   if (length(df_rad) == 0) pg_tabell <- "finns ej" else pg_tabell <- tabell_df$namn[df_rad] 
   
@@ -1740,7 +1743,7 @@ postgis_sf_till_postgistabell <-
         obj = inlas_sf,
         dsn = con,
         layer = DBI::Id(schema = schema, table = tabell),
-        append = TRUE)
+        append = FALSE)                  # här har jag ändrat till FALSE pga uppstod problem då vi ju vill skriva över och inte bara lägga till rader
       }) # slut system.time
       
     } else { 
