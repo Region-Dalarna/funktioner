@@ -1072,6 +1072,7 @@ github_commit_push <- function(
     repo = "hamta_data",
     repo_org = "Region-Dalarna",
     commit_txt = NA,
+    fran_rmarkdown = FALSE,
     pull_forst = TRUE) {
   
   lokal_sokvag_repo <- paste0(sokvag_lokal_repo, repo)
@@ -1080,40 +1081,43 @@ github_commit_push <- function(
   repo_status <- git2r::status(push_repo)
   
   if (length(repo_status$untracked) + length(repo_status$unstaged) > 0) {
-    # hämta ner en lista med filer som finns i remote repot
-    github_fillista <- github_lista_repo_filer(owner = repo_org,
-                                               repo = repo,
-                                               url_vekt_enbart = FALSE,
-                                               skriv_source_konsol = FALSE)$namn
-    
-    filer_uppdatering <- c(repo_status$untracked[repo_status$untracked %in% github_fillista],
-                           repo_status$unstaged[repo_status$unstaged %in% github_fillista])
-    
-    filer_nya <- c(repo_status$untracked[!repo_status$untracked %in% github_fillista],
-                   repo_status$unstaged[!repo_status$unstaged %in% github_fillista])
-    
-    uppdatering_txt <- case_when(length(filer_uppdatering) > 0 & length(filer_nya) > 0 ~ 
-                                   paste0(length(filer_nya), " ", ifelse(length(filer_nya) == 1, "fil", "filer"), " har lagts till och ", length(filer_uppdatering), 
-                                          " ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github"),
-                                 length(filer_uppdatering) > 0 & length(filer_nya) == 0 ~
-                                   paste0(length(filer_uppdatering), " ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github"),
-                                 length(filer_uppdatering) == 0 & length(filer_nya) > 0 ~
-                                   paste0(length(filer_nya), " ", ifelse(length(filer_nya) == 1, "fil", "filer"),  " har skickats upp till github."))
-    
-    filer_uppdatering_txt <- filer_uppdatering %>% paste0(collapse = "\n")
-    filer_nya_txt <- filer_nya %>% paste0(collapse = "\n")
-    
-    konsolmeddelande <- case_when(length(filer_uppdatering) > 0 & length(filer_nya) > 0 ~ 
-                                    paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har lagts till:\n", filer_nya_txt, 
-                                           "\n\n och följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github:\n", filer_uppdatering_txt),
-                                  length(filer_uppdatering) > 0 & length(filer_nya) == 0 ~
-                                    paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github:\n", filer_uppdatering_txt),
-                                  length(filer_uppdatering) == 0 & length(filer_nya) > 0 ~
-                                    paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github:\n", filer_nya_txt))
-    
-    if (is.na(commit_txt)) {
-      commit_txt <- uppdatering_txt  
-    }
+    if (!fran_rmarkdown){
+      # hämta ner en lista med filer som finns i remote repot
+      github_fillista <- github_lista_repo_filer(owner = repo_org,
+                                                 repo = repo,
+                                                 url_vekt_enbart = FALSE,
+                                                 skriv_source_konsol = FALSE)$namn
+      
+      filer_uppdatering <- c(repo_status$untracked[repo_status$untracked %in% github_fillista],
+                             repo_status$unstaged[repo_status$unstaged %in% github_fillista])
+      
+      filer_nya <- c(repo_status$untracked[!repo_status$untracked %in% github_fillista],
+                     repo_status$unstaged[!repo_status$unstaged %in% github_fillista])
+      
+      uppdatering_txt <- case_when(length(filer_uppdatering) > 0 & length(filer_nya) > 0 ~ 
+                                     paste0(length(filer_nya), " ", ifelse(length(filer_nya) == 1, "fil", "filer"), " har lagts till och ", length(filer_uppdatering), 
+                                            " ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github"),
+                                   length(filer_uppdatering) > 0 & length(filer_nya) == 0 ~
+                                     paste0(length(filer_uppdatering), " ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github"),
+                                   length(filer_uppdatering) == 0 & length(filer_nya) > 0 ~
+                                     paste0(length(filer_nya), " ", ifelse(length(filer_nya) == 1, "fil", "filer"),  " har skickats upp till github."))
+      
+      filer_uppdatering_txt <- filer_uppdatering %>% paste0(collapse = "\n")
+      filer_nya_txt <- filer_nya %>% paste0(collapse = "\n")
+      
+      konsolmeddelande <- case_when(length(filer_uppdatering) > 0 & length(filer_nya) > 0 ~ 
+                                      paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har lagts till:\n", filer_nya_txt, 
+                                             "\n\n och följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github:\n", filer_uppdatering_txt),
+                                    length(filer_uppdatering) > 0 & length(filer_nya) == 0 ~
+                                      paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github:\n", filer_uppdatering_txt),
+                                    length(filer_uppdatering) == 0 & length(filer_nya) > 0 ~
+                                      paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github:\n", filer_nya_txt))
+      
+      if (is.na(commit_txt)) {
+        commit_txt <- uppdatering_txt  
+      }
+      
+    } else konsolmeddelande <- commit_txt # slut if-sats om det är fran_rmarkdown
     # vi lägger till alla filer som är ändrade eller tillagda
     git2r::add(push_repo, path = c(repo_status$untracked %>% as.character(),
                                    repo_status$unstaged %>% as.character()))
