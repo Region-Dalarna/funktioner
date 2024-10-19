@@ -570,6 +570,8 @@ tatortskoder_bearbeta <- function(api_url, tatortskoder, var_namn = "region") {
 
 hamta_kolada_giltiga_ar <- function(kpi_id, vald_region = "2080"){
   
+  vald_region <- vald_region %>% str_pad(4, pad = "0")
+  
   hamtade_varden <- get_values(
     kpi = kpi_id,
     municipality = vald_region,
@@ -581,13 +583,20 @@ hamta_kolada_giltiga_ar <- function(kpi_id, vald_region = "2080"){
 }
 
 
-hamta_kolada_df <- function(kpi_id, valda_kommuner, valda_ar = NA, konsuppdelat = TRUE){
+hamta_kolada_df <- function(kpi_id, valda_kommuner, valda_ar = NA, konsuppdelat = TRUE, dop_om_kolumner = TRUE){
+  
+  kolnamn_vektor <- c(ar = "year", regionkod = "municipality_id", region = "municipality",
+                      #regiontyp = "municipality_type", 
+                      kon = "gender", variabelkod = "kpi",  
+                      variabel = "fraga", varde = "value") 
+  
+  valda_kommuner <- valda_kommuner %>% str_pad(4, pad = "0")
   
   alla_ar <- hamta_kolada_giltiga_ar(kpi_id, valda_kommuner[1])
   senaste_ar <- max(alla_ar)
   start_ar <- min(alla_ar)
   
-  alla_giltiga_ar <- valda_ar[valda_ar %in% alla_ar]
+  alla_giltiga_ar <- if(valda_ar == "9999") senaste_ar else valda_ar[valda_ar %in% alla_ar]
   
   hamta_ar <- if (is.na(valda_ar[1])) alla_ar else alla_giltiga_ar
   
@@ -626,6 +635,12 @@ hamta_kolada_df <- function(kpi_id, valda_kommuner, valda_ar = NA, konsuppdelat 
   retur_df <- retur_df %>% 
     mutate(year = year %>% as.character())
   
+  if (dop_om_kolumner) {
+    retur_df <- retur_df %>% 
+      select(any_of(kolnamn_vektor)) %>% 
+      mutate(regionkod = regionkod %>% as.numeric() %>% as.character() %>% str_replace("^0$", "00"),
+             region = region %>% str_remove("Region "))
+  }
   return(retur_df)
 }
 
@@ -1437,6 +1452,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
       '  # speciallösning för Folkhälsomyndigheten där vi tar bort regionkoder som ligger i klartextkolumnen\n',
       '  px_df <- region_kolumn_splitta_kod_klartext(px_df, "', region_variabel, '")\n\n')
   } else region_special_fohm_skriptrader <- NULL
+  
   # hantera tid-variabler (heter år i hlv) 
   tid_skriptrader <- NULL             # om ingadera finns så blir det NULL
   
@@ -1448,6 +1464,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     if (any(c("månad", "år") %in% tolower(names(varlist_giltiga_varden)))) {                      # hlv
     tid_variabel <- varlist_koder[str_detect(tolower(varlist_koder), "månad|år")]
     tid_klartext <- tid_variabel %>% svenska_tecken_byt_ut() %>% tolower() %>% paste0(., "_klartext")
+    if (any(tolower(varlist_koder) %in% c("år", "månader")) & org_kortnamn == "fohm") tid_klartext <- "tid_koder"
     giltig_var <- ifelse(tolower(tid_variabel) == "månad", "giltiga_manader", paste0("giltiga_", tid_variabel %>% tolower %>% svenska_tecken_byt_ut()))
     tid_skriptrader <- paste0('  px_meta$variables <- sortera_px_variabler(px_meta$variables, sorterings_vars = "', tid_variabel, '", sortera_pa_kod = FALSE)        # sortera om månader så att de kommer i kronologisk ordning\n',
            '  ', tid_klartext, ' <- ', tid_klartext, ' %>%           # ersätt "9999" med senaste ', tolower(tid_variabel), '\n',
