@@ -831,7 +831,7 @@ uppkoppling_db <- function(
   if (str_detect(toupper(db_host), toupper(current_hostname))) {
     db_host <- "localhost"
   } else {
-    db_host <- "WFALMITVS526.ltdalarna.se"
+    db_host <- if(is.na(db_host)) "WFALMITVS526.ltdalarna.se" else db_host
   }
   
   tryCatch({
@@ -1716,7 +1716,7 @@ postgis_sf_till_postgistabell <-
     tabell <- tabell %>% tolower()
     
     # kör sql-kod för att skapa ett nytt schema med namn definierat ovan om det inte redan finns
-    schema_finns <- postgres_schema_finns(con_geodata, schema)
+    schema_finns <- postgres_schema_finns(con, schema)
     
     if (!schema_finns) {
       dbExecute(con, paste0("create schema if not exists ", schema, ";"))
@@ -1726,7 +1726,7 @@ postgis_sf_till_postgistabell <-
         ALTER DEFAULT PRIVILEGES IN SCHEMA %s
         GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %s;
         ", schema, "geodata_las")
-      dbExecute(con_geodata, sql_command)                               # kör sql-kommandot som skapats ovan
+      dbExecute(con, sql_command)                               # kör sql-kommandot som skapats ovan
       } 
     }
       
