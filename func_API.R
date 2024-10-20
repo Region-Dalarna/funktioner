@@ -646,7 +646,7 @@ hamta_kolada_df <- function(kpi_id, valda_kommuner, valda_ar = NA, konsuppdelat 
 
 # =========================================== Bra generella funktioner =========================================================
 
-ladda_funk_parametrar <- function(funktion) {
+ladda_funk_parametrar <- function(funktion, meddelanden = FALSE) {
   
   # funktion för att ladda in alla parametrars standardvärden i global environment
   # OBS! Den skriver över variabler som heter likadant i global environment
@@ -654,8 +654,14 @@ ladda_funk_parametrar <- function(funktion) {
   st_var <- formals({{funktion}})
   
   for (varname in names(st_var)) {
-    assign(varname, eval(st_var[[varname]]), envir = .GlobalEnv)
-    #assign(varname, st_var[[varname]], envir = .GlobalEnv)
+    # Kontrollera om parametern är en symbol, vilket betyder att den saknar ett standardvärde
+    if (!is.symbol(st_var[[varname]])) {
+      # Försök att utvärdera parametern om den har ett standardvärde
+      assign(varname, eval(st_var[[varname]]), envir = .GlobalEnv)
+    } else {
+      # Parametern saknar standardvärde, hoppa över eller hantera på annat sätt
+      if (meddelanden) message(paste("Parametern", varname, "saknar standardvärde och har inte laddats."))
+    }
   }
   
 } # slut funktion
