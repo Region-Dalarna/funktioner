@@ -937,7 +937,33 @@ konvertera_dataset_filformat <- function(sokvag_fil,
   } else {
     rio::export(dataset_df, nytt_filnamn)                                         # Exportera datasetet till nytt filformat
   }
+} # slut funktion
+
+funktion_upprepa_forsok_tills_retur_TRUE <- function(funktion, max_forsok = 15, vanta_minuter = 2) {
+  
+  for (forsok in 1:max_forsok) {
+    # Försök att köra funktionen
+    resultat <- funktion()
+    
+    # Kontrollera om funktionen lyckades (returnerar TRUE)
+    if (resultat == TRUE) {
+      message("Funktionen lyckades på försök ", forsok, ".")
+      return(TRUE)  # Avsluta och returnera TRUE om funktionen lyckas
+    } else {
+      message("Försök ", forsok, " misslyckades. Försöker igen om ", vanta_minuter, " minuter.")
+      
+      # Om max antal försök har nåtts, ge upp
+      if (forsok == max_forsok) {
+        message("Max antal försök nått. Funktionen stoppas.")
+        return(FALSE)
+      }
+      
+      # Vänta det angivna antalet minuter innan nästa försök
+      Sys.sleep(vanta_minuter * 60)
+    }
+  }
 }
+
 
 
 # ================================================= github-funktioner ========================================================
