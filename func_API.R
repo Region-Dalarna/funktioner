@@ -651,7 +651,8 @@ ladda_funk_parametrar <- function(funktion, meddelanden = FALSE) {
   # funktion för att ladda in alla parametrars standardvärden i global environment
   # OBS! Den skriver över variabler som heter likadant i global environment
   
-  st_var <- formals({{funktion}})
+  funktionsnamn <- deparse(substitute(funktion)) %>% str_remove("\\(\\)")
+  st_var <- formals({{funktionsnamn}})
   
   for (varname in names(st_var)) {
     # Kontrollera om parametern är en symbol, vilket betyder att den saknar ett standardvärde
@@ -1058,6 +1059,111 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
     }
   } else if (url_vekt_enbart) return(retur_df$url) else return(retur_df %>% select(-source))
 }
+
+github_lista_repo_filer_ny <- function(owner = "Region-Dalarna",                     # användaren vars repos vi ska lista
+                                       repo = "hamta_data",                          # repot vars filer vi ska lista
+                                       url_vekt_enbart = TRUE,                       # om TRUE returneras en vektor med url:er, annars en dataframe med både filnamn och url
+                                       skriv_source_konsol = TRUE,                   # om TRUE returneras färdiga source-satser som man kan klistra in i sin kod
+                                       till_urklipp = TRUE,                          # om TRUE skrivs source-satserna till urklipp om skriv_source_konsol är TRUE
+                                       filtrera = NA,                                # om man vill filtrera filer på specifika sökord så gör man det här, kan vara ett eller en vektor med flera (som körs med OR och inte AND)
+                                       keyring_github_token = "github_token",         # om man har sparat en github-token i keyring-paketet så anges service_name här (OBS! Det får bara finnas en användare för denna service i keyring om detta ska fungera)
+                                       icke_source_repo = FALSE,                      # om TRUE så returneras bara filnamn och url och inte source-satser
+                                       path = "") {                                  # path används för att hantera mappar
+  # En funktion för att lista filer i ett repository som finns hos en github-användare
+  
+  url <- paste0("https://api.github.com/repos/", owner, "/", repo, "/contents/", path)
+  
+  if (requireNamespace("keyring", quietly = TRUE) && "github_token" %in% keyring::key_list()[["service"]]) {
+    token_finns <- TRUE
+  } else {
+    token_finns <- FALSE
+  }
+  
+  
+  if (token_finns) {
+    response <- httr::GET(url, httr::add_headers(Authorization = paste("token", key_get("github_token", key_list(service = "github_token")$username))))
+  } else {
+    response <- httr::GET(url)
+  }
+  
+  # Kontrollera om förfrågan lyckades
+  if (httr::status_code(response) != 200) {
+    stop("API-förfrågan misslyckades med statuskod: ", httr::status_code(response), ". Meddelande: ", httr::content(response)$message)
+  }
+  
+  content <- httr::content(response, "parsed")
+  
+  # Kontrollera att content är en lista
+  if (!is.list(content)) {
+    stop("Innehållet från API-förfrågan kunde inte tolkas korrekt.")
+  }
+  
+  if (!httr::http_type(response) %in% "application/json") {
+    stop("API-förfrågan misslyckades")
+  }
+  
+  # Gå igenom alla poster och hantera mappar och filer
+  retur_df <- purrr::map_df(content, function(item) {
+    if (item$type == "dir") {
+      # Om det är en mapp, rekursera genom att kalla funktionen igen
+      github_lista_repo_filer_ny(owner, repo, url_vekt_enbart = FALSE, skriv_source_konsol = FALSE, till_urklipp = FALSE, filtrera = filtrera, path = paste0(path, item$name, "/"))
+    } else {
+      # Om det är en fil, returnera dess namn och URL
+      tibble::tibble(
+        namn = paste0(path, item$name),
+        url = item$download_url,
+        source = ifelse(icke_source_repo, item$download_url, paste0('source("', item$download_url, '")\n'))
+      )
+    }
+  })
+  
+  # Filtrera baserat på sökord om filtrera inte är NA
+  if (!any(is.na(filtrera))) {
+    if (length(filtrera) > 1) filtrera <- paste0(filtrera, collapse = "|")
+    
+    if (length(filtrera) > 0 & stringr::str_detect(filtrera, "\\&")) {
+      sok_vekt <- stringr::str_split(filtrera, "\\&") %>% unlist()
+      retur_df <- retur_df %>% 
+        dplyr::filter(purrr::reduce(sok_vekt, ~ .x & {
+          if (stringr::str_detect(.y, "^!")) {
+            !stringr::str_detect(tolower(namn), tolower(stringr::str_remove(.y, "^!")))
+          } else {
+            stringr::str_detect(tolower(namn), tolower(.y))
+          }
+        }, .init = TRUE))
+    } else {
+      if (stringr::str_detect(filtrera, "^!")) {
+        retur_df <- retur_df %>% dplyr::filter(!stringr::str_detect(tolower(namn), tolower(stringr::str_remove(filtrera, "^!"))))
+      } else {
+        retur_df <- retur_df %>% dplyr::filter(stringr::str_detect(tolower(namn), tolower(filtrera)))
+      }
+    }
+    
+    if (nrow(retur_df) == 0) stop("Inga filer hittades som matchade sökorden.")
+  }
+  
+  # Kolla om source-kolumnen finns innan vi försöker välja eller ta bort den
+  if (skriv_source_konsol && "source" %in% names(retur_df)) {
+    cat(retur_df$source)
+    if (till_urklipp) {
+      writeLines(text = retur_df$source %>% purrr::modify_at(length(.), stringr::str_remove, pattern = "\n"), con = "clipboard", sep = "")
+    }
+  } else if (url_vekt_enbart) {
+    return(retur_df$url)
+  } else {
+    # Kontrollera om 'source'-kolumnen finns innan vi försöker ta bort den
+    if ("source" %in% names(retur_df)) {
+      return(retur_df %>% dplyr::select(-source))
+    } else {
+      return(retur_df)
+    }
+  }
+}
+
+
+
+
+
 
 github_status_filer_lokalt_repo <- function(sokvag_lokal_repo = "c:/gh/",
                                             repo = "hamta_data"                          # repot vars filer vi ska lista

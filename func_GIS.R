@@ -1801,7 +1801,7 @@ postgis_postgistabell_till_sf <- function(
   
   if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
-  message(glue("Processen tog {berakningstid} sekunder att köra"))
+  cat(glue("Processen tog {berakningstid} sekunder att köra"))
   
   return(retur_sf)
 } # slut funktion
