@@ -259,6 +259,120 @@ hamta_malpunkter <- function(karttyp, regionkoder = NA) {
   return(retur_sf)
 }
 
+hamta_vag <- function(karttyp = NULL, regionkoder = NA, tabellnamn = NA, con = NULL) {
+  
+  # source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R", encoding = "utf-8", echo = FALSE)
+  # source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R", encoding = "utf-8", echo = FALSE)
+  
+  # Om ingen anslutning skickas med, använd standardanslutningen
+  if (is.null(con)) {
+    con <- uppkoppling_db(service = "rd_geodata")
+  }
+  
+  # Om ingen karttyp skickas med, använd standardkarttypen
+  if (is.null(karttyp)) {
+    karttyp <- "dala_med_grannlan"
+  }
+  
+  # Kontrollera om karttyp är en filstig (t.ex. en .shp-fil)
+  if (grepl("\\.shp$", karttyp)) {
+    # Om karttypen är en filstig, läs in som sf-objekt från filen
+    retur_sf <- st_read(karttyp)
+    return(retur_sf)
+  }
+  
+  # Kontrollera om karttyp är en schema.tabell från databasen
+  if (grepl("\\.", karttyp)) {
+    # Splitta schema och tabellnamn
+    schema_tabell <- unlist(strsplit(karttyp, "\\."))
+    schema <- schema_tabell[1]
+    tabell <- schema_tabell[2]
+  } else {
+    # Använd default-schema om karttyp inte har schema
+    schema <- "nvdb"
+    tabell <- karttyp
+  }
+  
+  # Här lägger vi till rader (dvs. tabeller) som ska vara hämtbara från geodatabasen
+  tabell_df <- data.frame(
+    sokord = c("dala_med_grannlan", "vagar", "nvdb"),   
+    namn = c("dala_med_grannlan", "vagar", "nvdb"),     
+    lankol = c(NA, NA, NA),                             
+    kommunkol = c(NA, NA, NA)                           
+  )
+  
+  # Sök efter karttyp i tabell_df
+  df_rad <- suppressWarnings(str_which(tabell_df$sokord, karttyp))
+  
+  # Kontrollera om karttyp matchar exakt
+  if (length(df_rad) > 0) df_rad <- df_rad[map_lgl(df_rad, ~ karttyp %in% tabell_df$sokord[[.x]])]
+  
+  # Om karttypen inte finns, sätt pg_tabell till "finns ej"
+  if (length(df_rad) == 0) {
+    pg_tabell <- "finns ej"
+  } else {
+    pg_tabell <- tabell_df$namn[df_rad]
+  }
+  
+  # Kontrollera om karttypen finns
+  if (pg_tabell != "finns ej") {
+    
+    # Skapa query baserat på regionkoder
+    if (all(!is.na(regionkoder)) & all(regionkoder != "00")) {
+      kommunkoder <- regionkoder[nchar(regionkoder) == 4]
+      lanskoder <- regionkoder[nchar(regionkoder) == 2 & regionkoder != "00"]
+    } else {
+      kommunkoder <- NULL
+      lanskoder <- NULL
+    }
+    
+    # Grundquery för att hämta allt från tabellen
+    grundquery <- paste0("SELECT * FROM ", schema, ".", pg_tabell)
+    
+    # Om det finns regionkoder, lägg till WHERE-klausul
+    if ((length(kommunkoder) == 0) & (length(lanskoder) == 0)) {
+      skickad_query <- paste0(grundquery, ";")
+    } else {
+      skickad_query <- paste0(grundquery, " WHERE ")
+      
+      if (length(lanskoder) != 0 & !is.na(tabell_df$lankol[df_rad])) {
+        skickad_query <- paste0(skickad_query, tabell_df$lankol[df_rad], " IN (", paste0("'", lanskoder, "'", collapse = ", "), ")")
+      }
+      
+      if ((length(lanskoder) != 0 & !is.na(tabell_df$lankol[df_rad])) & (length(kommunkoder) != 0 & !is.na(tabell_df$kommunkol[df_rad]))) {
+        mellanquery <- " OR "
+      } else {
+        mellanquery <- ""
+      }
+      
+      if (length(kommunkoder) != 0 & !is.na(tabell_df$kommunkol[df_rad])) {
+        skickad_query <- paste0(skickad_query, mellanquery, tabell_df$kommunkol[df_rad], " IN (", paste0("'", kommunkoder, "'", collapse = ", "), ");")
+      } else {
+        skickad_query <- paste0(skickad_query, ";")
+      }
+    }
+    
+    # Skicka query och hämta data som sf-objekt
+    retur_sf <- tryCatch({
+      st_read(con, query = skickad_query)
+    }, error = function(e) {
+      warning("Failed to read spatial data. Query might have returned non-spatial data.")
+      NULL
+    })
+    
+    return(retur_sf)
+    
+  } else {
+    warning(paste0("Karttypen ", karttyp, " finns inte i databasen."))
+  }
+}
+
+# # Use the function with a file path
+# vägfil <- "G:/skript/gis/sweco_dec_2022/data/väg/Dalarnas_lan_NVDB_hastighet_restid/Dalarnas_lan_NVDB_hastighet_restid.shp"
+# vag_från_fil <- hamta_vag(karttyp = vägfil)
+# 
+# vag_default <- hamta_vag()
+
 # ========================================== hantera rutor med GIS ========================================================
 
 sf_fran_df_med_x_y_kol <- function(skickad_df, 
@@ -2851,7 +2965,7 @@ postgis_postgistabell_till_sf <- function(
   
   if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
-  cat(glue("Processen tog {berakningstid} sekunder att köra"))
+  message(glue("Processen tog {berakningstid} sekunder att köra"))
   
   return(retur_sf)
 } # slut funktion
