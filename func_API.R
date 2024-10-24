@@ -980,13 +980,14 @@ funktion_upprepa_forsok_om_fel <- function(funktion, max_forsok = 15, vanta_seku
     
     # Kontrollera om funktionen lyckades (ingen fel uppstod)
     if (!inherits(resultat, "try-error")) {
-      return(invisible())
+      return(resultat)
     } else {
       message("Försök ", forsok, " med funktionen ", funktionsnamn, " misslyckades med fel: ", resultat)
       
       # Om max antal försök har nåtts, ge upp
       if (forsok == max_forsok) {
         message("Max antal försök nått. Funktionen ", funktionsnamn, " stoppas.")
+        return(invisible())
       }
       
       # Vänta det angivna antalet sekunder innan nästa försök
