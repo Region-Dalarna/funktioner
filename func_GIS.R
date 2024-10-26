@@ -2779,7 +2779,7 @@ gdb_extrahera_kolumnnamn_per_gislager <- function(gdb_sokvag,
   
   
   # Steg 1: Hämta namnet på alla gis-lager som finns i geodatabasen
-  alla_lager_i_gdb <- st_layers(nvdb_homogeniserat)$name
+  alla_lager_i_gdb <- st_layers(gdb_sokvag)$name
   
   #  Steg 2: Extrahera kolumnnamn för alla lager och lägg i en lista
   lager_kolumnnamn_lista <- map(alla_lager_i_gdb, function(lager_namn) {
@@ -2790,7 +2790,7 @@ gdb_extrahera_kolumnnamn_per_gislager <- function(gdb_sokvag,
     
     # hitta startelement för där kolumnnamnen finns
     kolumner_start <- str_which(kolumner_namn, "Geometry Column = ") + 1 
-    kolumner_namn <- kolumner_namn[lager_start:length(kolumner_namn)]
+    kolumner_namn <- kolumner_namn[kolumner_start:length(kolumner_namn)]
     kolumner_namn <- c(paste0(id_kol, ":"), kolumner_namn, paste0(geo_kol, ":"))
     
     kolumnnamn_ny <- set_names(map_chr(kolumner_namn, ~ {
