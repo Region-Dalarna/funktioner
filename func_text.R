@@ -95,6 +95,62 @@ byt_ut_svenska_tecken <- function(text) {
   return(text)
 }
 
+procent_till_text <- function(procent) {
+  # Funktion för att omvandla procenttal till text  (exempel: 50 -> "varannan")
+  
+  tolerans = 0.5
+  
+  case_when(
+    procent == 0 ~ "ingen",
+    procent > 0 & procent < 0.5 - tolerans ~ "nästan ingen",
+    procent >= 0.5 & procent < 2.5 - tolerans ~ "väldigt få",
+    procent >= 2.5 & procent < 5 - tolerans ~ "knappt var tjugonde",
+    procent >= 5 - tolerans & procent <= 5 + tolerans ~ "var tjugonde",
+    procent > 5 + tolerans & procent < 6.3 - tolerans ~ "drygt var tjugonde",
+    procent >= 6.3 & procent < 6.6 - tolerans ~ "knappt var femtonde",
+    procent >= 6.6 - tolerans & procent <= 6.6 + tolerans ~ "var femtonde",
+    procent > 6.6 + tolerans & procent < 7.5 - tolerans ~ "drygt var femtonde",
+    procent > 7.5 + tolerans & procent < 10 - tolerans ~ "knappt var tionde",
+    procent >= 10 - tolerans & procent <= 10 + tolerans ~ "var tionde",
+    procent > 10 + tolerans & procent < 12.3 - tolerans ~ "drygt var tionde",
+    procent >= 12.3 - tolerans & procent < 14.3 - tolerans ~ "knappt var sjunde",
+    procent >= 14.3 - tolerans & procent <= 14.3 + tolerans ~ "var sjunde",
+    procent > 14.3 + tolerans & procent < 17.2 + tolerans ~ "drygt var sjunde",
+    procent >= 17.2 - tolerans & procent < 20 - tolerans ~ "knappt var femte",
+    procent >= 20 - tolerans & procent <= 20 + tolerans ~ "var femte",
+    procent > 20 + tolerans & procent < 22.5 - tolerans ~ "drygt var femte",
+    procent >= 22.5 - tolerans & procent < 25 - tolerans ~ "knappt var fjärde",
+    procent >= 25 - tolerans & procent <= 25 + tolerans ~ "var fjärde",
+    procent > 25 + tolerans & procent < 29.2 - tolerans ~ "drygt var fjärde",
+    procent >= 29.2 - tolerans & procent < 33.3 - tolerans ~ "knappt var tredje",
+    procent >= 33.3 - tolerans & procent <= 33.3 + tolerans ~ "var tredje",
+    procent > 33.3 + tolerans & procent < 37 - tolerans ~ "drygt var tredje",
+    procent >= 37 - tolerans & procent < 40 - tolerans ~ "knappt två av fem",
+    procent >= 40 - tolerans & procent <= 40 + tolerans ~ "två av fem",
+    procent > 40 + tolerans & procent < 45 - tolerans ~ "drygt två av fem",
+    procent >= 45 - tolerans & procent < 50 - tolerans ~ "knappt varannan",
+    procent >= 50 - tolerans & procent <= 50 + tolerans ~ "varannan",
+    procent > 50 + tolerans & procent < 55 - tolerans ~ "drygt varannan",
+    procent >= 55 - tolerans & procent < 60 - tolerans ~ "knappt tre av fem",
+    procent >= 60 - tolerans & procent <= 60 + tolerans ~ "tre av fem",
+    procent > 60 + tolerans & procent < 65 - tolerans ~ "drygt tre av fem",
+    procent >= 65 - tolerans & procent < 66.6 - tolerans ~ "knappt två av tre",
+    procent >= 66.6 - tolerans & procent <= 66.6 + tolerans ~ "två av tre",
+    procent > 66.6 + tolerans & procent < 70 - tolerans ~ "drygt två av tre",
+    procent >= 70 - tolerans & procent < 75 - tolerans ~ "knappt tre av fyra",
+    procent >= 75 - tolerans & procent <= 75 + tolerans ~ "tre av fyra",
+    procent > 75 + tolerans & procent < 77.5 - tolerans ~ "drygt tre av fyra",
+    procent >= 77.5 - tolerans & procent < 80 - tolerans ~ "knappt fyra av fem",
+    procent >= 80 - tolerans & procent <= 80 + tolerans ~ "fyra av fem",
+    procent > 80 + tolerans & procent < 85 - tolerans ~ "drygt fyra av fem",
+    procent >= 85 - tolerans & procent < 90 - tolerans ~ "knappt nio av tio",
+    procent >= 90 - tolerans & procent <= 90 + tolerans ~ "nio av tio",
+    procent >= 90 + tolerans & procent < 95 + tolerans ~ "drygt nio av tio",
+    procent >= 95 ~ "nästan alla",
+    procent == 100 ~ "alla",
+    TRUE ~ paste0(procent, "%")
+  )
+}
 
 
 

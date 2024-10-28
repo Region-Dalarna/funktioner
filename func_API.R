@@ -971,7 +971,31 @@ funktion_upprepa_forsok_tills_retur_TRUE <- function(funktion, max_forsok = 15, 
   }
 }
 
-
+funktion_upprepa_forsok_om_fel <- function(funktion, max_forsok = 15, vanta_sekunder = 2) {
+  funktionsnamn <- deparse(substitute(funktion))  # Hämta namnet på funktionen som skickades in
+  
+  for (forsok in 1:max_forsok) {
+    # Försök att köra funktionen
+    resultat <- try(funktion(), silent = TRUE)
+    
+    # Kontrollera om funktionen lyckades (ingen fel uppstod)
+    if (!inherits(resultat, "try-error")) {
+      return(resultat)
+    } else {
+      message("Försök ", forsok, " med funktionen ", funktionsnamn, " misslyckades med fel: ", resultat)
+      
+      # Om max antal försök har nåtts, ge upp
+      if (forsok == max_forsok) {
+        message("Max antal försök nått. Funktionen ", funktionsnamn, " stoppas.")
+        return(invisible())
+      }
+      
+      # Vänta det angivna antalet sekunder innan nästa försök
+      message("Försöker igen om ", vanta_sekunder, " sekunder.")
+      Sys.sleep(vanta_sekunder)
+    }
+  }
+}
 
 # ================================================= github-funktioner ========================================================
 
@@ -1160,11 +1184,6 @@ github_lista_repo_filer_ny <- function(owner = "Region-Dalarna",                
   }
 }
 
-
-
-
-
-
 github_status_filer_lokalt_repo <- function(sokvag_lokal_repo = "c:/gh/",
                                             repo = "hamta_data"                          # repot vars filer vi ska lista
                                             ) {
@@ -1303,6 +1322,96 @@ github_commit_push <- function(
     print("Inga nya eller uppdaterade filer att ladda upp till Github.")
   } # slut if-sats som testar om det finns filer att committa
 } # slut funktion
+
+
+github_commit_push_ny <- function(
+    sokvag_lokal_repo = "c:/gh/",
+    repo = "hamta_data",
+    repo_org = "Region-Dalarna",
+    commit_txt = NA,
+    fran_rmarkdown = FALSE,
+    pull_forst = TRUE) {
+  
+  lokal_sokvag_repo <- paste0(sokvag_lokal_repo, repo)
+  
+  push_repo <- git2r::init(lokal_sokvag_repo)
+  repo_status <- git2r::status(push_repo)
+  
+  if (length(repo_status$untracked) + length(repo_status$unstaged) > 0) {
+    if (!fran_rmarkdown){
+      # hämta ner en lista med filer som finns i remote repot
+      github_fillista <- github_lista_repo_filer_ny(owner = repo_org,
+                                                    repo = repo,
+                                                    url_vekt_enbart = FALSE,
+                                                    skriv_source_konsol = FALSE)$namn
+      
+      filer_uppdatering <- c(repo_status$untracked[repo_status$untracked %in% github_fillista],
+                             repo_status$unstaged[repo_status$unstaged %in% github_fillista])
+      
+      filer_nya <- c(repo_status$untracked[!repo_status$untracked %in% github_fillista],
+                     repo_status$unstaged[!repo_status$unstaged %in% github_fillista])
+      
+      uppdatering_txt <- case_when(length(filer_uppdatering) > 0 & length(filer_nya) > 0 ~ 
+                                     paste0(length(filer_nya), " ", ifelse(length(filer_nya) == 1, "fil", "filer"), " har lagts till och ", length(filer_uppdatering), 
+                                            " ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github"),
+                                   length(filer_uppdatering) > 0 & length(filer_nya) == 0 ~
+                                     paste0(length(filer_uppdatering), " ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github"),
+                                   length(filer_uppdatering) == 0 & length(filer_nya) > 0 ~
+                                     paste0(length(filer_nya), " ", ifelse(length(filer_nya) == 1, "fil", "filer"),  " har skickats upp till github."))
+      
+      filer_uppdatering_txt <- filer_uppdatering %>% paste0(collapse = "\n")
+      filer_nya_txt <- filer_nya %>% paste0(collapse = "\n")
+      
+      konsolmeddelande <- case_when(length(filer_uppdatering) > 0 & length(filer_nya) > 0 ~ 
+                                      paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har lagts till:\n", filer_nya_txt, 
+                                             "\n\n och följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github:\n", filer_uppdatering_txt),
+                                    length(filer_uppdatering) > 0 & length(filer_nya) == 0 ~
+                                      paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github:\n", filer_uppdatering_txt),
+                                    length(filer_uppdatering) == 0 & length(filer_nya) > 0 ~
+                                      paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github:\n", filer_nya_txt))
+      
+      if (is.na(commit_txt)) {
+        commit_txt <- uppdatering_txt  
+      }
+      
+    } else konsolmeddelande <- commit_txt # slut if-sats om det är fran_rmarkdown
+    # vi lägger till alla filer som är ändrade eller tillagda
+    git2r::add(push_repo, path = c(repo_status$untracked %>% as.character(),
+                                   repo_status$unstaged %>% as.character()))
+    
+    git2r::commit(push_repo, commit_txt) 
+    
+    # först en pull
+    if (pull_forst){
+      git2r::pull(repo = push_repo,                 
+                  credentials = cred_user_pass( username = key_list(service = "github")$username, 
+                                                password = key_get("github", key_list(service = "github")$username)))
+    } # slut if-sats där man kan stänga av att man kör en pull först (inte att rekommendera)
+    
+    # och sedan en push
+    # git2r::push(object = push_repo,               
+    #              credentials = cred_user_pass( username = key_list(service = "github_token")$username, 
+    #                                            password = key_get("github_token", key_list(service = "github_token")$username)))
+    
+    # det har krånglat med att köra push() från git2r-paketet så denna sista del kör vi med system(), 
+    # dvs. att vi kör det med cmd. Funkar nog bara på windows så ingen robust lösning men det får gå för 
+    # nu
+    system(paste0('git -C ', lokal_sokvag_repo, ' push https://', key_list(service = "github_token")$username, ':', key_get("github_token", key_list(service = "github_token")$username), '@github.com/', repo_org, '/', repo, '.git'))
+    
+    
+    
+    cat(paste0("Commit och push till ", repo, " på Github är klar.\n\n", konsolmeddelande))
+    
+  } else {
+    print("Inga nya eller uppdaterade filer att ladda upp till Github.")
+  } # slut if-sats som testar om det finns filer att committa
+} # slut funktion
+
+
+
+
+
+
 
 github_pull_lokalt_repo_fran_github <- function(
     sokvag_lokal_repo = "c:/gh/",
