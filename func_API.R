@@ -414,7 +414,7 @@ konvertera_till_long_for_contentscode_variabler <- function(skickad_df,
   if (varde_var %in% names(skickad_df)) varde_var == "vardevariabel"                   # om det redan finns en kolumn som heter "varde" 
   
   pivot_kol <- pivot_kol[pivot_kol %in% names(skickad_df)]                              # ta bort eventuella variabler som inte finns i dataframen
-  if (length(pivot_kol) = 0 ) stop("Medskickad content_kolumner finns inte i skickad_df. Kontrollera content_kolumner och försök igen.")
+  if (length(pivot_kol) == 0 ) stop("Medskickad content_kolumner finns inte i skickad_df. Kontrollera content_kolumner och försök igen.")
   
   retur_df <- skickad_df %>% 
     pivot_longer(cols = any_of(pivot_kol), names_to = content_var, values_to = varde_var)
