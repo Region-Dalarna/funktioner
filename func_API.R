@@ -398,11 +398,23 @@ hamta_kod_eller_klartext_fran_lista <- function(lista, klartext_eller_kod_varde,
 # används för att konvertera dataset som returneras i pxweb där innehållsvariabler ligger i 
 # wideformat, vilket sker om man laddar hem fler än en innehållsvariabel. Denna funktion kör en
 # pivot_longer på alla innehållsvariabler
-konvertera_till_long_for_contentscode_variabler <- function(skickad_df, api_url, content_var = "variabel", 
-                                                            varde_var = "varde") {
-  pivot_kol <- hamta_giltiga_varden_fran_tabell(api_url, "contentscode", klartext = TRUE)
-  
+konvertera_till_long_for_contentscode_variabler <- function(skickad_df, 
+                                                            api_url, 
+                                                            content_var = "variabel", 
+                                                            varde_var = "varde",           # kolumnen
+                                                            content_kolumner = NA          # används om man har varit tvungen att döpa om innehållsvariablerna och vill skicka med dem som text istället för att de hämtas ur meta (ibland fallet med bas men oftast inte)
+                                                            ) {
+  pivot_kol <- if (all(is.na(content_kolumner))) {
+    hamta_giltiga_varden_fran_tabell(api_url, "contentscode", klartext = TRUE)
+  } else {
+    content_kolumner
+  }
+    
   if (content_var %in% names(skickad_df)) content_var == "vardekategori"               # om det redan finns en kolumn som heter "variabel" (det förekommer i vissa tabeller på SCB)
+  if (varde_var %in% names(skickad_df)) varde_var == "vardevariabel"                   # om det redan finns en kolumn som heter "varde" 
+  
+  pivot_kol <- pivot_kol[pivot_kol %in% names(skickad_df)]                              # ta bort eventuella variabler som inte finns i dataframen
+  if (length(pivot_kol) = 0 ) stop("Medskickad content_kolumner finns inte i skickad_df. Kontrollera content_kolumner och försök igen.")
   
   retur_df <- skickad_df %>% 
     pivot_longer(cols = any_of(pivot_kol), names_to = content_var, values_to = varde_var)
