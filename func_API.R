@@ -983,29 +983,39 @@ funktion_upprepa_forsok_tills_retur_TRUE <- function(funktion, max_forsok = 15, 
   }
 }
 
-funktion_upprepa_forsok_om_fel <- function(funktion, max_forsok = 10, vanta_sekunder = 1, meddelanden = FALSE) {
-  funktionsnamn <- deparse(substitute(funktion))  # Hämta namnet på funktionen som skickades in
+funktion_upprepa_forsok_om_fel <- function(funktion, 
+                                           max_forsok = 10, 
+                                           vanta_sekunder = 1, 
+                                           meddelanden = FALSE,
+                                           hoppa_over = FALSE
+                                           ) {
   
-  for (forsok in 1:max_forsok) {
-    # Försök att köra funktionen
-    resultat <- try(funktion(), silent = TRUE)
+  if (!hoppa_over) {
+    funktionsnamn <- deparse(substitute(funktion))  # Hämta namnet på funktionen som skickades in
     
-    # Kontrollera om funktionen lyckades (ingen fel uppstod)
-    if (!inherits(resultat, "try-error")) {
-      return(resultat)
-    } else {
-      if (meddelanden) message("Försök ", forsok, " med funktionen ", funktionsnamn, " misslyckades med fel: ", resultat)
+    for (forsok in 1:max_forsok) {
+      # Försök att köra funktionen
+      resultat <- try(funktion(), silent = TRUE)
       
-      # Om max antal försök har nåtts, ge upp
-      if (forsok == max_forsok) {
-        message("Max antal försök nått. Funktionen ", funktionsnamn, " stoppas.")
-        return(invisible())
+      # Kontrollera om funktionen lyckades (ingen fel uppstod)
+      if (!inherits(resultat, "try-error")) {
+        return(resultat)
+      } else {
+        if (meddelanden) message("Försök ", forsok, " med funktionen ", funktionsnamn, " misslyckades med fel: ", resultat)
+        
+        # Om max antal försök har nåtts, ge upp
+        if (forsok == max_forsok) {
+          message("Max antal försök nått. Funktionen ", funktionsnamn, " stoppas.")
+          return(invisible())
+        }
+        
+        # Vänta det angivna antalet sekunder innan nästa försök
+        if (meddelanden) message("Försöker igen om ", vanta_sekunder, " sekunder.")
+        Sys.sleep(vanta_sekunder)
       }
-      
-      # Vänta det angivna antalet sekunder innan nästa försök
-      if (meddelanden) message("Försöker igen om ", vanta_sekunder, " sekunder.")
-      Sys.sleep(vanta_sekunder)
     }
+  } else {
+    return(funktion())
   }
 }
 
