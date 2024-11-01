@@ -392,6 +392,8 @@ hela_rmd_filen <- paste0(rmd_header, "\n\n",
 writeLines(hela_rmd_filen, paste0(sokvag_proj, github_repo, ".Rmd"))
   
 
+
+
 # ================================================== skicka upp till github =================================================  
 
 
