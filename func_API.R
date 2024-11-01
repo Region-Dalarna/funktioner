@@ -1019,6 +1019,12 @@ funktion_upprepa_forsok_om_fel <- function(funktion,
   }
 }
 
+url_finns_webbsida <- function(skickad_url) {
+  response <- HEAD(skickad_url)
+  status <- status_code(response)
+  return(status == 200)
+}
+
 # ================================================= github-funktioner ========================================================
 
 github_lista_repos <- function(owner = "Region-Dalarna", skriv_ut_reponamn_i_konsol = TRUE) {
