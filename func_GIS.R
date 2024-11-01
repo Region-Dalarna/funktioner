@@ -1336,6 +1336,7 @@ postgres_tabell_till_df <- function(con = "default",
                                     schema, 
                                     tabell,
                                     query = NA,
+                                    meddelande_info = FALSE,
                                     meddelande_tid = FALSE
                                     ) {
   
@@ -1355,7 +1356,7 @@ postgres_tabell_till_df <- function(con = "default",
   # Kör SQL-frågan och hämta tabellen som en dataframe
   tryCatch({
     retur_df <- dbGetQuery(con, sql_query)
-    message(paste("Tabellen", tabell, "från schemat", schema, "har lästs in."))
+    if (meddelande_info) message(paste("Tabellen", tabell, "från schemat", schema, "har lästs in."))
   }, error = function(e) {
     message(paste("Kunde inte läsa tabellen", tabell, "från schemat", schema, ":", e$message))
     retur_df <- NULL
