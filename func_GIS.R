@@ -1514,7 +1514,7 @@ postgres_schema_ta_bort <- function(con = "default",
     default_flagga <- TRUE
   } else {
     default_flagga <- FALSE
-  } 
+  }
   
   # Kontrollera om schemat existerar
   schema_finns <- dbGetQuery(con, paste0("
