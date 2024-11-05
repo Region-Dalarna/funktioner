@@ -1,4 +1,4 @@
-
+cred_user_pass
 
 
 if (!require("pacman")) install.packages("pacman")
@@ -293,6 +293,6 @@ hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = 
 
 # Example usage
 
-skane <- hamta_gtfs_data("skane")
-
-mapview_gtfs(skane)
+# skane <- hamta_gtfs_data("skane")
+# 
+# mapview_gtfs(skane)
