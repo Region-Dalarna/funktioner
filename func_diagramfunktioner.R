@@ -284,7 +284,7 @@ SkapaProcForandrTvaAr <- function(df, ar_kol, gruppering_vect, summ_var, startar
   return(retur_df)
 }
 
-diagramfarger <- function(farg = "gron_sex"){
+diagramfarger <- function(farg = "rus_sex"){
 
   # ===================================== RUS-färgskalor ===========================================
   
