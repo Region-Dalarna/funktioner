@@ -66,7 +66,7 @@ skicka_filer_till_github <- function(lokalt_repo_sokvag,        # sökväg till 
 
 skapa_webbrapport_github <- function(githubmapp_lokalt,                 # sökväg till den mapp där du har alla github-repos (ska INTE innehålla själva repositoryt), tex c:/github_repos/
                                      github_repo,                       # namn på själva github-repot, döper mappen och github-repot. Mappen skapas om den inte finns
-                                     github_org = "Region-Dalarna",     # ändra till NULL om man vill lägga repo:t i sin privata github
+                                     github_org = "Region-Dalarna",     # ändra till sin användare om man vill lägga repo:t i sin privata github
                                      rapport_titel,                     # titel på rapporten i RMarkdown
                                      rapport_undertitel = NA) {         # om man vill ha en undertitel så lägger man in den här
   
@@ -77,30 +77,30 @@ skapa_webbrapport_github <- function(githubmapp_lokalt,                 # sökv�
   sokvag_proj <- paste0(githubmapp_lokalt, github_repo)
   if (str_sub(1, nchar(sokvag_proj)) != "/") sokvag_proj <- paste0(sokvag_proj, "/")
   
-  # skapa_mapp_om_den_inte_finns(sokvag_proj)
-  # 
-  # # Här skriver vi själva .Rproj-filen
-  # str_proj_fil <- paste0(
-  #   "Version: 1.0\n\n",
-  #   
-  #   "RestoreWorkspace: Default\n",
-  #   "SaveWorkspace: Default\n",
-  #   "AlwaysSaveHistory: Default\n\n",
-  #   
-  #   "EnableCodeIndexing: Yes\n",
-  #   "UseSpacesForTab: Yes\n",
-  #   "NumSpacesForTab: 2\n",
-  #   "Encoding: UTF-8\n\n",
-  #   
-  #   "RnwWeave: Sweave\n",
-  #   "LaTeX: pdfLaTeX")
-  # 
-  # # skriv .Rproj-fil till hårddisken
-  # writeLines(str_proj_fil, paste0(sokvag_proj, github_repo, ".Rproj"))
+  skapa_mapp_om_den_inte_finns(sokvag_proj)
+
+  # Här skriver vi själva .Rproj-filen
+  str_proj_fil <- paste0(
+    "Version: 1.0\n\n",
+
+    "RestoreWorkspace: Default\n",
+    "SaveWorkspace: Default\n",
+    "AlwaysSaveHistory: Default\n\n",
+
+    "EnableCodeIndexing: Yes\n",
+    "UseSpacesForTab: Yes\n",
+    "NumSpacesForTab: 2\n",
+    "Encoding: UTF-8\n\n",
+
+    "RnwWeave: Sweave\n",
+    "LaTeX: pdfLaTeX")
+
+  # skriv .Rproj-fil till hårddisken
+  writeLines(str_proj_fil, paste0(sokvag_proj, github_repo, ".Rproj"))
   
-  # skapa r-projekt
-  create_project(sokvag_proj, rstudio = rstudioapi::isAvailable(), open = rlang::is_interactive())
-  
+  # # skapa r-projekt
+  # create_project(sokvag_proj, rstudio = rstudioapi::isAvailable(), open = rlang::is_interactive())
+  # 
   
   # skapa övriga mappar vi brukar ha
   skapa_mapp_om_den_inte_finns(glue("{sokvag_proj}Diagram"))
@@ -179,9 +179,8 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 
 # Nödvändiga paket
 if (!require('pacman')) install.packages('pacman')
-p_load(here,
-       tidyverse,
-       openxlsx,
+p_load(tidyverse,
+       here,
        git2r,
        keyring)
 
@@ -392,6 +391,8 @@ hela_rmd_filen <- paste0(rmd_header, "\n\n",
 # Vi skriver filen till mappen
 writeLines(hela_rmd_filen, paste0(sokvag_proj, github_repo, ".Rmd"))
   
+
+
 
 # ================================================== skicka upp till github =================================================  
 

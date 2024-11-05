@@ -398,11 +398,23 @@ hamta_kod_eller_klartext_fran_lista <- function(lista, klartext_eller_kod_varde,
 # används för att konvertera dataset som returneras i pxweb där innehållsvariabler ligger i 
 # wideformat, vilket sker om man laddar hem fler än en innehållsvariabel. Denna funktion kör en
 # pivot_longer på alla innehållsvariabler
-konvertera_till_long_for_contentscode_variabler <- function(skickad_df, api_url, content_var = "variabel", 
-                                                            varde_var = "varde") {
-  pivot_kol <- hamta_giltiga_varden_fran_tabell(api_url, "contentscode", klartext = TRUE)
-  
+konvertera_till_long_for_contentscode_variabler <- function(skickad_df, 
+                                                            api_url, 
+                                                            content_var = "variabel", 
+                                                            varde_var = "varde",           # kolumnen
+                                                            content_kolumner = NA          # används om man har varit tvungen att döpa om innehållsvariablerna och vill skicka med dem som text istället för att de hämtas ur meta (ibland fallet med bas men oftast inte)
+                                                            ) {
+  pivot_kol <- if (all(is.na(content_kolumner))) {
+    hamta_giltiga_varden_fran_tabell(api_url, "contentscode", klartext = TRUE)
+  } else {
+    content_kolumner
+  }
+    
   if (content_var %in% names(skickad_df)) content_var == "vardekategori"               # om det redan finns en kolumn som heter "variabel" (det förekommer i vissa tabeller på SCB)
+  if (varde_var %in% names(skickad_df)) varde_var == "vardevariabel"                   # om det redan finns en kolumn som heter "varde" 
+  
+  pivot_kol <- pivot_kol[pivot_kol %in% names(skickad_df)]                              # ta bort eventuella variabler som inte finns i dataframen
+  if (length(pivot_kol) == 0 ) stop("Medskickad content_kolumner finns inte i skickad_df. Kontrollera content_kolumner och försök igen.")
   
   retur_df <- skickad_df %>% 
     pivot_longer(cols = any_of(pivot_kol), names_to = content_var, values_to = varde_var)
@@ -971,30 +983,46 @@ funktion_upprepa_forsok_tills_retur_TRUE <- function(funktion, max_forsok = 15, 
   }
 }
 
-funktion_upprepa_forsok_om_fel <- function(funktion, max_forsok = 15, vanta_sekunder = 2) {
-  funktionsnamn <- deparse(substitute(funktion))  # Hämta namnet på funktionen som skickades in
+funktion_upprepa_forsok_om_fel <- function(funktion, 
+                                           max_forsok = 10, 
+                                           vanta_sekunder = 1, 
+                                           meddelanden = FALSE,
+                                           hoppa_over = FALSE
+                                           ) {
   
-  for (forsok in 1:max_forsok) {
-    # Försök att köra funktionen
-    resultat <- try(funktion(), silent = TRUE)
+  if (!hoppa_over) {
+    funktionsnamn <- deparse(substitute(funktion))  # Hämta namnet på funktionen som skickades in
     
-    # Kontrollera om funktionen lyckades (ingen fel uppstod)
-    if (!inherits(resultat, "try-error")) {
-      return(resultat)
-    } else {
-      message("Försök ", forsok, " med funktionen ", funktionsnamn, " misslyckades med fel: ", resultat)
+    for (forsok in 1:max_forsok) {
+      # Försök att köra funktionen
+      resultat <- try(funktion(), silent = TRUE)
       
-      # Om max antal försök har nåtts, ge upp
-      if (forsok == max_forsok) {
-        message("Max antal försök nått. Funktionen ", funktionsnamn, " stoppas.")
-        return(invisible())
+      # Kontrollera om funktionen lyckades (ingen fel uppstod)
+      if (!inherits(resultat, "try-error")) {
+        return(resultat)
+      } else {
+        if (meddelanden) message("Försök ", forsok, " med funktionen ", funktionsnamn, " misslyckades med fel: ", resultat)
+        
+        # Om max antal försök har nåtts, ge upp
+        if (forsok == max_forsok) {
+          message("Max antal försök nått. Funktionen ", funktionsnamn, " stoppas.")
+          return(invisible())
+        }
+        
+        # Vänta det angivna antalet sekunder innan nästa försök
+        if (meddelanden) message("Försöker igen om ", vanta_sekunder, " sekunder.")
+        Sys.sleep(vanta_sekunder)
       }
-      
-      # Vänta det angivna antalet sekunder innan nästa försök
-      message("Försöker igen om ", vanta_sekunder, " sekunder.")
-      Sys.sleep(vanta_sekunder)
     }
+  } else {
+    return(funktion())
   }
+}
+
+url_finns_webbsida <- function(skickad_url) {
+  response <- HEAD(skickad_url)
+  status <- status_code(response)
+  return(status == 200)
 }
 
 # ================================================= github-funktioner ========================================================
