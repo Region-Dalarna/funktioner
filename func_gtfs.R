@@ -13,7 +13,8 @@ pacman::p_load(httr,
                rvest,
                RPostgres,
                glue,
-               httr) # finns zip i tidyverse?
+               httr,
+               keyring) # finns zip i tidyverse?
 
 gtfs_operatorer_sverige_nyckeltabell_hamta <- function(){
   
