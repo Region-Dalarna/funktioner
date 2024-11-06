@@ -140,44 +140,58 @@ hamta_giltig_tid_tabell <- function(skickad_url, tidkol = "år", tabort_var = NA
 # bubbeldiagram för branschindelning per kommun eller län
 
 skapa_intervaller <- function(skickad_kolumn, antal_intervaller = 5){
-  
-  intervall <- NA              # skapa variabel
-  
-  max_kol <- max(skickad_kolumn) 
-  min_kol <- min(skickad_kolumn)
-  range_kol <- max_kol - min_kol
-  
-  intervall_range <- round(range_kol / (antal_intervaller-1))
-  
-  # ta fram en siffra som vi avrundar till, ska helst vara 5000 om siffran ligger nära där, 500 om siffran är nära där osv.
-  avrundning_num <- round(intervall_range, nchar(intervall_range)*-1)/2
-  # om avrundning blir 0 så måste vi öka på den något
-  if (avrundning_num == 0) avrundning_num <- round(intervall_range, (nchar(intervall_range)-1)*-1)/2
-  
-  intervall[1] <- min_kol
-  intervall[antal_intervaller] <- max_kol
-  
-  for (x in 2:(antal_intervaller-1)){
-    intervall[x] <- min_kol + (intervall_range * (x-1))
+
+  antal_tecken <- function(tal) {
+    tal_retur <- 10^floor(log10(abs(tal)))
+    tal_retur <- nchar(as.character(abs(tal_retur)))
+    return(tal_retur)  # abs() används för att hantera negativa tal
   }
   
-  for (x in 1:length(intervall)){
-    tal <- round(intervall[x])
+  min_varde <- min(skickad_kolumn)
+  max_varde <- max(skickad_kolumn)
+  
+  intervaller <- exp(seq(log(min_varde), log(max_varde), length.out = antal_intervall))
+  retur_intervaller <- round(intervaller, -(antal_tecken(intervaller)-1))
+  
+  return(retur_intervaller)
     
-    intervall[x] <- plyr::round_any(tal, avrundning_num)
-    if (intervall[x] == 0) intervall[x] <- avrundning_num/10    # speciallösning, kan kanske fungera för flera fall, om 0 använd avrundning_num / 10
-    #intervall[x] <- round(tal, (nchar(tal)-ifelse(nchar(tal)<5,1,2))*-1)
-    # lägg till om siffran blir samma som tidigare siffra i vektorn
-    if (x > 1){
-      if (intervall[x] == intervall[x-1]) intervall[x] <- intervall[x] + round(intervall_range, -2)  
-    }
-    
-    # fixa till om talet är under 1000 och nästa tal är över 1000, sätt till 500 i så fall
-    if (x < length(intervall)){
-      if (intervall[x] < 1000 & intervall[x+1] > 999) intervall[x] <- 500
-    }
-  }
-  return(intervall)
+  # intervall <- NA              # skapa variabel
+  # 
+  # max_kol <- max(skickad_kolumn) 
+  # min_kol <- min(skickad_kolumn)
+  # range_kol <- max_kol - min_kol
+  # 
+  # intervall_range <- round(range_kol / (antal_intervaller-1))
+  # 
+  # # ta fram en siffra som vi avrundar till, ska helst vara 5000 om siffran ligger nära där, 500 om siffran är nära där osv.
+  # avrundning_num <- round(intervall_range, nchar(intervall_range)*-1)/2
+  # # om avrundning blir 0 så måste vi öka på den något
+  # if (avrundning_num == 0) avrundning_num <- round(intervall_range, (nchar(intervall_range)-1)*-1)/2
+  # 
+  # intervall[1] <- min_kol
+  # intervall[antal_intervaller] <- max_kol
+  # 
+  # for (x in 2:(antal_intervaller-1)){
+  #   intervall[x] <- min_kol + (intervall_range * (x-1))
+  # }
+  # 
+  # for (x in 1:length(intervall)){
+  #   tal <- round(intervall[x])
+  #   
+  #   intervall[x] <- plyr::round_any(tal, avrundning_num)
+  #   if (intervall[x] == 0) intervall[x] <- avrundning_num/10    # speciallösning, kan kanske fungera för flera fall, om 0 använd avrundning_num / 10
+  #   #intervall[x] <- round(tal, (nchar(tal)-ifelse(nchar(tal)<5,1,2))*-1)
+  #   # lägg till om siffran blir samma som tidigare siffra i vektorn
+  #   if (x > 1){
+  #     if (intervall[x] == intervall[x-1]) intervall[x] <- intervall[x] + round(intervall_range, -2)  
+  #   }
+  #   
+  #   # fixa till om talet är under 1000 och nästa tal är över 1000, sätt till 500 i så fall
+  #   if (x < length(intervall)){
+  #     if (intervall[x] < 1000 & intervall[x+1] > 999) intervall[x] <- 500
+  #   }
+  # }
+  # return(intervall)
 }
 
 pxvarlist <- function(api_url){

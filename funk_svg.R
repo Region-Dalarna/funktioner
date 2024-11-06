@@ -122,7 +122,8 @@ for (i in seq_along(svg_lista$groups[[2]]$children)) {
 svg_lista_ny <- svg_lista
 
 # Ta bort elementen 1, 2 och 8 i varje grupp (groups[[1]], groups[[2]], groups[[3]])
-element_att_ta_bort <- c(1, 2, 8)
+element_att_ta_bort <- which(df$texter %in% c("root", "skala", "data"))
+
 
 svg_lista_ny$groups[[1]]$children <- svg_lista_ny$groups[[1]]$children[-element_att_ta_bort]
 svg_lista_ny$groups[[2]]$children <- svg_lista_ny$groups[[2]]$children[-element_att_ta_bort]
