@@ -1149,9 +1149,6 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default",
   if (is.character(con) && con == "default") {
     con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
     default_flagga <- TRUE
-  } else if (is.character(con) && con == "adm") {
-    con <- uppkoppling_db(service_name = "rd_geodata")
-    default_flagga <- TRUE
   } else {
     default_flagga <- FALSE
   }
@@ -1241,9 +1238,6 @@ postgres_rattigheter_anvandare_ta_bort <- function(con = "default",
   if (is.character(con) && con == "default") {
     con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
     default_flagga <- TRUE
-  } else if (is.character(con) && con == "adm") {
-    con <- uppkoppling_db(service_name = "rd_geodata")
-    default_flagga <- TRUE
   } else {
     default_flagga <- FALSE
   }
@@ -1319,9 +1313,6 @@ postgres_losenord_byt_for_anvandare <- function(con = "default",
   if (is.character(con) && con == "default") {
     con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
     default_flagga <- TRUE
-  } else if (is.character(con) && con == "adm") {
-    con <- uppkoppling_db(service_name = "rd_geodata")
-    default_flagga <- TRUE
   } else {
     default_flagga <- FALSE
   }
@@ -1354,9 +1345,6 @@ postgres_tabell_till_df <- function(con = "default",
   # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
   if (is.character(con) && con == "default") {
     con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
-    default_flagga <- TRUE
-  } else if (is.character(con) && con == "adm") {
-    con <- uppkoppling_db(service_name = "rd_geodata")
     default_flagga <- TRUE
   } else {
     default_flagga <- FALSE
@@ -1397,9 +1385,6 @@ postgres_tabell_ta_bort <- function(con = "default",
   if (is.character(con) && con == "default") {
     con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
     default_flagga <- TRUE
-  } else if (is.character(con) && con == "adm") {
-    con <- uppkoppling_db(service_name = "rd_geodata")
-    default_flagga <- TRUE
   } else {
     default_flagga <- FALSE
   }
@@ -1424,79 +1409,19 @@ postgres_tabell_ta_bort <- function(con = "default",
   
 }
  
-postgres_schema_finns <- function(schema, con = "default"
-                                  ) {
-  
-  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
-  if (is.character(con) && con == "default") {
-    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
-    default_flagga <- TRUE
-  } else if (is.character(con) && con == "adm") {
-    con <- uppkoppling_db(service_name = "rd_geodata")
-    default_flagga <- TRUE
-  } else {
-    default_flagga <- FALSE
-  }
-  
+postgres_schema_finns <- function(con, 
+                                  schema_namn) {
   query <- sprintf("
     SELECT EXISTS (
       SELECT 1
       FROM information_schema.schemata
       WHERE schema_name = '%s'
     ) AS schema_exists;
-  ", schema)
+  ", schema_namn)
   
   result <- dbGetQuery(con, query)
-  
-  if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
-  
   return(result$schema_exists[1])
 }
-
-postgres_schema_skapa <- function(con = "default", 
-                                  schema, 
-                                  meddelande_tid = FALSE
-) {
-  
-  starttid <- Sys.time()  # Starta tidstagning
-  
-  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
-  if (is.character(con) && con == "default") {
-    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
-    default_flagga <- TRUE
-  } else if (is.character(con) && con == "adm") {
-    con <- uppkoppling_db(service_name = "rd_geodata")
-    default_flagga <- TRUE
-  } else {
-    default_flagga <- FALSE
-  }
-  
-  # Skapa schema om det inte redan finns
-  skapa_schema_query <- paste0("CREATE SCHEMA IF NOT EXISTS ", schema, ";")
-  tryCatch({
-    dbExecute(con, skapa_schema_query)
-    schema_skapad <- TRUE  # Markera att schemat skapades om inget fel uppstod
-  }, error = function(e) {
-    message("Ett fel uppstod när schemat skulle skapas: ", e$message)
-  })
-  
-  # Kontrollslinga för att säkerställa att schemat finns innan rättigheter tilldelas
-  if (schema_skapad && dbGetInfo(con)$dbname == "geodata") {
-        tryCatch({
-         suppressMessages(postgres_rattigheter_anvandare_lagg_till(con = con, anvandarnamn = "geodata_las", rattigheter = c("CONNECT", "SELECT", "USAGE"), schema = schema))
-        }, error = function(e) {
-          message("Ett fel uppstod när rättigheterna skulle tilldelas: ", e$message)
-        })
-    }
-  
-  # Koppla ner om defaultuppkopplingen har använts
-  if (default_flagga) dbDisconnect(con)
-  
-  # Beräkna och skriv ut tidsåtgång om meddelande_tid är TRUE
-  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)
-  if (meddelande_tid) cat(glue("Processen tog {berakningstid} sekunder att köra"))
-}
-
 
 postgres_schema_ta_bort <- function(con = "default", 
                                     schema,
@@ -1509,12 +1434,9 @@ postgres_schema_ta_bort <- function(con = "default",
   if (is.character(con) && con == "default") {
     con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
     default_flagga <- TRUE
-  } else if (is.character(con) && con == "adm") {
-    con <- uppkoppling_db(service_name = "rd_geodata")
-    default_flagga <- TRUE
   } else {
     default_flagga <- FALSE
-  } 
+  }
   
   # Kontrollera om schemat existerar
   schema_finns <- dbGetQuery(con, paste0("
@@ -1772,9 +1694,6 @@ postgis_aktivera_i_postgres_db <- function(con = "default") {
   # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
   if (is.character(con) && con == "default") {
     con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
-    default_flagga <- TRUE
-  } else if (is.character(con) && con == "adm") {
-    con <- uppkoppling_db(service_name = "rd_geodata")
     default_flagga <- TRUE
   } else {
     default_flagga <- FALSE
@@ -2543,8 +2462,8 @@ gdb_extrahera_kolumnnamn_per_gislager <- function(gdb_sokvag,
   lager_kolumnnamn_lista <- map(alla_lager_i_gdb, function(lager_namn) {
     
     kolumner_namn <- system(glue("ogrinfo {gdb_sokvag} {lager_namn} -so"), intern = TRUE)
-    id_kol <- str_extract(str_subset(kolumner_namn, "FID Column"), "(?<= = ).*")        # extrahera namn på id_kolumn
-    geo_kol <- str_extract(str_subset(kolumner_namn, "Geometry Column"), "(?<= = ).*")  # extrahera namn på geo-kolumn
+    id_kol <- str_extract(str_subset(kolumner_namn, "FID Column"), '(?<= = ).*')        # extrahera namn på id_kolumn
+    geo_kol <- str_extract(str_subset(kolumner_namn, "Geometry Column"), '(?<= = ).*')  # extrahera namn på geo-kolumn
     
     # hitta startelement för där kolumnnamnen finns
     kolumner_start <- str_which(kolumner_namn, "Geometry Column = ") + 1 
@@ -2573,9 +2492,9 @@ gdb_extrahera_kolumnnamn_per_gislager <- function(gdb_sokvag,
     kolumnnamn_ny <- kolumnnamn_ny %>%
       modify_at(id_kol, ~ if (!is.na(nytt_namn_id_kol)) nytt_namn_id_kol else .x) %>%
       modify_at(geo_kol, ~ if (!is.na(nytt_namn_geo_kol)) nytt_namn_geo_kol else .x)
-    
+    return(retur_vekt)
   })
-  
+
   # döp alla element efter vad dess gis-lager heter
   names(lager_kolumnnamn_lista) <- alla_lager_i_gdb
   
