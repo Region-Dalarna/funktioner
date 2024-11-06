@@ -1,4 +1,3 @@
-cred_user_pass
 
 
 if (!require("pacman")) install.packages("pacman")
@@ -141,36 +140,29 @@ gtfs_fyll_calendar_dates_fran_calendar <- function(calendar_df,
   
 }
 
-#========== plotta gtfs data ===========
-# Helper function to plot shapes as lines
-mapview_gtfs <- function(gtfs_data) {
-  
-  # Check if shapes data exists
-  if (is.null(gtfs_data$shapes)) {
-    stop("The GTFS data does not contain shapes information. Unable to create map.")
-  }
-  shapes <- gtfs_data$shapes
-  
-  shapes <- shapes %>%
-    mutate(
-      shape_pt_lat = as.numeric(shape_pt_lat),
-      shape_pt_lon = as.numeric(shape_pt_lon)
-    )
-  
-  shapes_sf <- st_as_sf(shapes, coords = c("shape_pt_lon", "shape_pt_lat"), crs = 4326)
-  
-  shapes_lines <- shapes_sf %>%
-    group_by(shape_id) %>%
-    summarize(
-      geometry = st_cast(st_combine(geometry), "LINESTRING"),
-      .groups = 'drop'
-    )
-  
-  mapview(shapes_lines, zcol = "shape_id", legend = TRUE)
-}
+# =================== Hämtar GTFS-dataset ===================
 
-# =================== hämta gtfs dataset ===============
-# Main function to download GTFS data and optionally plot it
+# Huvudfunktion för nedladdning och bearbetning av GTFS-data
+# Argument:
+#   - gtfs_dataset: Specificerar dataset att ladda ner. Kan vara en RKM-kod (ex. "skane") eller "sverige_2" eller "sweden_3".
+#   - spara_filmap: Sökväg för att spara filerna. Om ingen sökväg anges, sparas filerna temporärt.
+#   - test_mode: Om TRUE, testas endast URL-åtkomst, ingen nedladdning sker (default = FALSE).
+#
+# Beskrivning:
+# Funktionen hämtar GTFS-data baserat på angivet dataset och sparar filerna i en angiven katalog (om specificerad).
+# Om test_mode är satt till TRUE, utförs en kontroll av URL:ens tillgänglighet utan att data hämtas.
+# Filen packas upp och innehållet bearbetas för att generera en lista av dataframes med GTFS-information.
+#
+# Retur:
+# Returnerar en lista med dataframes (routes, stops, stop_times, trips, calendar_dates, shapes, agency, feed_info).
+# shapes är NULL om shapes.txt saknas i datasetet.
+#
+# Felhantering:
+# Hanterar fel under nedladdning och bearbetning, och ger ett felmeddelande vid problem.
+# 
+# Förbättringspotential:
+#   - använda länskod för att hämta regionala dataset
+
 hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = FALSE) {
   tryCatch({
     datum <- str_remove_all(Sys.Date(), "-")
@@ -292,7 +284,53 @@ hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = 
 }    
 
 # Example usage
-
 # skane <- hamta_gtfs_data("skane")
-# 
+
+# ========== Plotta GTFS-data ==========
+
+# Hjälpfunktion för att visualisera "shapes" från ett GTFS-dataset som linjer på en karta
+# Argument:
+#   - gtfs_data: Ett objekt returnerat av funktionen för att hämta GTFS-data. Innehåller GTFS-data som bearbetats till dataframes.
+#
+# Beskrivning:
+# Funktionen skapar en karta med linjer baserade på shapes-data från ett GTFS-dataset. Shapes-data 
+# konverteras till ett sf-objekt (spatial format) och kombineras per shape_id till linjesegment.
+# Om GTFS-datasetet saknar shapes-information (exempelvis "gtfs_sverige_2"), avbryts funktionen med ett felmeddelande.
+#
+# Retur:
+# En interaktiv karta (via mapview) som visar linjer för varje shape_id i shapes-data.
+# Färgerna för linjerna representeras unikt per shape_id och en legend inkluderas.
+#
+# Felhantering:
+# Kontrollerar om shapes-data finns. Om inte, stoppas funktionen med ett meddelande till användaren.
+
+
+mapview_gtfs <- function(gtfs_data) {
+  
+  # Check if shapes data exists
+  if (is.null(gtfs_data$shapes)) {
+    stop("The GTFS data does not contain shapes information. Unable to create map.") # gtfs_sverige_2 does not have shapes.txt
+  }
+  shapes <- gtfs_data$shapes
+  
+  shapes <- shapes %>%
+    mutate(
+      shape_pt_lat = as.numeric(shape_pt_lat),
+      shape_pt_lon = as.numeric(shape_pt_lon)
+    )
+  
+  shapes_sf <- st_as_sf(shapes, coords = c("shape_pt_lon", "shape_pt_lat"), crs = 4326)
+  
+  shapes_lines <- shapes_sf %>%
+    group_by(shape_id) %>%
+    summarize(
+      geometry = st_cast(st_combine(geometry), "LINESTRING"),
+      .groups = 'drop'
+    )
+  
+  mapview(shapes_lines, zcol = "shape_id", legend = TRUE)
+}
+
+# Example usage
+
 # mapview_gtfs(skane)
