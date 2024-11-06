@@ -164,7 +164,7 @@ gtfs_fyll_calendar_dates_fran_calendar <- function(calendar_df,
 #   - använda länskod för att hämta regionala dataset, check!
 #   - hur ladda ner delar av sweden_3 eller sverige_2?
 
-hamta_gtfs_data_test <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = FALSE, regionkod = NULL) {
+hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = FALSE, regionkod = NULL) {
   tryCatch({
     datum <- str_remove_all(Sys.Date(), "-")
     
