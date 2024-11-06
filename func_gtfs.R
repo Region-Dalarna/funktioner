@@ -161,44 +161,12 @@ gtfs_fyll_calendar_dates_fran_calendar <- function(calendar_df,
 # Hanterar fel under nedladdning och bearbetning, och ger ett felmeddelande vid problem.
 # 
 # Förbättringspotential:
-#   - använda länskod för att hämta regionala dataset, check!
+#   - använda länskod för att hämta regionala dataset, funkar backar därför till en tidigare version!
 #   - hur ladda ner delar av sweden_3 eller sverige_2?
 
-hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = FALSE, regionkod = NULL) {
+hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = FALSE) {
   tryCatch({
     datum <- str_remove_all(Sys.Date(), "-")
-    
-    # Get the operator lookup table from gtfs_operatorer_sverige_nyckeltabell_hamta()
-    lookup_table <- gtfs_operatorer_sverige_nyckeltabell_hamta()
-    
-    # Print the lookup table for verification
-    print("Lookup Table:")
-    print(lookup_table)
-    
-    # Convert regionkod to character to ensure consistent data type
-    regionkod <- as.character(regionkod)
-    lookup_table$regionkod <- as.character(lookup_table$regionkod)
-    
-    # If regionkod is provided, use it to find the appropriate operatorkod
-    if (!is.null(regionkod)) {
-      operator_info <- lookup_table %>% filter(regionkod == !!regionkod)
-      
-      # Print the filtered operator_info for verification
-      print("Filtered operator_info:")
-      print(operator_info)
-      
-      # Ensure there's exactly one match for regionkod
-      if (nrow(operator_info) == 0) {
-        stop("No operator found for the provided region code.")
-      } else if (nrow(operator_info) > 1) {
-        warning("Multiple operators found for the provided region code. Using the first match.")
-        operator_info <- operator_info[1, ]  # Select the first row if multiple matches are found
-      }
-      
-      # Use the single matching operator code
-      gtfs_dataset <- operator_info$operatorkod
-      print(paste("Selected operator code:", gtfs_dataset)) # Confirm the selected operator code
-    }
     
     # Retrieve API key from keyring based on dataset
     if (gtfs_dataset == "sweden_3") {
@@ -216,7 +184,13 @@ hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = 
     
     # Test mode: only check if the URL is accessible
     if (test_mode) {
-      response <- if (gtfs_dataset == "sverige_2") GET(url) else HEAD(url)
+      if (gtfs_dataset == "sverige_2") {
+        # Use GET request for sverige_2 as it does not support HEAD requests
+        response <- GET(url)
+      } else {
+        # Use HEAD request for others
+        response <- HEAD(url)
+      }
       
       if (response$status_code == 200) {
         message("Test successful: The URL is accessible.")
@@ -226,9 +200,11 @@ hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = 
       return(invisible())  # Exits function without further execution
     }
     
-    # File name and path for downloading if a path is specified
+    # Filnamn och sökväg för nedladdning om en sökväg anges
     if (!is.na(spara_filmap)) {
-      if (!dir.exists(spara_filmap)) dir.create(spara_filmap, recursive = TRUE)
+      if (!dir.exists(spara_filmap)) {
+        dir.create(spara_filmap, recursive = TRUE)
+      }
       gtfs_fil <- paste0(spara_filmap, "/trafiklab_", gtfs_dataset, "_", datum, ".zip")
     } else {
       gtfs_fil <- tempfile(fileext = ".zip")
@@ -237,6 +213,9 @@ hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = 
     GET(url, write_disk(gtfs_fil, overwrite = TRUE))
     unzip_dir <- if (!is.na(spara_filmap)) paste0(spara_filmap, "/", gtfs_dataset, "_", datum) else tempfile()
     unzip(gtfs_fil, exdir = unzip_dir)
+    
+    # Lista alla filer i zip-arkivet
+    zip_innehall <- zip_list(gtfs_fil)$filename
     
     # Read and process GTFS files
     routes <- read.csv2(file.path(unzip_dir, "routes.txt"), sep = ",", encoding = "UTF-8", colClasses = 'character') %>%
@@ -264,12 +243,15 @@ hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = 
         direction_id = if ("direction_id" %in% names(.)) suppressWarnings(as.integer(direction_id)) else NA_integer_
       )
     
+    
     calendar_dates <- read.csv2(file.path(unzip_dir, "calendar_dates.txt"), sep = ",", encoding = "UTF-8", colClasses = 'character') %>%
       mutate(
         date = as.Date(date, format = "%Y%m%d"),
         exception_type = as.integer(exception_type)
       )
     
+    # Conditional read for shapes.txt with warning if missing
+    # Check for the existence of shapes.txt
     shapes <- if (file.exists(file.path(unzip_dir, "shapes.txt"))) {
       read.csv2(file.path(unzip_dir, "shapes.txt"), sep = ",", encoding = "UTF-8", colClasses = 'character') %>%
         mutate(
@@ -282,15 +264,17 @@ hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = 
     }
     
     agency <- read.csv2(file.path(unzip_dir, "agency.txt"), sep = ",", encoding = "UTF-8", colClasses = 'character')
+    
     feed_info <- read.csv2(file.path(unzip_dir, "feed_info.txt"), sep = ",", encoding = "UTF-8", colClasses = 'character')
     
+    # Return as a list of data frames
     return(list(
       routes = routes,
       stops = stops,
       stop_times = stop_times,
       trips = trips,
       calendar_dates = calendar_dates,
-      shapes = shapes,
+      shapes = shapes,  # will be NULL if shapes.txt is missing
       agency = agency,
       feed_info = feed_info
     ))
@@ -301,6 +285,12 @@ hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = 
 }    
 
 # Example usage
+# sweden_3 <- hamta_gtfs_data("sweden_3", test_mode = TRUE)
+# 
+# sverige_2 <- hamta_gtfs_data("sverige_2", test_mode = TRUE)
+# 
+# dt <- hamta_gtfs_data("dt", test_mode = TRUE)   
+#
 # skane <- hamta_gtfs_data("skane")
 
 # ========== Plotta GTFS-data ==========
