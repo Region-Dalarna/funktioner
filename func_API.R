@@ -140,44 +140,58 @@ hamta_giltig_tid_tabell <- function(skickad_url, tidkol = "år", tabort_var = NA
 # bubbeldiagram för branschindelning per kommun eller län
 
 skapa_intervaller <- function(skickad_kolumn, antal_intervaller = 5){
-  
-  intervall <- NA              # skapa variabel
-  
-  max_kol <- max(skickad_kolumn) 
-  min_kol <- min(skickad_kolumn)
-  range_kol <- max_kol - min_kol
-  
-  intervall_range <- round(range_kol / (antal_intervaller-1))
-  
-  # ta fram en siffra som vi avrundar till, ska helst vara 5000 om siffran ligger nära där, 500 om siffran är nära där osv.
-  avrundning_num <- round(intervall_range, nchar(intervall_range)*-1)/2
-  # om avrundning blir 0 så måste vi öka på den något
-  if (avrundning_num == 0) avrundning_num <- round(intervall_range, (nchar(intervall_range)-1)*-1)/2
-  
-  intervall[1] <- min_kol
-  intervall[antal_intervaller] <- max_kol
-  
-  for (x in 2:(antal_intervaller-1)){
-    intervall[x] <- min_kol + (intervall_range * (x-1))
+
+  antal_tecken <- function(tal) {
+    tal_retur <- 10^floor(log10(abs(tal)))
+    tal_retur <- nchar(as.character(abs(tal_retur)))
+    return(tal_retur)  # abs() används för att hantera negativa tal
   }
   
-  for (x in 1:length(intervall)){
-    tal <- round(intervall[x])
+  min_varde <- min(skickad_kolumn)
+  max_varde <- max(skickad_kolumn)
+  
+  intervaller <- exp(seq(log(min_varde), log(max_varde), length.out = antal_intervaller))
+  retur_intervaller <- round(intervaller, -(antal_tecken(intervaller)-1))
+  
+  return(retur_intervaller)
     
-    intervall[x] <- plyr::round_any(tal, avrundning_num)
-    if (intervall[x] == 0) intervall[x] <- avrundning_num/10    # speciallösning, kan kanske fungera för flera fall, om 0 använd avrundning_num / 10
-    #intervall[x] <- round(tal, (nchar(tal)-ifelse(nchar(tal)<5,1,2))*-1)
-    # lägg till om siffran blir samma som tidigare siffra i vektorn
-    if (x > 1){
-      if (intervall[x] == intervall[x-1]) intervall[x] <- intervall[x] + round(intervall_range, -2)  
-    }
-    
-    # fixa till om talet är under 1000 och nästa tal är över 1000, sätt till 500 i så fall
-    if (x < length(intervall)){
-      if (intervall[x] < 1000 & intervall[x+1] > 999) intervall[x] <- 500
-    }
-  }
-  return(intervall)
+  # intervall <- NA              # skapa variabel
+  # 
+  # max_kol <- max(skickad_kolumn) 
+  # min_kol <- min(skickad_kolumn)
+  # range_kol <- max_kol - min_kol
+  # 
+  # intervall_range <- round(range_kol / (antal_intervaller-1))
+  # 
+  # # ta fram en siffra som vi avrundar till, ska helst vara 5000 om siffran ligger nära där, 500 om siffran är nära där osv.
+  # avrundning_num <- round(intervall_range, nchar(intervall_range)*-1)/2
+  # # om avrundning blir 0 så måste vi öka på den något
+  # if (avrundning_num == 0) avrundning_num <- round(intervall_range, (nchar(intervall_range)-1)*-1)/2
+  # 
+  # intervall[1] <- min_kol
+  # intervall[antal_intervaller] <- max_kol
+  # 
+  # for (x in 2:(antal_intervaller-1)){
+  #   intervall[x] <- min_kol + (intervall_range * (x-1))
+  # }
+  # 
+  # for (x in 1:length(intervall)){
+  #   tal <- round(intervall[x])
+  #   
+  #   intervall[x] <- plyr::round_any(tal, avrundning_num)
+  #   if (intervall[x] == 0) intervall[x] <- avrundning_num/10    # speciallösning, kan kanske fungera för flera fall, om 0 använd avrundning_num / 10
+  #   #intervall[x] <- round(tal, (nchar(tal)-ifelse(nchar(tal)<5,1,2))*-1)
+  #   # lägg till om siffran blir samma som tidigare siffra i vektorn
+  #   if (x > 1){
+  #     if (intervall[x] == intervall[x-1]) intervall[x] <- intervall[x] + round(intervall_range, -2)  
+  #   }
+  #   
+  #   # fixa till om talet är under 1000 och nästa tal är över 1000, sätt till 500 i så fall
+  #   if (x < length(intervall)){
+  #     if (intervall[x] < 1000 & intervall[x+1] > 999) intervall[x] <- 500
+  #   }
+  # }
+  # return(intervall)
 }
 
 pxvarlist <- function(api_url){
@@ -1054,65 +1068,6 @@ github_lista_repos <- function(owner = "Region-Dalarna", skriv_ut_reponamn_i_kon
 }
 
 github_lista_repo_filer <- function(owner = "Region-Dalarna",                     # användaren vars repos vi ska lista
-                                    repo = "hamta_data",                          # repot vars filer vi ska lista
-                                    url_vekt_enbart = TRUE,                       # om TRUE returneras en vektor med url:er, annars en dataframe med både filnamn och url
-                                    skriv_source_konsol = TRUE,                   # om TRUE returneras färdiga source-satser som man kan klistra in i sin kod
-                                    till_urklipp = TRUE,                          # om TRUE skrivs source-satserna till urklipp om skriv_source_konsol är TRUE
-                                    filtrera = NA) {                                # om man vill filtrera filer på specifika sökord så gör man det här, kan vara ett eller en vektor med flera (som körs med OR och inte AND)
-  # En funktion för att lista filer i ett repository som finns hos en github-användare
-  # Användaren "Region-Dalarna" är standardinställing och standardinställning för repo
-  # är "hamta_data" så körs funktionen utan parametrar så listas alla filer i repot
-  # "hamta_data" för github-användaren Region-Dalarna
-  
-  url <- paste0("https://api.github.com/repos/", owner, "/", repo, "/contents")
-  response <- httr::GET(url)
-  content <- httr::content(response, "parsed")
-  
-  if (!http_type(response) %in% "application/json") {
-    stop("API-förfrågan misslyckades")
-  }
-  
-  retur_df <- tibble::tibble(
-    namn = map_chr(content, "name"),
-    url = map_chr(content, "download_url")
-  ) %>% .[.$namn != ".gitignore",] %>%
-    mutate(source = url %>% paste0('source("', ., '")\n'))
-  
-  if (!any(is.na(filtrera))) {
-    if (length(filtrera) > 1) filtrera <- paste0(filtrera, collapse = "|")
-    
-    if (length(filtrera) > 0 & str_detect(filtrera, "\\&")) {  # om filtrera innehåller ett eller flera &-tecken
-      sok_vekt <- str_split(filtrera, "\\&") %>% unlist()      # ta isär söksträngen på &-tecken och lägg i en vektor
-      retur_df <- retur_df %>% 
-        filter(reduce(sok_vekt, ~ .x & {
-          if (str_detect(.y, "^!")) {
-            # Om sökordet börjar med "!", exkludera det sökordet
-            !str_detect(tolower(namn), tolower(str_remove(.y, "^!")))
-          } else {
-            str_detect(tolower(namn), tolower(.y))
-          }
-        }, .init = TRUE))
-    } else {  # om filtrera inte innehåller &-tecken
-      if (str_detect(filtrera, "^!")) {
-        # Om sökordet börjar med "!", exkludera det sökordet
-        retur_df <- retur_df %>% filter(!str_detect(tolower(namn), tolower(str_remove(filtrera, "^!"))))
-      } else {
-        retur_df <- retur_df %>% filter(str_detect(tolower(namn), tolower(filtrera)))  
-      }
-    }
-
-   if (nrow(retur_df) == 0) stop("Inga filer hittades som matchade sökorden.")
-  }
-  if (skriv_source_konsol) {
-    cat(retur_df$source)
-    if (till_urklipp) {
-      # ta bort radbrytning i sista elementet på vektorn
-      writeLines(text = retur_df$source %>% modify_at(length(.), str_remove, pattern = "\n"), con = "clipboard", sep = "")
-    }
-  } else if (url_vekt_enbart) return(retur_df$url) else return(retur_df %>% select(-source))
-}
-
-github_lista_repo_filer_ny <- function(owner = "Region-Dalarna",                     # användaren vars repos vi ska lista
                                        repo = "hamta_data",                          # repot vars filer vi ska lista
                                        url_vekt_enbart = TRUE,                       # om TRUE returneras en vektor med url:er, annars en dataframe med både filnamn och url
                                        skriv_source_konsol = TRUE,                   # om TRUE returneras färdiga source-satser som man kan klistra in i sin kod
@@ -1285,90 +1240,6 @@ github_commit_push <- function(
     if (!fran_rmarkdown){
       # hämta ner en lista med filer som finns i remote repot
       github_fillista <- github_lista_repo_filer(owner = repo_org,
-                                                 repo = repo,
-                                                 url_vekt_enbart = FALSE,
-                                                 skriv_source_konsol = FALSE)$namn
-      
-      filer_uppdatering <- c(repo_status$untracked[repo_status$untracked %in% github_fillista],
-                             repo_status$unstaged[repo_status$unstaged %in% github_fillista])
-      
-      filer_nya <- c(repo_status$untracked[!repo_status$untracked %in% github_fillista],
-                     repo_status$unstaged[!repo_status$unstaged %in% github_fillista])
-      
-      uppdatering_txt <- case_when(length(filer_uppdatering) > 0 & length(filer_nya) > 0 ~ 
-                                     paste0(length(filer_nya), " ", ifelse(length(filer_nya) == 1, "fil", "filer"), " har lagts till och ", length(filer_uppdatering), 
-                                            " ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github"),
-                                   length(filer_uppdatering) > 0 & length(filer_nya) == 0 ~
-                                     paste0(length(filer_uppdatering), " ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github"),
-                                   length(filer_uppdatering) == 0 & length(filer_nya) > 0 ~
-                                     paste0(length(filer_nya), " ", ifelse(length(filer_nya) == 1, "fil", "filer"),  " har skickats upp till github."))
-      
-      filer_uppdatering_txt <- filer_uppdatering %>% paste0(collapse = "\n")
-      filer_nya_txt <- filer_nya %>% paste0(collapse = "\n")
-      
-      konsolmeddelande <- case_when(length(filer_uppdatering) > 0 & length(filer_nya) > 0 ~ 
-                                      paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har lagts till:\n", filer_nya_txt, 
-                                             "\n\n och följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github:\n", filer_uppdatering_txt),
-                                    length(filer_uppdatering) > 0 & length(filer_nya) == 0 ~
-                                      paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github:\n", filer_uppdatering_txt),
-                                    length(filer_uppdatering) == 0 & length(filer_nya) > 0 ~
-                                      paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github:\n", filer_nya_txt))
-      
-      if (is.na(commit_txt)) {
-        commit_txt <- uppdatering_txt  
-      }
-      
-    } else konsolmeddelande <- commit_txt # slut if-sats om det är fran_rmarkdown
-    # vi lägger till alla filer som är ändrade eller tillagda
-    git2r::add(push_repo, path = c(repo_status$untracked %>% as.character(),
-                                   repo_status$unstaged %>% as.character()))
-    
-    git2r::commit(push_repo, commit_txt) 
-    
-    # först en pull
-    if (pull_forst){
-      git2r::pull(repo = push_repo,                 
-                   credentials = cred_user_pass( username = key_list(service = "github")$username, 
-                                                 password = key_get("github", key_list(service = "github")$username)))
-    } # slut if-sats där man kan stänga av att man kör en pull först (inte att rekommendera)
-    
-    # och sedan en push
-    # git2r::push(object = push_repo,               
-    #              credentials = cred_user_pass( username = key_list(service = "github_token")$username, 
-    #                                            password = key_get("github_token", key_list(service = "github_token")$username)))
-    
-    # det har krånglat med att köra push() från git2r-paketet så denna sista del kör vi med system(), 
-    # dvs. att vi kör det med cmd. Funkar nog bara på windows så ingen robust lösning men det får gå för 
-    # nu
-    system(paste0('git -C ', lokal_sokvag_repo, ' push https://', key_list(service = "github_token")$username, ':', key_get("github_token", key_list(service = "github_token")$username), '@github.com/', repo_org, '/', repo, '.git'))
-    
-    
-    
-    cat(paste0("Commit och push till ", repo, " på Github är klar.\n\n", konsolmeddelande))
-    
-  } else {
-    print("Inga nya eller uppdaterade filer att ladda upp till Github.")
-  } # slut if-sats som testar om det finns filer att committa
-} # slut funktion
-
-
-github_commit_push_ny <- function(
-    sokvag_lokal_repo = "c:/gh/",
-    repo = "hamta_data",
-    repo_org = "Region-Dalarna",
-    commit_txt = NA,
-    fran_rmarkdown = FALSE,
-    pull_forst = TRUE) {
-  
-  lokal_sokvag_repo <- paste0(sokvag_lokal_repo, repo)
-  
-  push_repo <- git2r::init(lokal_sokvag_repo)
-  repo_status <- git2r::status(push_repo)
-  
-  if (length(repo_status$untracked) + length(repo_status$unstaged) > 0) {
-    if (!fran_rmarkdown){
-      # hämta ner en lista med filer som finns i remote repot
-      github_fillista <- github_lista_repo_filer_ny(owner = repo_org,
                                                     repo = repo,
                                                     url_vekt_enbart = FALSE,
                                                     skriv_source_konsol = FALSE)$namn
@@ -1434,11 +1305,6 @@ github_commit_push_ny <- function(
     print("Inga nya eller uppdaterade filer att ladda upp till Github.")
   } # slut if-sats som testar om det finns filer att committa
 } # slut funktion
-
-
-
-
-
 
 
 github_pull_lokalt_repo_fran_github <- function(
