@@ -62,19 +62,22 @@ gtfs_operatorer_sverige_nyckeltabell_hamta <- function(){
 gtfs_fyll_calendar_dagar <- function(calendar_dates_df){
   
   retur_df <- calendar_dates_df %>% 
-    mutate(datum = as.Date(paste0(str_sub(date, 1,4), "-",
-                                  str_sub(date, 5,6), "-",
-                                  str_sub(date, 7,8))),
-           veckodag = weekdays(datum),
-           weekday = c("Sunday", "Monday", "Tuesday",     # Convert dates to weekdays
-                       "Wednesday", "Thursday", "Friday",
-                       "Saturday")[as.numeric(format(datum, "%w"))+1]) %>% 
+    mutate(datum = if (!inherits(date, "Date")) {
+      as.Date(paste0(str_sub(date, 1, 4), "-",
+                     str_sub(date, 5, 6), "-",
+                     str_sub(date, 7, 8)))
+    } else {
+      date
+    },
+    veckodag = weekdays(datum),
+    weekday = c("Sunday", "Monday", "Tuesday",     # Convert dates to weekdays
+                "Wednesday", "Thursday", "Friday",
+                "Saturday")[as.numeric(format(datum, "%w")) + 1]) %>% 
     pivot_wider(names_from = weekday, values_from = exception_type) %>%
     mutate(across(c("Sunday", "Monday", "Tuesday",     # Convert dates to weekdays
                     "Wednesday", "Thursday", "Friday",
                     "Saturday"), as.numeric)) %>% 
     replace(is.na(.), 0) %>%
-    #mutate(service_id = service_id %>% as.integer()) %>% 
     group_by(service_id) %>% 
     summarise(monday = max(Monday),
               tuesday = max(Tuesday),
@@ -86,9 +89,10 @@ gtfs_fyll_calendar_dagar <- function(calendar_dates_df){
               start_date = min(date),
               end_date = max(date)) %>% 
     ungroup()
-  return(retur_df)
   
+  return(retur_df)
 }
+
 
 gtfs_fyll_calendar_dates_fran_calendar <- function(calendar_df, 
                                                    skickade_service_id = NA, 
