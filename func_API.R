@@ -1947,7 +1947,7 @@ kontrollera_pxweb_url <- function(url_scb_lista) {
       
       api_url <- .x %>%
         str_replace("pxweb", "api/v1") %>%                       # byt ut 
-        str_replace("https://", "http://")
+        #str_replace("https://", "http://")
       pos_revstart <- str_locate(api_url, "/sv/")[2]+1           # hitta slutet på start-delen av url:en
       start_url <- str_sub(api_url, 1, pos_revstart-2)           # ta ut start-url:en, dvs. den del som är likadan för alla url:er i Folkhälsomyndighetens tabeller
       rev_delar <- str_sub(api_url, pos_revstart) %>% str_split("/") %>% unlist() %>% .[. != ""]         # dela upp den del av url:en som vi ska revidera
