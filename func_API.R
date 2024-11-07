@@ -1366,14 +1366,14 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   
   org_namn <- case_when(str_detect(skickad_url_pxweb, "https://www.statistikdatabasen.scb.se") ~ "SCB:s",
                         str_detect(skickad_url_pxweb, "https://api.scb.se") ~ "SCB:s",
-                        str_detect(skickad_url_pxweb, "http://fohm-app.folkhalsomyndigheten.se") ~ "Folkhälsomyndighetens",
+                        str_detect(skickad_url_pxweb, "fohm-app.folkhalsomyndigheten.se") ~ "Folkhälsomyndighetens",
                         str_detect(skickad_url_pxweb, "statistik.tillvaxtanalys.se") ~ "Tillväxtanalys",
                         str_detect(skickad_url_pxweb, "statistik.sjv.se") ~ "Jordbruksverkets") %>% 
                         unique()
   
   org_kortnamn <- case_when(str_detect(skickad_url_pxweb, "https://www.statistikdatabasen.scb.se") ~ "scb",
                         str_detect(skickad_url_pxweb, "https://api.scb.se") ~ "scb",
-                        str_detect(skickad_url_pxweb, "http://fohm-app.folkhalsomyndigheten.se") ~ "fohm",
+                        str_detect(skickad_url_pxweb, "fohm-app.folkhalsomyndigheten.se") ~ "fohm",
                         str_detect(skickad_url_pxweb, "statistik.tillvaxtanalys.se") ~ "tva",
                         str_detect(skickad_url_pxweb, "statistik.sjv.se") ~ "sjv") %>%
     unique()
@@ -1397,7 +1397,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     px_meta_enkel_list <- sortera_px_variabler(px_meta_enkel_list, sorterings_vars = "tid", sortera_pa_kod = TRUE)
   }
   
-  if ("år" %in% tolower(tabell_variabler$koder) & any(str_detect(url_scb, "http://fohm-app.folkhalsomyndigheten.se"))) {
+  if ("år" %in% tolower(tabell_variabler$koder) & any(str_detect(url_scb, "fohm-app.folkhalsomyndigheten.se"))) {
     px_meta_enkel_list <- sortera_px_variabler(px_meta_enkel_list, sorterings_vars = "år", sortera_pa_kod = TRUE)
   }
   
@@ -1943,10 +1943,11 @@ kontrollera_pxweb_url <- function(url_scb_lista) {
       str_c(start_url, .) #%>% str_sub(., 1, nchar(.)-1)
     
     return(retur_url)
-  } else if (str_detect(.x, "http://fohm-app.folkhalsomyndigheten.se/Folkhalsodata/pxweb")) {
+  } else if (str_detect(.x, "https://fohm-app.folkhalsomyndigheten.se/Folkhalsodata/pxweb")) {
       
       api_url <- .x %>%
-        str_replace("pxweb", "api/v1")                             # byt ut 
+        str_replace("pxweb", "api/v1") %>%                       # byt ut 
+        str_replace("https://", "http://")
       pos_revstart <- str_locate(api_url, "/sv/")[2]+1           # hitta slutet på start-delen av url:en
       start_url <- str_sub(api_url, 1, pos_revstart-2)           # ta ut start-url:en, dvs. den del som är likadan för alla url:er i Folkhälsomyndighetens tabeller
       rev_delar <- str_sub(api_url, pos_revstart) %>% str_split("/") %>% unlist() %>% .[. != ""]         # dela upp den del av url:en som vi ska revidera
