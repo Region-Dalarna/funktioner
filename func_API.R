@@ -150,7 +150,7 @@ skapa_intervaller <- function(skickad_kolumn, antal_intervaller = 5){
   min_varde <- min(skickad_kolumn)
   max_varde <- max(skickad_kolumn)
   
-  intervaller <- exp(seq(log(min_varde), log(max_varde), length.out = antal_intervall))
+  intervaller <- exp(seq(log(min_varde), log(max_varde), length.out = antal_intervaller))
   retur_intervaller <- round(intervaller, -(antal_tecken(intervaller)-1))
   
   return(retur_intervaller)
