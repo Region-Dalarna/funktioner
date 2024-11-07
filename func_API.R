@@ -1366,16 +1366,14 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   
   org_namn <- case_when(str_detect(skickad_url_pxweb, "https://www.statistikdatabasen.scb.se") ~ "SCB:s",
                         str_detect(skickad_url_pxweb, "https://api.scb.se") ~ "SCB:s",
-                        str_detect(skickad_url_pxweb, "http://fohm-app.folkhalsomyndigheten.se") ~ "Folkhälsomyndighetens",
-                        str_detect(skickad_url_pxweb, "https://fohm-app.folkhalsomyndigheten.se") ~ "Folkhälsomyndighetens",
+                        str_detect(skickad_url_pxweb, "fohm-app.folkhalsomyndigheten.se") ~ "Folkhälsomyndighetens",
                         str_detect(skickad_url_pxweb, "statistik.tillvaxtanalys.se") ~ "Tillväxtanalys",
                         str_detect(skickad_url_pxweb, "statistik.sjv.se") ~ "Jordbruksverkets") %>% 
                         unique()
   
   org_kortnamn <- case_when(str_detect(skickad_url_pxweb, "https://www.statistikdatabasen.scb.se") ~ "scb",
                         str_detect(skickad_url_pxweb, "https://api.scb.se") ~ "scb",
-                        str_detect(skickad_url_pxweb, "http://fohm-app.folkhalsomyndigheten.se") ~ "fohm",
-                        str_detect(skickad_url_pxweb, "https://fohm-app.folkhalsomyndigheten.se") ~ "Folkhälsomyndighetens",
+                        str_detect(skickad_url_pxweb, "fohm-app.folkhalsomyndigheten.se") ~ "fohm",
                         str_detect(skickad_url_pxweb, "statistik.tillvaxtanalys.se") ~ "tva",
                         str_detect(skickad_url_pxweb, "statistik.sjv.se") ~ "sjv") %>%
     unique()
@@ -1399,7 +1397,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     px_meta_enkel_list <- sortera_px_variabler(px_meta_enkel_list, sorterings_vars = "tid", sortera_pa_kod = TRUE)
   }
   
-  if ("år" %in% tolower(tabell_variabler$koder) & any(str_detect(url_scb, "http://fohm-app.folkhalsomyndigheten.se"))) {
+  if ("år" %in% tolower(tabell_variabler$koder) & any(str_detect(url_scb, "fohm-app.folkhalsomyndigheten.se"))) {
     px_meta_enkel_list <- sortera_px_variabler(px_meta_enkel_list, sorterings_vars = "år", sortera_pa_kod = TRUE)
   }
   
