@@ -1039,6 +1039,28 @@ url_finns_webbsida <- function(skickad_url) {
   return(status == 200)
 }
 
+period_jmfr_filter <- function(period_kolumn, vald_period, period_vekt) {
+  # en funktion för att extrahera perioder ur dataset med positioner från ett (eller flera) medskickade värden
+  # t.ex. om man vill ha samma månad 1, 2, och 3 år tillbaka i ett dataset med månader så skickar man med
+  # c(-12, -24, -36) och kanske senaste period tex. 2025M03, kommer då att returnera 2024M03, 2023M03 och 2022M03
+  #
+  # period_kolumn är hela kolumnen, tex. df$månad
+  # vald_period är en eller flera perioder som man gör jämförelser från
+  # period_vekt är en vektor med antal enheter bakåt eller framåt i tiden från vald_period
+  
+  retur_vekt <- map(vald_period, function(period) {
+    valda_pos <- period_vekt[period_vekt > 0]
+    valda_neg <- period_vekt[period_vekt < 0]
+    
+    filter_period_pos <- sort(unique(period_kolumn %>% .[. <= period]), decreasing = TRUE)[abs(valda_neg)]
+    filter_period_neg <- sort(unique(period_kolumn %>% .[. >= period]), decreasing = FALSE)[abs(valda_pos)]
+    filter_period_tot <- c(filter_period_neg, filter_period_pos)
+    return(filter_period_tot)
+  }) %>% unlist()
+  
+  return(retur_vekt)
+}
+
 # ================================================= github-funktioner ========================================================
 
 github_lista_repos <- function(owner = "Region-Dalarna", skriv_ut_reponamn_i_konsol = TRUE) {
