@@ -842,14 +842,14 @@ mapp_temp_peter <- function(){ return("g:/skript/peter/temp/")}
 
 mapp_leveranser <- function(){"g:/Samhällsanalys/Leveranser/"}
 
-manader_bearbeta_scbtabeller <- function(skickad_df) {
+manader_bearbeta_scbtabeller <- function(skickad_df, kolumn_manad = "månad") {
   # funktion för att skapa kolumnerna år, månad, månad_år samt år_månad av kolumnen månad som 
   # ligger i flera scb-tabeller och är strukturerad som år, bokstaven "M" och sedan månads-
   # nummer med två tecken (nolla framför på årets första 9 månader), alltså "2023M11" för 
   # november 2023.
   
   retur_df <- skickad_df %>% 
-    rename(tid = månad) %>% 
+    rename(tid = !!sym(kolumn_manad)) %>% 
     mutate(år = str_sub(tid, 1, 4) %>% as.integer(),
            månad_nr = parse_integer(str_sub(tid, 6,7)),
            månad = format(as.Date(paste(år, str_sub(tid, 6,7), "1", sep = "-")), "%B"),
