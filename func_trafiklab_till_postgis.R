@@ -1,16 +1,4 @@
-if (!require("pacman")) install.packages("pacman")
-p_load(sf,
-       data.table,
-       rio,
-       glue,
-       openxlsx,
-       tidyverse, 
-       mapview,
-       RPostgres,
-       keyring,
-       httr)
-
-
+#========== Skapa tabellstruktur ===========
 skapa_tabeller <- function(con){
   tryCatch({
     
@@ -243,6 +231,101 @@ skapa_tabeller <- function(con){
   })
 }
 
+#========== Ladda hem GTFS ===========
+#Returnerar all data i en lista med dataframes
+ladda_hem_gtfs <- function(){
+  # Lägg allt inom tryCatch för att skicka vidare ett fel till huvudskriptet om något blir fel under körning
+  tryCatch({
+    
+    #Sökvägen till mappen för nedladdning - ändra sen till "icke" getwd()
+    data_input <- paste0(getwd(), "/data")
+    
+    ### url for GTFS
+    
+    # ange operatör
+    rkm = "dt" # !!!!!! Specify RKM. Available values : sl, ul, sormland, otraf, krono, klt, gotland, blekinge, skane, halland, vt, varm, orebro, vl, dt, xt, dintur, sj
+    
+    # dagens datum
+    datum <- str_remove_all(Sys.Date(), "-")
+    
+    # ELLER datum senaste nedladdning <- används för testning för att slippa ladda ner en ny fil
+    #datum <- "20240605"
+    
+    # skapa hela sökvägen
+    sokvag_datum <- paste0(data_input, "/trafiklab_", rkm, "_", datum)
+    # print(sokvag_datum)
+    #=========== Start kommenteringen som sedan skall tas bort, för att slippa ladda hem varje gång ==========
+    #skapa sökvägen till den nedladddade GTFS-filen med rkm och datum
+    gtfs_regional_fil <- paste0(sokvag_datum, ".zip")
+    
+    # skapa och hämta url:en till gtfs-feeden
+    url_regional <- paste0("https://opendata.samtrafiken.se/gtfs/", rkm, "/", rkm, ".zip?key=", key_get("API_trafiklab_token", "GTFS_Regional"))
+    
+    GET(url_regional, write_disk(gtfs_regional_fil, overwrite=TRUE))
+    
+    # Zippa upp csv-filerna och lägg i undermapp
+    unzip(gtfs_regional_fil, exdir = sokvag_datum)
+    
+    
+    #=========== Slut kommenteringen som sedan skall tas bort, för att slippa ladda hem varje gång ==========
+    
+    #Läs in filerna - glöm inte colClasses = 'character' för att undvika problem med IDn
+    # Konvertera datatyper för de fält som INTE är VARCHAR i databasen med mutate 
+    routes <- read.csv2(paste0(sokvag_datum, "/routes.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
+      mutate(
+        route_type = as.integer(route_type)
+      )
+    # Stops, extrahera hpl_id från stop_id och lägg till som kolumn.
+    stops <- read.csv2(paste0(sokvag_datum, "/stops.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
+      mutate(
+        hpl_id = substr(stop_id, 8, 13),
+        stop_lat = as.numeric(stop_lat),
+        stop_lon = as.numeric(stop_lon),
+        location_type = as.integer(location_type)
+      )
+    
+    stop_times <- read.csv2(paste0(sokvag_datum, "/stop_times.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
+      mutate(
+        stop_sequence = as.integer(stop_sequence),
+        pickup_type = as.integer(pickup_type),
+        drop_off_type = as.integer(drop_off_type),
+        shape_dist_traveled = as.numeric(shape_dist_traveled),
+        timepoint = as.integer(timepoint)
+      )
+    
+    trips <- read.csv2(paste0(sokvag_datum, "/trips.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
+      mutate(
+        direction_id = as.integer(direction_id)
+      )
+    
+    calendar_dates <- read.csv2(paste0(sokvag_datum, "/calendar_dates.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
+      mutate(
+        date = as.Date(date, format = "%Y%m%d"),
+        exception_type = as.integer(exception_type)
+      )
+    
+    shapes <- read.csv2(paste0(sokvag_datum, "/shapes.txt"), sep = ",", encoding="UTF-8", stringsAsFactors=FALSE, colClasses = 'character') %>%
+      mutate(
+        shape_pt_sequence = as.integer(shape_pt_sequence),
+        shape_dist_traveled = as.numeric(shape_dist_traveled)
+      )
+    
+    agency = read.csv2(paste0(sokvag_datum, "/agency.txt"),
+                       sep = ",", encoding="UTF-8", stringsAsFactors=FALSE, colClasses = 'character')
+    
+    feed_info = read.csv2(paste0(sokvag_datum, "/feed_info.txt"),
+                          sep = ",", encoding="UTF-8", stringsAsFactors=FALSE, colClasses = 'character')
+    
+    
+    #Returnera en lista med alla dataframes
+    return(list(routes = routes, stops = stops, stop_times = stop_times, trips = trips, calendar_dates = calendar_dates, shapes = shapes, agency = agency, feed_info = feed_info))
+  }, error = function(e){
+    stop(paste("Ett fel inträffade vid nedladdning och upppackning av GTFS-data: ", e$message))
+  })
+  
+}
+
+#========== Versionshantering ========
 versionshantering <- function (con, gtfs_data){
   tryCatch({
     # Hämta sista datumet i calendar_dates från databasen
@@ -301,6 +384,8 @@ versionshantering <- function (con, gtfs_data){
   })
 }
 
+
+#========== Radera versioner äldre än 3 år =====
 radera_gamla_versioner <- function(con, antal_ar){
   tryCatch({
     # Hämta datumet för 3 år sedan
@@ -328,6 +413,8 @@ radera_gamla_versioner <- function(con, antal_ar){
   })
 }
 
+
+#========== Ladda upp till databas ============
 ladda_upp_till_databas <- function(con, gtfs_data){
   # Felhantera uppladdningen
   tryCatch({
@@ -403,6 +490,8 @@ ladda_upp_till_databas <- function(con, gtfs_data){
   
 }
 
+
+#========== Skapa och fyll linjeklassificering ==========
 skapa_tabell_linjeklassificering <- function(con) {
   
   # OBS!!! Om nya undantag läggs till eller satsen som # Infoga klassificeringar behöver ändras se till att lägga undantagen först.
@@ -442,6 +531,7 @@ skapa_tabell_linjeklassificering <- function(con) {
   })
 }
 
+#========== Skapa vyer för hållplats ============
 skapa_vyer_hallplats <- function(con) {
   # Felhantering
   tryCatch({
@@ -581,6 +671,7 @@ skapa_vyer_hallplats <- function(con) {
   })
 }
 
+#========== Skapa vyer linjer ========
 skapa_vyer_linjer <- function(con) {
   tryCatch({
     # Droppa den materialiserade vyn om den redan finns
@@ -732,7 +823,7 @@ skapa_vyer_linjer <- function(con) {
     stop(paste("Ett fel inträffade vid skapandet av vyn:", e$message))
   })
 }
-
+#========== Skapa historiska vyer för hållplats ==============
 skapa_vyer_historisk_hallplats <- function(con) {
   tryCatch({
     # Droppa de materialiserade vyerna om de finns
@@ -885,6 +976,7 @@ skapa_vyer_historisk_hallplats <- function(con) {
   })
 }
 
+#========== Skapa historiska vyer för linjer ===========
 skapa_vyer_historisk_linjer <- function(con) {
   tryCatch({
     # Droppa de materialiserade vyerna om de finns
@@ -1043,4 +1135,17 @@ skapa_vyer_historisk_linjer <- function(con) {
   }, error = function(e) {
     stop(paste("Ett fel inträffade vid skapandet av materialiserade vyer:", e$message))
   })
+}
+
+
+#========== Logg-funktion ============
+logga_event <- function(message, log_file_path) {
+  # Få den aktuella tidstämpeln
+  timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+  
+  # Skapa loggmeddelandet
+  log_message <- paste(timestamp, message, sep=" - ")
+  
+  # Skriv meddelandet till loggfilen
+  cat(log_message, "\n", file = log_file_path, append = TRUE)
 }
