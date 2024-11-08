@@ -842,14 +842,14 @@ mapp_temp_peter <- function(){ return("g:/skript/peter/temp/")}
 
 mapp_leveranser <- function(){"g:/Samhällsanalys/Leveranser/"}
 
-manader_bearbeta_scbtabeller <- function(skickad_df) {
+manader_bearbeta_scbtabeller <- function(skickad_df, kolumn_manad = "månad") {
   # funktion för att skapa kolumnerna år, månad, månad_år samt år_månad av kolumnen månad som 
   # ligger i flera scb-tabeller och är strukturerad som år, bokstaven "M" och sedan månads-
   # nummer med två tecken (nolla framför på årets första 9 månader), alltså "2023M11" för 
   # november 2023.
   
   retur_df <- skickad_df %>% 
-    rename(tid = månad) %>% 
+    rename(tid = !!sym(kolumn_manad)) %>% 
     mutate(år = str_sub(tid, 1, 4) %>% as.integer(),
            månad_nr = parse_integer(str_sub(tid, 6,7)),
            månad = format(as.Date(paste(år, str_sub(tid, 6,7), "1", sep = "-")), "%B"),
@@ -1037,6 +1037,28 @@ url_finns_webbsida <- function(skickad_url) {
   response <- HEAD(skickad_url)
   status <- status_code(response)
   return(status == 200)
+}
+
+period_jmfr_filter <- function(period_kolumn, vald_period, period_vekt) {
+  # en funktion för att extrahera perioder ur dataset med positioner från ett (eller flera) medskickade värden
+  # t.ex. om man vill ha samma månad 1, 2, och 3 år tillbaka i ett dataset med månader så skickar man med
+  # c(-12, -24, -36) och kanske senaste period tex. 2025M03, kommer då att returnera 2024M03, 2023M03 och 2022M03
+  #
+  # period_kolumn är hela kolumnen, tex. df$månad
+  # vald_period är en eller flera perioder som man gör jämförelser från
+  # period_vekt är en vektor med antal enheter bakåt eller framåt i tiden från vald_period
+  
+  retur_vekt <- map(vald_period, function(period) {
+    valda_pos <- period_vekt[period_vekt > 0]
+    valda_neg <- period_vekt[period_vekt < 0]
+    
+    filter_period_pos <- sort(unique(period_kolumn %>% .[. <= period]), decreasing = TRUE)[abs(valda_neg)]
+    filter_period_neg <- sort(unique(period_kolumn %>% .[. >= period]), decreasing = FALSE)[abs(valda_pos)]
+    filter_period_tot <- c(filter_period_neg, filter_period_pos)
+    return(filter_period_tot)
+  }) %>% unlist()
+  
+  return(retur_vekt)
 }
 
 # ================================================= github-funktioner ========================================================
@@ -1946,8 +1968,8 @@ kontrollera_pxweb_url <- function(url_scb_lista) {
   } else if (str_detect(.x, "https://fohm-app.folkhalsomyndigheten.se/Folkhalsodata/pxweb")) {
       
       api_url <- .x %>%
-        str_replace("pxweb", "api/v1") %>%                       # byt ut 
-        str_replace("https://", "http://")
+        str_replace("pxweb", "api/v1")                           # byt ut 
+        #str_replace("https://", "http://")
       pos_revstart <- str_locate(api_url, "/sv/")[2]+1           # hitta slutet på start-delen av url:en
       start_url <- str_sub(api_url, 1, pos_revstart-2)           # ta ut start-url:en, dvs. den del som är likadan för alla url:er i Folkhälsomyndighetens tabeller
       rev_delar <- str_sub(api_url, pos_revstart) %>% str_split("/") %>% unlist() %>% .[. != ""]         # dela upp den del av url:en som vi ska revidera
