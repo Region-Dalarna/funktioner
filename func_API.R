@@ -1053,13 +1053,13 @@ period_jmfr_filter <- function(period_kolumn, vald_period, period_vekt, inkluder
     valda_pos <- period_vekt[period_vekt > 0]
     valda_neg <- period_vekt[period_vekt < 0]
     
-    filter_period_pos <- sort(unique(period_kolumn %>% .[. <= period]), decreasing = TRUE)[abs(valda_neg)]
-    filter_period_neg <- sort(unique(period_kolumn %>% .[. >= period]), decreasing = FALSE)[abs(valda_pos)]
+    filter_period_pos <- sort(unique(period_kolumn %>% .[. < period]), decreasing = TRUE)[abs(valda_neg)]
+    filter_period_neg <- sort(unique(period_kolumn %>% .[. > period]), decreasing = FALSE)[abs(valda_pos)]
     filter_period_tot <- c(filter_period_neg, filter_period_pos)
     return(filter_period_tot)
   }) %>% unlist()
   
-  if (inkludera_vald_period) retur_vekt <- c(retur_vekt, vald_period)
+  if (inkludera_vald_period) retur_vekt <- c(vald_period, retur_vekt)
   
   return(retur_vekt)
 }
