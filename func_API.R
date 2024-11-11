@@ -7,6 +7,7 @@ p_load(pxweb,
        rKolada,
        httr,
        keyring,
+       rvest,
        usethis,
        git2r,
        glue)
@@ -901,6 +902,10 @@ webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel
   
   # hämta webbsidan med tidigare statistik på Arbetsförmedlingen och spara som en vektor
   webbsida <- suppressWarnings(readLines(skickad_url))
+  html_af <- rvest::read_html(skickad_url)
+  webbsida <- html_af %>% 
+    html_nodes("a") %>%
+    html_attr("href")
   
   # Få index för de element på webbsidan där alla sökord är med,
   # tabort-sökord, dvs. sökord som börjar med "!" tas inte med i funktionen
@@ -913,24 +918,24 @@ webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel
     }))
   }))
   
-  fil_strang <- webbsida[sokord_index]                          # skapa sträng med det element där båda är med
+  af_urler <- webbsida[sokord_index]                          # skapa sträng med det element där båda är med
   
-  # i den strängen, ta ut startposition för alla "/download/" som hittar i strängen (det är sökvägar)
-  start_sokvagar <- str_locate_all(fil_strang, "/download/")[[1]][,1]  
-  
-  # funktion för att ta ut fullständig url från de startpositioner vi hittade i raden ovan
-  extrahera_sokvag <- function(strang, startpos) {
-    
-    nystrang <- str_sub(strang, startpos, nchar(strang))
-    slutpos <- str_locate(nystrang, '\"')[[1]]-1
-    
-    retur_strang <- str_sub(nystrang, 1, slutpos)
-    retur_strang <- paste0("https://arbetsformedlingen.se", retur_strang)
-    return(retur_strang)
-  }       
-  
+  # # i den strängen, ta ut startposition för alla "/download/" som hittar i strängen (det är sökvägar)
+  # start_sokvagar <- str_locate_all(fil_strang, "/download/")[[1]][,1]  
+  # 
+  # # funktion för att ta ut fullständig url från de startpositioner vi hittade i raden ovan
+  # extrahera_sokvag <- function(strang, startpos) {
+  #   
+  #   nystrang <- str_sub(strang, startpos, nchar(strang))
+  #   slutpos <- str_locate(nystrang, '\"')[[1]]-1
+  #   
+  #   retur_strang <- str_sub(nystrang, 1, slutpos)
+  #   retur_strang <- paste0("https://arbetsformedlingen.se", retur_strang)
+  #   return(retur_strang)
+  # }       
+  # 
   # vi skapar en vektor med fullständiga sökvägar för samtliga excelfiler som finns på webbsidan
-  af_urler <- start_sokvagar %>% map_chr(~ extrahera_sokvag(fil_strang, .x))
+  # af_urler <- start_sokvagar %>% map_chr(~ extrahera_sokvag(fil_strang, .x))
   
   # Filtrera de element i 'texts' där alla sökord finns
   sokord_url <- af_urler %>%
@@ -946,6 +951,8 @@ webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel
         }
       }))
     })
+  
+  sokord_url <- paste0("https://arbetsformedlingen.se", af_urler)
   
     return(sokord_url)
 } 
