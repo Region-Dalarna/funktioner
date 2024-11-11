@@ -901,7 +901,7 @@ korrigera_kolnamn_supercross <- function(skickad_fil, teckenkodstabell = "latin1
 webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel", "lan", "!bransch", ".xlsx")) {
   
   # hämta webbsidan med tidigare statistik på Arbetsförmedlingen och spara som en vektor
-  webbsida <- suppressWarnings(readLines(skickad_url))
+  #webbsida <- suppressWarnings(readLines(skickad_url))
   html_af <- rvest::read_html(skickad_url)
   webbsida <- html_af %>% 
     html_nodes("a") %>%
