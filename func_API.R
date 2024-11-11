@@ -1338,17 +1338,52 @@ github_pull_lokalt_repo_fran_github <- function(
     repo_org = "Region-Dalarna"
     ) {
 
-  lokal_sokvag_repo <- paste0(sokvag_lokal_repo, repo)
-  
-  push_repo <- git2r::init(lokal_sokvag_repo)
-  #repo_status <- git2r::status(push_repo)
-  
-  git2r::pull( repo = push_repo,                 
-               credentials = cred_user_pass( username = key_list(service = "github")$username, 
-                                             password = key_get("github", key_list(service = "github")$username)))
-  
-  
-  }
+  if (all(repo == "*")) repo <- list.files(sokvag_lokal_repo)
+
+  walk(repo, ~ {
+      
+    lokal_sokvag_repo <- paste0(sokvag_lokal_repo, .x)
+    
+    push_repo <- git2r::init(lokal_sokvag_repo)
+    #repo_status <- git2r::status(push_repo)
+    
+    # Om repo-initialiseringen misslyckas, hoppa över med ett meddelande
+    if (is.null(push_repo)) {
+      cat("Kunde inte initiera repositoryt", .x, ". Hoppar över.\n")
+      flush.console()
+      #return(NULL)
+    }
+    
+    resultat <- tryCatch(
+      {
+        git2r::pull(
+          repo = push_repo,
+          credentials = cred_user_pass(
+            username = key_list(service = "github")$username,
+            password = key_get("github", key_list(service = "github")$username)
+          )
+        )
+      },
+      error = function(e) {
+        #cat("Fel vid försök att dra från repositoryt", .x, ":", e$message, "\n")
+        #flush.console()
+        return("Hittar inte repositoryt på github.com.")
+      }
+    )
+    
+    # resultat <- git2r::pull( repo = push_repo,                 
+    #               credentials = cred_user_pass( username = key_list(service = "github")$username, 
+    #                                            password = key_get("github", key_list(service = "github")$username)))
+    cat(paste0(.x, ": "))
+    flush.console()
+    if (is.character(resultat)) {
+      cat(resultat, "\n")  # Använd cat() för att skriva ut utan citationstecken och [1]
+    } else {
+      print(resultat)
+    }
+    flush.console()
+  }) # slut walk-funktion
+  } # slut funktion
 
 # ================================================= skapa skript-funktioner ========================================================
 
