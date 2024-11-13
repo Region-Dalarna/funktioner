@@ -7,6 +7,7 @@ p_load(pxweb,
        rKolada,
        httr,
        keyring,
+       rvest,
        usethis,
        git2r,
        glue)
@@ -900,7 +901,11 @@ korrigera_kolnamn_supercross <- function(skickad_fil, teckenkodstabell = "latin1
 webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel", "lan", "!bransch", ".xlsx")) {
   
   # hämta webbsidan med tidigare statistik på Arbetsförmedlingen och spara som en vektor
-  webbsida <- suppressWarnings(readLines(skickad_url))
+  #webbsida <- suppressWarnings(readLines(skickad_url))
+  html_af <- rvest::read_html(skickad_url)
+  webbsida <- html_af %>% 
+    html_nodes("a") %>%
+    html_attr("href")
   
   # Få index för de element på webbsidan där alla sökord är med,
   # tabort-sökord, dvs. sökord som börjar med "!" tas inte med i funktionen
@@ -913,24 +918,24 @@ webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel
     }))
   }))
   
-  fil_strang <- webbsida[sokord_index]                          # skapa sträng med det element där båda är med
+  af_urler <- webbsida[sokord_index]                          # skapa sträng med det element där båda är med
   
-  # i den strängen, ta ut startposition för alla "/download/" som hittar i strängen (det är sökvägar)
-  start_sokvagar <- str_locate_all(fil_strang, "/download/")[[1]][,1]  
-  
-  # funktion för att ta ut fullständig url från de startpositioner vi hittade i raden ovan
-  extrahera_sokvag <- function(strang, startpos) {
-    
-    nystrang <- str_sub(strang, startpos, nchar(strang))
-    slutpos <- str_locate(nystrang, '\"')[[1]]-1
-    
-    retur_strang <- str_sub(nystrang, 1, slutpos)
-    retur_strang <- paste0("https://arbetsformedlingen.se", retur_strang)
-    return(retur_strang)
-  }       
-  
+  # # i den strängen, ta ut startposition för alla "/download/" som hittar i strängen (det är sökvägar)
+  # start_sokvagar <- str_locate_all(fil_strang, "/download/")[[1]][,1]  
+  # 
+  # # funktion för att ta ut fullständig url från de startpositioner vi hittade i raden ovan
+  # extrahera_sokvag <- function(strang, startpos) {
+  #   
+  #   nystrang <- str_sub(strang, startpos, nchar(strang))
+  #   slutpos <- str_locate(nystrang, '\"')[[1]]-1
+  #   
+  #   retur_strang <- str_sub(nystrang, 1, slutpos)
+  #   retur_strang <- paste0("https://arbetsformedlingen.se", retur_strang)
+  #   return(retur_strang)
+  # }       
+  # 
   # vi skapar en vektor med fullständiga sökvägar för samtliga excelfiler som finns på webbsidan
-  af_urler <- start_sokvagar %>% map_chr(~ extrahera_sokvag(fil_strang, .x))
+  # af_urler <- start_sokvagar %>% map_chr(~ extrahera_sokvag(fil_strang, .x))
   
   # Filtrera de element i 'texts' där alla sökord finns
   sokord_url <- af_urler %>%
@@ -946,6 +951,8 @@ webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel
         }
       }))
     })
+  
+  sokord_url <- paste0("https://arbetsformedlingen.se", af_urler)
   
     return(sokord_url)
 } 
@@ -1039,7 +1046,7 @@ url_finns_webbsida <- function(skickad_url) {
   return(status == 200)
 }
 
-period_jmfr_filter <- function(period_kolumn, vald_period, period_vekt) {
+period_jmfr_filter <- function(period_kolumn, vald_period, period_vekt, inkludera_vald_period = TRUE) {
   # en funktion för att extrahera perioder ur dataset med positioner från ett (eller flera) medskickade värden
   # t.ex. om man vill ha samma månad 1, 2, och 3 år tillbaka i ett dataset med månader så skickar man med
   # c(-12, -24, -36) och kanske senaste period tex. 2025M03, kommer då att returnera 2024M03, 2023M03 och 2022M03
@@ -1047,19 +1054,129 @@ period_jmfr_filter <- function(period_kolumn, vald_period, period_vekt) {
   # period_kolumn är hela kolumnen, tex. df$månad
   # vald_period är en eller flera perioder som man gör jämförelser från
   # period_vekt är en vektor med antal enheter bakåt eller framåt i tiden från vald_period
+  # inkludera_vald_period är en logisk variabel som anger om vald_period ska inkluderas i retur_vekt
   
   retur_vekt <- map(vald_period, function(period) {
     valda_pos <- period_vekt[period_vekt > 0]
     valda_neg <- period_vekt[period_vekt < 0]
     
-    filter_period_pos <- sort(unique(period_kolumn %>% .[. <= period]), decreasing = TRUE)[abs(valda_neg)]
-    filter_period_neg <- sort(unique(period_kolumn %>% .[. >= period]), decreasing = FALSE)[abs(valda_pos)]
+    filter_period_pos <- sort(unique(period_kolumn %>% .[. < period]), decreasing = TRUE)[abs(valda_neg)]
+    filter_period_neg <- sort(unique(period_kolumn %>% .[. > period]), decreasing = FALSE)[abs(valda_pos)]
     filter_period_tot <- c(filter_period_neg, filter_period_pos)
     return(filter_period_tot)
   }) %>% unlist()
   
+  if (inkludera_vald_period) retur_vekt <- c(vald_period, retur_vekt)
+  
   return(retur_vekt)
 }
+
+
+
+# ================================================= Ladda ner data utan API ==============================================
+
+hamta_fk_json_dataset_med_url <- function(url_fk) {
+  
+  # en funktion för att hämta dataset från Försäkringskassan som är i json-format via url. Url:er kan hittas hos www.dataportal.se
+  # där man kan filtrera på Försäkringskassan som organisation. Det går också att ladda ned Excelfiler från dem och då används
+  # med fördel funktionen hamta_excel_dataset_med_url()
+  
+  kolumnordning <- c("Period", "period", "tid", "Ar", "ar", "År", "år", "Manad", "Månad", "manad", "månad", "år_månad", "månad_år", "Lankod", "Länkod", "lankod", "länkod", 
+                     "Län", "Lan", "län", "lan", "Kommunkod", "kommunkod", "Kommun", "kommun")
+  
+  fk_json <- GET(url_fk) %>% 
+    httr::content("text") %>% 
+    fromJSON(flatten = TRUE) %>% 
+    select(-contains(c("rojd"))) %>% 
+    rename_with(~ str_to_sentence(str_remove_all(., "observations\\.|\\.value|dimensions\\."))) %>% 
+    select(-Row_nr)
+  
+  
+  # om det finns en kommun_kod i data
+  if ("kommun_kod" %in% tolower(names(fk_json))) {
+    kommun_var <- names(fk_json) %>% .[str_detect(tolower(.), "kommun_kod")]
+    fk_json <- fk_json %>% mutate(!!kommun_var := str_remove(!!sym(kommun_var), "ALL_"),
+                                  !!kommun_var := ifelse(!!sym(kommun_var) == "ALL", "00", !!sym(kommun_var)))
+    region_nyckel <- hamtaregtab()
+    fk_json <- fk_json %>% left_join(region_nyckel, by = setNames("regionkod", kommun_var)) %>% 
+      rename(Kommun = region,
+             Kommunkod = !!sym(kommun_var))
+  } # slut if-sats om kommun_kod finns i data
+  
+  # om det finns en lan i data
+  if (any(c("lan", "lan_kod") %in% tolower(names(fk_json)))) {
+    lan_var <- names(fk_json) %>% .[tolower(.) == "lan" | tolower(.) == "lan_kod"]
+    fk_json <- fk_json %>% mutate(!!lan_var := ifelse(!!sym(lan_var) == "ALL", "00", !!sym(lan_var)))
+    region_nyckel <- hamtaregtab()
+    fk_json <- fk_json %>% left_join(region_nyckel, by = setNames("regionkod", lan_var)) %>% 
+      rename(Lankod = !!sym(lan_var),
+             Lan = region)
+  } # slut if-sats om lan finns i data
+  
+  if ("kon_kod" %in% tolower(names(fk_json))) {
+    kon_var <- names(fk_json) %>% .[str_detect(tolower(.), "kon_kod")]
+    fk_json <- fk_json %>% mutate(!!kon_var := case_when(toupper(!!sym(kon_var)) == "ALL" ~ "Båda könen",
+                                                         toupper(!!sym(kon_var)) == "K" ~ "Kvinnor",
+                                                         toupper(!!sym(kon_var)) == "M" ~ "Män",
+                                                         TRUE ~ !!sym(kon_var))) %>% 
+      rename(Kon := !!sym(kon_var))
+  }
+  
+  if ("manad" %in% tolower(names(fk_json))) {
+    manad_var <- names(fk_json) %>% .[str_detect(tolower(.), "manad")]
+    ar_var <- names(fk_json) %>% .[tolower(.) == "ar"]
+    fk_json <- fk_json %>% mutate(Period = paste0(!!sym(ar_var), "-", !!sym(manad_var))) %>% 
+      select(-!!sym(ar_var), -!!sym(manad_var)) %>% 
+      manader_bearbeta_scbtabeller(kolumn_manad = "Period")
+    
+  }
+  
+  fk_json <- fk_json %>% 
+    select(any_of(kolumnordning), where(~ !is.numeric(.x)), where(is.numeric))
+  return(fk_json)
+  
+} # slut funktion
+
+hamta_excel_dataset_med_url <- function(url_excel, 
+                                        skippa_rader = 0, 
+                                        df_om_bara_en_flik = TRUE,
+                                        hoppa_over_flikar = NA,
+                                        rbind_dataset = FALSE,
+                                        mutate_flik = "kolumnnamn") {
+  
+  # funktion för att ladda ner en Excelfil och få tillbaka en lista med flera dataset eller bara ett
+  # skippa_rader = hoppa över rader i excelflikarna
+  # df_om_bara_en_flik = returnera df istället för lista om det bara är en flik i Excelfliken
+  # hoppa_over_flikar = här kan man ange flikar som inte ska läsas in som dataset (tex. om det ligger information i en flik som inte tillhör själva datasetet)
+  # rbind_dataset = binder ihop dataset som kommer från flera flikar till ett dataset, 
+  # mutate_flik = om det är samma kolumner och ingen som särskiljer dataseten så kan man skapa en kolumn som tar värdet från fliknamnet som särskiljer detta dataset från övriga flikar
+  
+  
+  if (!require("readxl")) install.packages("readxl")
+  
+  # läs in dataset
+  td = tempdir()                                                                         # skapa temporär mapp
+  excel_fil <- tempfile(tmpdir=td, fileext = ".xlsx")                                    # skapa temorär fil
+  GET(url_excel, write_disk(excel_fil, overwrite = TRUE))                                # ladda ner temporär fil
+  
+  flikar <- excel_sheets(excel_fil)                                                      # läs in flikar
+  if (!is.na(hoppa_over_flikar)) flikar <- flikar[!flikar %in% hoppa_over_flikar]        # ta bort flikar som läses in om det finns värden i hoppa_over_flikar
+  
+  dataset_lista <- map(flikar, ~ {
+    retur_df <- read_xlsx(excel_fil, sheet = .x, skip = skippa_rader)
+    if (!is.na(mutate_flik)) retur_df <- retur_df %>% mutate(!!mutate_flik := .x)
+    return(retur_df)
+    })
+  names(dataset_lista) <- flikar
+  
+  if (rbind_dataset) dataset_lista <- dataset_lista %>% list_rbind()                      # bind ihop alla dataset till en datafram om rbind_dataset är TRUE
+  
+  # om det bara finns en flik och df_om_bara_en_flik är TRUE så returneras bara dataframen (om det inte redan är en dataframe)
+  if (df_om_bara_en_flik & length(dataset_lista) == 1 & !is.data.frame(dataset_lista)) dataset_lista <- dataset_lista[[1]]  
+  
+  return(dataset_lista)
+}
+
 
 # ================================================= github-funktioner ========================================================
 
@@ -1335,17 +1452,52 @@ github_pull_lokalt_repo_fran_github <- function(
     repo_org = "Region-Dalarna"
     ) {
 
-  lokal_sokvag_repo <- paste0(sokvag_lokal_repo, repo)
-  
-  push_repo <- git2r::init(lokal_sokvag_repo)
-  #repo_status <- git2r::status(push_repo)
-  
-  git2r::pull( repo = push_repo,                 
-               credentials = cred_user_pass( username = key_list(service = "github")$username, 
-                                             password = key_get("github", key_list(service = "github")$username)))
-  
-  
-  }
+  if (all(repo == "*")) repo <- list.files(sokvag_lokal_repo)
+
+  walk(repo, ~ {
+      
+    lokal_sokvag_repo <- paste0(sokvag_lokal_repo, .x)
+    
+    push_repo <- git2r::init(lokal_sokvag_repo)
+    #repo_status <- git2r::status(push_repo)
+    
+    # Om repo-initialiseringen misslyckas, hoppa över med ett meddelande
+    if (is.null(push_repo)) {
+      cat("Kunde inte initiera repositoryt", .x, ". Hoppar över.\n")
+      flush.console()
+      #return(NULL)
+    }
+    
+    resultat <- tryCatch(
+      {
+        git2r::pull(
+          repo = push_repo,
+          credentials = cred_user_pass(
+            username = key_list(service = "github")$username,
+            password = key_get("github", key_list(service = "github")$username)
+          )
+        )
+      },
+      error = function(e) {
+        #cat("Fel vid försök att dra från repositoryt", .x, ":", e$message, "\n")
+        #flush.console()
+        return("Hittar inte repositoryt på github.com.")
+      }
+    )
+    
+    # resultat <- git2r::pull( repo = push_repo,                 
+    #               credentials = cred_user_pass( username = key_list(service = "github")$username, 
+    #                                            password = key_get("github", key_list(service = "github")$username)))
+    cat(paste0(.x, ": "))
+    flush.console()
+    if (is.character(resultat)) {
+      cat(resultat, "\n")  # Använd cat() för att skriva ut utan citationstecken och [1]
+    } else {
+      print(resultat)
+    }
+    flush.console()
+  }) # slut walk-funktion
+  } # slut funktion
 
 # ================================================= skapa skript-funktioner ========================================================
 
