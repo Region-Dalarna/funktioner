@@ -623,7 +623,8 @@ hamta_kolada_df <- function(kpi_id, valda_kommuner, valda_ar = NA, konsuppdelat 
   senaste_ar <- max(alla_ar)
   start_ar <- min(alla_ar)
   
-  alla_giltiga_ar <- if(valda_ar == "9999") senaste_ar else valda_ar[valda_ar %in% alla_ar]
+  #alla_giltiga_ar <- if(valda_ar == "9999") senaste_ar else valda_ar[valda_ar %in% alla_ar]
+  alla_giltiga_ar <- if(all(valda_ar == "9999")) senaste_ar else valda_ar[valda_ar %in% alla_ar]
   
   hamta_ar <- if (is.na(valda_ar[1])) alla_ar else alla_giltiga_ar
   
