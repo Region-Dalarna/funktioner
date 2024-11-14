@@ -222,10 +222,10 @@ hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = 
     zip_innehall <- zip_list(gtfs_fil)$filename
     
     # Read and process GTFS files
-    routes <- read.csv2(file.path(unzip_dir, "routes.txt"), sep = ",", encoding = "UTF-8", colClasses = 'character') %>%
+    routes <- read.csv2(file.path(unzip_dir, "routes.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
       mutate(route_type = as.integer(route_type))
     
-    stops <- read.csv2(file.path(unzip_dir, "stops.txt"), sep = ",", encoding = "UTF-8", colClasses = 'character') %>%
+    stops <- read.csv2(file.path(unzip_dir, "stops.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
       mutate(
         hpl_id = substr(stop_id, 8, 13),
         stop_lat = as.numeric(stop_lat),
@@ -233,7 +233,7 @@ hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = 
         location_type = as.integer(location_type)
       )
     
-    stop_times <- read.csv2(file.path(unzip_dir, "stop_times.txt"), sep = ",", encoding = "UTF-8", colClasses = 'character') %>%
+    stop_times <- read.csv2(file.path(unzip_dir, "stop_times.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
       mutate(
         stop_sequence = as.integer(stop_sequence),
         pickup_type = as.integer(pickup_type),
@@ -242,13 +242,13 @@ hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = 
         timepoint = if ("timepoint" %in% names(.)) suppressWarnings(as.integer(timepoint)) else NA_integer_
       )
     
-    trips <- read.csv2(file.path(unzip_dir, "trips.txt"), sep = ",", encoding = "UTF-8", colClasses = 'character') %>%
+    trips <- read.csv2(file.path(unzip_dir, "trips.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
       mutate(
         direction_id = if ("direction_id" %in% names(.)) suppressWarnings(as.integer(direction_id)) else NA_integer_
       )
     
     
-    calendar_dates <- read.csv2(file.path(unzip_dir, "calendar_dates.txt"), sep = ",", encoding = "UTF-8", colClasses = 'character') %>%
+    calendar_dates <- read.csv2(file.path(unzip_dir, "calendar_dates.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
       mutate(
         date = as.Date(date, format = "%Y%m%d"),
         exception_type = as.integer(exception_type)
@@ -257,7 +257,7 @@ hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = 
     # Conditional read for shapes.txt with warning if missing
     # Check for the existence of shapes.txt
     shapes <- if (file.exists(file.path(unzip_dir, "shapes.txt"))) {
-      read.csv2(file.path(unzip_dir, "shapes.txt"), sep = ",", encoding = "UTF-8", colClasses = 'character') %>%
+      read.csv2(file.path(unzip_dir, "shapes.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
         mutate(
           shape_pt_sequence = if ("shape_pt_sequence" %in% names(.)) as.integer(shape_pt_sequence) else NA_integer_,
           shape_dist_traveled = if ("shape_dist_traveled" %in% names(.)) suppressWarnings(as.numeric(shape_dist_traveled)) else NA_real_
@@ -267,9 +267,9 @@ hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = 
       NULL
     }
     
-    agency <- read.csv2(file.path(unzip_dir, "agency.txt"), sep = ",", encoding = "UTF-8", colClasses = 'character')
+    agency <- read.csv2(file.path(unzip_dir, "agency.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
     
-    feed_info <- read.csv2(file.path(unzip_dir, "feed_info.txt"), sep = ",", encoding = "UTF-8", colClasses = 'character')
+    feed_info <- read.csv2(file.path(unzip_dir, "feed_info.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
     
     # Return as a list of data frames
     return(list(
