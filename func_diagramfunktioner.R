@@ -424,6 +424,8 @@ diagramfarger <- function(farg = "rus_sex"){
   
   bla_gra_tre <- c("#5B9BD5", "#BFBFBF", "#1F4E78")
   
+  bla_gra_fyra <- c("#5B9BD5", "#BFBFBF", "#1F4E78", "#969696")
+  
   gron_gul_tvagrp_fyra <- c("#375623", "#548235", "#70AD47", "#C6E0B4", "#806000", "#BF8F00", "#FFC000", "#FFE699")
   
   gron_yrke_4_fokus <- c("#000000", "#548235", "#70AD47", "#375623")
