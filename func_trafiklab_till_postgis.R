@@ -122,7 +122,109 @@ skapa_tabeller <- function(con, schema = schema_namn) {
                       PRIMARY KEY (agency_id, version)
                   );"))
     
-    # Continue with other table definitions similarly...
+    dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.routes (
+                          route_id VARCHAR,
+                          agency_id VARCHAR,
+                          route_short_name VARCHAR NOT NULL,
+                          route_long_name VARCHAR NOT NULL,
+                          route_desc VARCHAR,
+                          route_type INTEGER NOT NULL,
+                          route_url VARCHAR,
+                          route_color VARCHAR,
+                          route_text_color VARCHAR,
+                          version INTEGER,
+                          PRIMARY KEY (route_id, version),
+                          FOREIGN KEY (agency_id, version) REFERENCES {schema_namn}_historisk.agency(agency_id, version)
+                      );"))
+    
+    dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.calendar_dates (
+                          service_id VARCHAR,
+                          date DATE,
+                          exception_type INTEGER,
+                          version INTEGER,
+                          PRIMARY KEY (service_id, version, date)
+                      );"))
+    
+    dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.shapes_line (
+                          shape_id VARCHAR,
+                          geometry GEOMETRY(Linestring, 3006),
+                          antal_punkter INTEGER,
+                          max_dist FLOAT,
+                          version INTEGER,
+                          PRIMARY KEY (shape_id, version)
+                      );"))
+    
+    dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_shapes_line_geometry_historisk ON {schema_namn}_historisk.shapes_line USING GIST (geometry);"))
+    
+    dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.trips (
+                          trip_id VARCHAR,
+                          route_id VARCHAR,
+                          service_id VARCHAR NOT NULL,
+                          trip_headsign VARCHAR,
+                          direction_id INTEGER,
+                          shape_id VARCHAR,
+                          version INTEGER,
+                          PRIMARY KEY (trip_id, version),
+                          FOREIGN KEY (route_id, version) REFERENCES {schema_namn}_historisk.routes(route_id, version)
+                      );"))
+    
+    dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_trips_route_id_historisk ON {schema_namn}_historisk.trips (route_id, version);"))
+    dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_trips_shape_id_historisk ON {schema_namn}_historisk.trips (shape_id);"))
+    dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_trips_service_id_historisk ON {schema_namn}_historisk.trips (service_id);"))
+    
+    dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.stops (
+                          stop_id VARCHAR,
+                          hpl_id VARCHAR,
+                          stop_name VARCHAR NOT NULL,
+                          stop_lat FLOAT NOT NULL,
+                          stop_lon FLOAT NOT NULL,
+                          location_type INTEGER,
+                          parent_station VARCHAR,
+                          platform_code VARCHAR,
+                          geometry GEOMETRY(Point, 3006),
+                          version INTEGER,
+                          PRIMARY KEY (stop_id, version)
+                      );"))
+    
+    dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_stops_geometry_historisk ON {schema_namn}_historisk.stops USING GIST (geometry);"))
+    
+    # Creating the stop_times table in the historical schema
+    dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.stop_times (
+                      trip_id VARCHAR,
+                      arrival_time VARCHAR, -- Using VARCHAR for time fields to handle times greater than 24:00
+                      departure_time VARCHAR, -- Using VARCHAR for time fields to handle times greater than 24:00
+                      stop_id VARCHAR,
+                      stop_sequence INTEGER,
+                      stop_headsign VARCHAR,
+                      pickup_type INTEGER,
+                      drop_off_type INTEGER,
+                      shape_dist_traveled FLOAT,
+                      timepoint INTEGER,
+                      version INTEGER,
+                      PRIMARY KEY (trip_id, version, stop_sequence),
+                      FOREIGN KEY (trip_id, version) REFERENCES {schema_namn}_historisk.trips(trip_id, version),
+                      FOREIGN KEY (stop_id, version) REFERENCES {schema_namn}_historisk.stops(stop_id, version)
+                  );"))
+    
+    # Create indexes in the historical schema
+    dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_stop_times_trip_id_historisk ON {schema_namn}_historisk.stop_times (trip_id, version);"))
+    dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_stop_times_stop_id_historisk ON {schema_namn}_historisk.stop_times (stop_id, version);"))
+    
+    
+    # Linjeklassificering
+    dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.linjeklassificering (
+                        route_short_name VARCHAR,
+                        klassificering VARCHAR NOT NULL,
+                        version INTEGER,
+                        PRIMARY KEY (route_short_name, version)
+                      );"))
+    
+    # Versions table
+    dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.versions (
+                          version INTEGER PRIMARY KEY,
+                          start_date DATE,
+                          end_date DATE
+                      );"))
     
   }, error = function(e){
     stop(paste("Ett fel inträffade vid skapandet av tabeller: ", e$message))
