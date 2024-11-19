@@ -1,13 +1,15 @@
-#========== Skapa tabellstruktur ===========
-skapa_tabeller <- function(con){
+
+
+
+skapa_tabeller <- function(con, schema = schema_namn) {
   tryCatch({
     
-    # Skapa schema om det inte finns
-    dbExecute(con, "CREATE SCHEMA IF NOT EXISTS gtfs;")
-    dbExecute(con, "CREATE SCHEMA IF NOT EXISTS gtfs_historisk;")
+    # Create schemas if they do not exist
+    dbExecute(con, glue::glue("CREATE SCHEMA IF NOT EXISTS {schema};"))
+    dbExecute(con, glue::glue("CREATE SCHEMA IF NOT EXISTS {schema}_historisk;"))
     
     # agency
-    dbExecute(con, "CREATE TABLE IF NOT EXISTS gtfs.agency (
+    dbExecute(con, glue::glue("CREATE TABLE IF NOT EXISTS {schema}.agency (
                       agency_id VARCHAR PRIMARY KEY,
                       agency_name VARCHAR NOT NULL,
                       agency_url VARCHAR NOT NULL,
@@ -15,12 +17,12 @@ skapa_tabeller <- function(con){
                       agency_lang VARCHAR,
                       agency_phone VARCHAR,
                       agency_fare_url VARCHAR
-                  );")
+                  );"))
     
     # routes
-    dbExecute(con, "CREATE TABLE IF NOT EXISTS gtfs.routes (
+    dbExecute(con, glue::glue("CREATE TABLE IF NOT EXISTS {schema}.routes (
                       route_id VARCHAR PRIMARY KEY,
-                      agency_id VARCHAR REFERENCES gtfs.agency(agency_id),
+                      agency_id VARCHAR REFERENCES {schema}.agency(agency_id),
                       route_short_name VARCHAR NOT NULL,
                       route_long_name VARCHAR NOT NULL,
                       route_desc VARCHAR,
@@ -28,45 +30,45 @@ skapa_tabeller <- function(con){
                       route_url VARCHAR,
                       route_color VARCHAR,
                       route_text_color VARCHAR
-                  );")
+                  );"))
     # routes - index
-    dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_routes_route_short_name ON gtfs.routes (route_short_name);")
+    dbExecute(con, glue::glue("CREATE INDEX IF NOT EXISTS idx_routes_route_short_name ON {schema}.routes (route_short_name);"))
     
     # calendar_dates
-    dbExecute(con, "CREATE TABLE IF NOT EXISTS gtfs.calendar_dates (
+    dbExecute(con, glue::glue("CREATE TABLE IF NOT EXISTS {schema}.calendar_dates (
                       service_id VARCHAR,
                       date DATE,
                       exception_type INTEGER,
                       PRIMARY KEY (service_id, date)
-                  );")
+                  );"))
     
     # shapes_line
-    dbExecute(con, "CREATE TABLE IF NOT EXISTS gtfs.shapes_line (
+    dbExecute(con, glue::glue("CREATE TABLE IF NOT EXISTS {schema}.shapes_line (
                       shape_id VARCHAR,
                       geometry GEOMETRY(Linestring, 3006),
                       antal_punkter INTEGER,
                       max_dist FLOAT,
                       PRIMARY KEY (shape_id)
-                  );")
+                  );"))
     # shapes_line - index
-    dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_shapes_line_geometry ON gtfs.shapes_line USING GIST (geometry);")
+    dbExecute(con, glue::glue("CREATE INDEX IF NOT EXISTS idx_shapes_line_geometry ON {schema}.shapes_line USING GIST (geometry);"))
     
     # trips
-    dbExecute(con, "CREATE TABLE IF NOT EXISTS gtfs.trips (
+    dbExecute(con, glue::glue("CREATE TABLE IF NOT EXISTS {schema}.trips (
                       trip_id VARCHAR PRIMARY KEY,
-                      route_id VARCHAR REFERENCES gtfs.routes(route_id),
+                      route_id VARCHAR REFERENCES {schema}.routes(route_id),
                       service_id VARCHAR NOT NULL,
                       trip_headsign VARCHAR,
                       direction_id INTEGER,
                       shape_id VARCHAR
-                  );")
+                  );"))
     # trips - index
-    dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_trips_shape_id ON gtfs.trips (shape_id);")
-    dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_trips_route_id ON gtfs.trips (route_id);")
-    dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_trips_service_id ON gtfs.trips (service_id);")
+    dbExecute(con, glue::glue("CREATE INDEX IF NOT EXISTS idx_trips_shape_id ON {schema}.trips (shape_id);"))
+    dbExecute(con, glue::glue("CREATE INDEX IF NOT EXISTS idx_trips_route_id ON {schema}.trips (route_id);"))
+    dbExecute(con, glue::glue("CREATE INDEX IF NOT EXISTS idx_trips_service_id ON {schema}.trips (service_id);"))
     
     # stops
-    dbExecute(con, "CREATE TABLE IF NOT EXISTS gtfs.stops (
+    dbExecute(con, glue::glue("CREATE TABLE IF NOT EXISTS {schema}.stops (
                       stop_id VARCHAR PRIMARY KEY,
                       hpl_id VARCHAR,
                       stop_name VARCHAR NOT NULL,
@@ -76,12 +78,12 @@ skapa_tabeller <- function(con){
                       parent_station VARCHAR,
                       platform_code VARCHAR,
                       geometry GEOMETRY(Point, 3006)
-                  );")
+                  );"))
     # stops - index
-    dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_stops_geometry ON gtfs.stops USING GIST (geometry);")
+    dbExecute(con, glue::glue("CREATE INDEX IF NOT EXISTS idx_stops_geometry ON {schema}.stops USING GIST (geometry);"))
     
     # stop_times
-    dbExecute(con, "CREATE TABLE IF NOT EXISTS gtfs.stop_times (
+    dbExecute(con, glue::glue("CREATE TABLE IF NOT EXISTS {schema}.stop_times (
                       trip_id VARCHAR,
                       arrival_time VARCHAR, -- OBS! Kan bli problem med att använda TIME för tider större än 24:00, därför VARCHAR
                       departure_time VARCHAR, -- OBS! Kan bli problem med att använda TIME för tider större än 24:00, därför VARCHAR
@@ -93,22 +95,22 @@ skapa_tabeller <- function(con){
                       shape_dist_traveled FLOAT,
                       timepoint INTEGER,
                       PRIMARY KEY (trip_id, stop_id, stop_sequence),
-                      FOREIGN KEY (stop_id) REFERENCES gtfs.stops(stop_id),
-                      FOREIGN KEY (trip_id) REFERENCES gtfs.trips(trip_id)
-                  );")
+                      FOREIGN KEY (stop_id) REFERENCES {schema}.stops(stop_id),
+                      FOREIGN KEY (trip_id) REFERENCES {schema}.trips(trip_id)
+                  );"))
     # stop_times - index
-    dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_stop_times_trip_id ON gtfs.stop_times (trip_id);")
-    dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_stop_times_stop_id ON gtfs.stop_times (stop_id);")
+    dbExecute(con, glue::glue("CREATE INDEX IF NOT EXISTS idx_stop_times_trip_id ON {schema}.stop_times (trip_id);"))
+    dbExecute(con, glue::glue("CREATE INDEX IF NOT EXISTS idx_stop_times_stop_id ON {schema}.stop_times (stop_id);"))
     
     #Linjeklassificering
-    dbExecute(con, "CREATE TABLE IF NOT EXISTS gtfs.linjeklassificering (
+    dbExecute(con, glue::glue("CREATE TABLE IF NOT EXISTS {schema}.linjeklassificering (
                     route_short_name VARCHAR PRIMARY KEY,
                     klassificering VARCHAR NOT NULL
-                  );")
+                  );"))
     
     # Tabeller med historisk data
     # agency
-    dbExecute(con, "CREATE TABLE IF NOT EXISTS gtfs_historisk.agency (
+    dbExecute(con, glue::glue("CREATE TABLE IF NOT EXISTS {schema}_historisk.agency (
                       agency_id VARCHAR,
                       agency_name VARCHAR NOT NULL,
                       agency_url VARCHAR NOT NULL,
@@ -118,47 +120,43 @@ skapa_tabeller <- function(con){
                       agency_fare_url VARCHAR,
                       version INTEGER,
                       PRIMARY KEY (agency_id, version)
-                  );")
+                  );"))
     
-    # routes
-    dbExecute(con, "CREATE TABLE IF NOT EXISTS gtfs_historisk.routes (
-                      route_id VARCHAR,
-                      agency_id VARCHAR,
-                      route_short_name VARCHAR NOT NULL,
-                      route_long_name VARCHAR NOT NULL,
-                      route_desc VARCHAR,
-                      route_type INTEGER NOT NULL,
-                      route_url VARCHAR,
-                      route_color VARCHAR,
-                      route_text_color VARCHAR,
-                      version INTEGER,
-                      PRIMARY KEY (route_id, version),
-                      FOREIGN KEY (agency_id, version) REFERENCES gtfs_historisk.agency(agency_id, version)
-                  );")
+    dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.routes (
+                          route_id VARCHAR,
+                          agency_id VARCHAR,
+                          route_short_name VARCHAR NOT NULL,
+                          route_long_name VARCHAR NOT NULL,
+                          route_desc VARCHAR,
+                          route_type INTEGER NOT NULL,
+                          route_url VARCHAR,
+                          route_color VARCHAR,
+                          route_text_color VARCHAR,
+                          version INTEGER,
+                          PRIMARY KEY (route_id, version),
+                          FOREIGN KEY (agency_id, version) REFERENCES {schema_namn}_historisk.agency(agency_id, version)
+                      );"))
     
-    # calendar_dates
-    dbExecute(con, "CREATE TABLE IF NOT EXISTS gtfs_historisk.calendar_dates (
-                      service_id VARCHAR,
-                      date DATE,
-                      exception_type INTEGER,
-                      version INTEGER,
-                      PRIMARY KEY (service_id, version, date)
-                  );")
+    dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.calendar_dates (
+                          service_id VARCHAR,
+                          date DATE,
+                          exception_type INTEGER,
+                          version INTEGER,
+                          PRIMARY KEY (service_id, version, date)
+                      );"))
     
-    # shapes_line
-    dbExecute(con, "CREATE TABLE IF NOT EXISTS gtfs_historisk.shapes_line (
-                      shape_id VARCHAR,
-                      geometry GEOMETRY(Linestring, 3006),
-                      antal_punkter INTEGER,
-                      max_dist FLOAT,
-                      version INTEGER,
-                      PRIMARY KEY (shape_id, version)
-                  );")
-    # shapes_line - index
-    dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_shapes_line_geometry_historisk ON gtfs_historisk.shapes_line USING GIST (geometry);")
+    dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.shapes_line (
+                          shape_id VARCHAR,
+                          geometry GEOMETRY(Linestring, 3006),
+                          antal_punkter INTEGER,
+                          max_dist FLOAT,
+                          version INTEGER,
+                          PRIMARY KEY (shape_id, version)
+                      );"))
     
-    # trips
-    dbExecute(con, "CREATE TABLE IF NOT EXISTS gtfs_historisk.trips (
+    dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_shapes_line_geometry_historisk ON {schema_namn}_historisk.shapes_line USING GIST (geometry);"))
+    
+    dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.trips (
                       trip_id VARCHAR,
                       route_id VARCHAR,
                       service_id VARCHAR NOT NULL,
@@ -167,35 +165,36 @@ skapa_tabeller <- function(con){
                       shape_id VARCHAR,
                       version INTEGER,
                       PRIMARY KEY (trip_id, version),
-                      FOREIGN KEY (route_id, version) REFERENCES gtfs_historisk.routes(route_id, version)
-                  );")
-    # trips - index
-    dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_trips_route_id_historisk ON gtfs_historisk.trips (route_id, version);")
-    dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_trips_shape_id_historisk ON gtfs_historisk.trips (shape_id);")
-    dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_trips_service_id_historisk ON gtfs_historisk.trips (service_id);")
+                      FOREIGN KEY (route_id, version) REFERENCES {schema_namn}_historisk.routes(route_id, version)
+                  );"))
     
-    # stops
-    dbExecute(con, "CREATE TABLE IF NOT EXISTS gtfs_historisk.stops (
-                      stop_id VARCHAR,
-                      hpl_id VARCHAR,
-                      stop_name VARCHAR NOT NULL,
-                      stop_lat FLOAT NOT NULL,
-                      stop_lon FLOAT NOT NULL,
-                      location_type INTEGER,
-                      parent_station VARCHAR,
-                      platform_code VARCHAR,
-                      geometry GEOMETRY(Point, 3006),
-                      version INTEGER,
-                      PRIMARY KEY (stop_id, version)
-                  );")
-    # stops - index
-    dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_stops_geometry_historisk ON gtfs_historisk.stops USING GIST (geometry);")
+    # Create indexes on trips table in the historical schema
+    dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_trips_route_id_historisk ON {schema_namn}_historisk.trips (route_id, version);"))
+    dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_trips_shape_id_historisk ON {schema_namn}_historisk.trips (shape_id);"))
+    dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_trips_service_id_historisk ON {schema_namn}_historisk.trips (service_id);"))
     
-    # stop_times
-    dbExecute(con, "CREATE TABLE IF NOT EXISTS gtfs_historisk.stop_times (
+    
+    dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.stops (
+                          stop_id VARCHAR,
+                          hpl_id VARCHAR,
+                          stop_name VARCHAR NOT NULL,
+                          stop_lat FLOAT NOT NULL,
+                          stop_lon FLOAT NOT NULL,
+                          location_type INTEGER,
+                          parent_station VARCHAR,
+                          platform_code VARCHAR,
+                          geometry GEOMETRY(Point, 3006),
+                          version INTEGER,
+                          PRIMARY KEY (stop_id, version)
+                      );"))
+    
+    dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_stops_geometry_historisk ON {schema_namn}_historisk.stops USING GIST (geometry);"))
+    
+    # Creating the stop_times table in the historical schema
+    dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.stop_times (
                       trip_id VARCHAR,
-                      arrival_time VARCHAR, -- OBS! Kan bli problem med att använda TIME för tider större än 24:00, därför VARCHAR
-                      departure_time VARCHAR, -- OBS! Kan bli problem med att använda TIME för tider större än 24:00, därför VARCHAR
+                      arrival_time VARCHAR, -- Using VARCHAR for time fields to handle times greater than 24:00
+                      departure_time VARCHAR, -- Using VARCHAR for time fields to handle times greater than 24:00
                       stop_id VARCHAR,
                       stop_sequence INTEGER,
                       stop_headsign VARCHAR,
@@ -205,305 +204,200 @@ skapa_tabeller <- function(con){
                       timepoint INTEGER,
                       version INTEGER,
                       PRIMARY KEY (trip_id, version, stop_sequence),
-                      FOREIGN KEY (trip_id, version) REFERENCES gtfs_historisk.trips(trip_id, version),
-                      FOREIGN KEY (stop_id, version) REFERENCES gtfs_historisk.stops(stop_id, version)
-                  );")
-    # stop_times - index
-    dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_stop_times_trip_id_historisk ON gtfs_historisk.stop_times (trip_id, version);")
-    dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_stop_times_stop_id_historisk ON gtfs_historisk.stop_times (stop_id, version);")
+                      FOREIGN KEY (trip_id, version) REFERENCES {schema_namn}_historisk.trips(trip_id, version),
+                      FOREIGN KEY (stop_id, version) REFERENCES {schema_namn}_historisk.stops(stop_id, version)
+                  );"))
     
-    #Linjeklassificering
-    dbExecute(con, "CREATE TABLE IF NOT EXISTS gtfs_historisk.linjeklassificering (
-                    route_short_name VARCHAR,
-                    klassificering VARCHAR NOT NULL,
-                    version INTEGER,
-                    PRIMARY KEY (route_short_name, version)
-                  );")
+    # Create indexes in the historical schema
+    dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_stop_times_trip_id_historisk ON {schema_namn}_historisk.stop_times (trip_id, version);"))
+    dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_stop_times_stop_id_historisk ON {schema_namn}_historisk.stop_times (stop_id, version);"))
     
-    # versionshantering
-    dbExecute(con, "CREATE TABLE IF NOT EXISTS gtfs_historisk.versions (
-                      version INTEGER PRIMARY KEY,
-                      start_date DATE,
-                      end_date DATE
-                  );")
+    
+    # Linjeklassificering
+    dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.linjeklassificering (
+                        route_short_name VARCHAR,
+                        klassificering VARCHAR NOT NULL,
+                        version INTEGER,
+                        PRIMARY KEY (route_short_name, version)
+                      );"))
+    
+    # Versions table
+    dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.versions (
+                          version INTEGER PRIMARY KEY,
+                          start_date DATE,
+                          end_date DATE
+                      );"))
+    
   }, error = function(e){
     stop(paste("Ett fel inträffade vid skapandet av tabeller: ", e$message))
   })
 }
 
-#========== Ladda hem GTFS ===========
-#Returnerar all data i en lista med dataframes
-ladda_hem_gtfs <- function(){
-  # Lägg allt inom tryCatch för att skicka vidare ett fel till huvudskriptet om något blir fel under körning
+versionshantering <- function(con, gtfs_data, schema = schema_namn) {
   tryCatch({
+    dbExecute(con, glue::glue("
+  CREATE TABLE IF NOT EXISTS {schema}_historisk.versions (
+    version INTEGER PRIMARY KEY,
+    start_date DATE,
+    end_date DATE
+  );
+"))
     
-    #Sökvägen till mappen för nedladdning - ändra sen till "icke" getwd()
-    data_input <- paste0(getwd(), "/data")
+    # Check if the historical table "versions" exists
+    table_exists_query <- dbGetQuery(con, glue::glue(
+      "SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = '{schema}_historisk' 
+        AND table_name = 'versions'
+      );"
+    ))
     
-    ### url for GTFS
+    if (!table_exists_query$exists[1]) {
+      stop(glue::glue("Table {schema}_historisk.versions does not exist"))
+    }
     
-    # ange operatör
-    rkm = "dt" # !!!!!! Specify RKM. Available values : sl, ul, sormland, otraf, krono, klt, gotland, blekinge, skane, halland, vt, varm, orebro, vl, dt, xt, dintur, sj
-    
-    # dagens datum
-    datum <- str_remove_all(Sys.Date(), "-")
-    
-    # ELLER datum senaste nedladdning <- används för testning för att slippa ladda ner en ny fil
-    #datum <- "20240605"
-    
-    # skapa hela sökvägen
-    sokvag_datum <- paste0(data_input, "/trafiklab_", rkm, "_", datum)
-    # print(sokvag_datum)
-    #=========== Start kommenteringen som sedan skall tas bort, för att slippa ladda hem varje gång ==========
-    #skapa sökvägen till den nedladddade GTFS-filen med rkm och datum
-    gtfs_regional_fil <- paste0(sokvag_datum, ".zip")
-    
-    # skapa och hämta url:en till gtfs-feeden
-    url_regional <- paste0("https://opendata.samtrafiken.se/gtfs/", rkm, "/", rkm, ".zip?key=", key_get("API_trafiklab_token", "GTFS_Regional"))
-    
-    GET(url_regional, write_disk(gtfs_regional_fil, overwrite=TRUE))
-    
-    # Zippa upp csv-filerna och lägg i undermapp
-    unzip(gtfs_regional_fil, exdir = sokvag_datum)
-    
-    
-    #=========== Slut kommenteringen som sedan skall tas bort, för att slippa ladda hem varje gång ==========
-    
-    #Läs in filerna - glöm inte colClasses = 'character' för att undvika problem med IDn
-    # Konvertera datatyper för de fält som INTE är VARCHAR i databasen med mutate 
-    routes <- read.csv2(paste0(sokvag_datum, "/routes.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
-      mutate(
-        route_type = as.integer(route_type)
-      )
-    # Stops, extrahera hpl_id från stop_id och lägg till som kolumn.
-    stops <- read.csv2(paste0(sokvag_datum, "/stops.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
-      mutate(
-        hpl_id = substr(stop_id, 8, 13),
-        stop_lat = as.numeric(stop_lat),
-        stop_lon = as.numeric(stop_lon),
-        location_type = as.integer(location_type)
-      )
-    
-    stop_times <- read.csv2(paste0(sokvag_datum, "/stop_times.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
-      mutate(
-        stop_sequence = as.integer(stop_sequence),
-        pickup_type = as.integer(pickup_type),
-        drop_off_type = as.integer(drop_off_type),
-        shape_dist_traveled = as.numeric(shape_dist_traveled),
-        timepoint = as.integer(timepoint)
-      )
-    
-    trips <- read.csv2(paste0(sokvag_datum, "/trips.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
-      mutate(
-        direction_id = as.integer(direction_id)
-      )
-    
-    calendar_dates <- read.csv2(paste0(sokvag_datum, "/calendar_dates.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
-      mutate(
-        date = as.Date(date, format = "%Y%m%d"),
-        exception_type = as.integer(exception_type)
-      )
-    
-    shapes <- read.csv2(paste0(sokvag_datum, "/shapes.txt"), sep = ",", encoding="UTF-8", stringsAsFactors=FALSE, colClasses = 'character') %>%
-      mutate(
-        shape_pt_sequence = as.integer(shape_pt_sequence),
-        shape_dist_traveled = as.numeric(shape_dist_traveled)
-      )
-    
-    agency = read.csv2(paste0(sokvag_datum, "/agency.txt"),
-                       sep = ",", encoding="UTF-8", stringsAsFactors=FALSE, colClasses = 'character')
-    
-    feed_info = read.csv2(paste0(sokvag_datum, "/feed_info.txt"),
-                          sep = ",", encoding="UTF-8", stringsAsFactors=FALSE, colClasses = 'character')
-    
-    
-    #Returnera en lista med alla dataframes
-    return(list(routes = routes, stops = stops, stop_times = stop_times, trips = trips, calendar_dates = calendar_dates, shapes = shapes, agency = agency, feed_info = feed_info))
-  }, error = function(e){
-    stop(paste("Ett fel inträffade vid nedladdning och upppackning av GTFS-data: ", e$message))
-  })
-  
-}
-
-#========== Versionshantering ========
-versionshantering <- function (con, gtfs_data){
-  tryCatch({
-    # Hämta sista datumet i calendar_dates från databasen
-    sista_datum_db <- dbGetQuery(con, "SELECT MAX(date) AS sista_datum FROM gtfs.calendar_dates;")
+    # Retrieve the last date in calendar_dates from the database
+    sista_datum_db <- dbGetQuery(con, glue::glue("SELECT MAX(date) AS sista_datum FROM {schema}.calendar_dates;"))
     sista_datum_db <- as.Date(sista_datum_db$sista_datum[1])
     
-    # Temporärt för att testa nytt slutdatum
-    # sista_datum_db <- as.Date('2024-06-05')
-    
-    # Hämta sista datumet från calendar_dates i datasetet
+    # Retrieve the last date from calendar_dates in the dataset
     sista_datum_gtfs_data <- max(gtfs_data$calendar_dates$date)
     
-    # Om sista datumet i db och datasetet inte är samma betyder det att det är en ny version
-    if(is.na(sista_datum_db) || sista_datum_db != sista_datum_gtfs_data){
+    # If the last date in the db and the dataset is not the same, it's a new version
+    if (is.na(sista_datum_db) || sista_datum_db != sista_datum_gtfs_data) {
       
-      # Hämta versionsnummer för den senaste versionen i db
-      senaste_version <- dbGetQuery(con, "SELECT MAX(version) AS senaste_version FROM gtfs_historisk.versions;")
+      # Retrieve the latest version number in the database
+      senaste_version <- dbGetQuery(con, glue::glue("SELECT MAX(version) AS senaste_version FROM {schema}_historisk.versions;"))
       senaste_version <- senaste_version$senaste_version[1]
       
-      # Om det inte finns någon tidigare version, sätt ny_version till 1
-      if(is.na(senaste_version)){
+      # If no previous version exists, set ny_version to 1
+      if (is.na(senaste_version)) {
         ny_version <- 1
       } else {
         ny_version <- senaste_version + 1
       }
       
-      # Om det finns en tidigare version, uppdatera dess slutdatum och flytta över data från gtfs gtfs_historisk
-      if(!is.na(senaste_version)){
-        dbExecute(con, glue("UPDATE gtfs_historisk.versions SET end_date = {sista_datum_db} WHERE version = {senaste_version};"))
+      # If a previous version exists, update its end_date and transfer data from schema to schema_historisk
+      if (!is.na(senaste_version)) {
+        dbExecute(con, glue::glue("UPDATE {schema}_historisk.versions SET end_date = '{sista_datum_db}' WHERE version = {senaste_version};"))
         
-        # Flytta data från gtfs-schemat till gtfs_historisk tillsammans med versionsnumret
-        dbExecute(con, glue("INSERT INTO gtfs_historisk.agency SELECT agency_id, agency_name, agency_url, agency_timezone, agency_lang, agency_phone, agency_fare_url, {senaste_version} FROM gtfs.agency;"))
-        dbExecute(con, glue("INSERT INTO gtfs_historisk.routes SELECT route_id, agency_id, route_short_name, route_long_name, route_desc, route_type, route_url, route_color, route_text_color, {senaste_version} FROM gtfs.routes;"))
-        dbExecute(con, glue("INSERT INTO gtfs_historisk.calendar_dates SELECT service_id, date, exception_type, {senaste_version} FROM gtfs.calendar_dates;"))
-        dbExecute(con, glue("INSERT INTO gtfs_historisk.shapes_line SELECT shape_id, geometry, antal_punkter, max_dist, {senaste_version} FROM gtfs.shapes_line;"))
-        dbExecute(con, glue("INSERT INTO gtfs_historisk.stops SELECT stop_id, hpl_id, stop_name, stop_lat, stop_lon, location_type, parent_station, platform_code, geometry, {senaste_version} FROM gtfs.stops;"))
-        dbExecute(con, glue("INSERT INTO gtfs_historisk.trips SELECT trip_id, route_id, service_id, trip_headsign, direction_id, shape_id, {senaste_version} FROM gtfs.trips;"))
-        dbExecute(con, glue("INSERT INTO gtfs_historisk.stop_times SELECT trip_id, arrival_time, departure_time, stop_id, stop_sequence, stop_headsign, pickup_type, drop_off_type, shape_dist_traveled, timepoint, {senaste_version} FROM gtfs.stop_times;"))
-        dbExecute(con, glue("INSERT INTO gtfs_historisk.linjeklassificering SELECT route_short_name, klassificering, {senaste_version} FROM gtfs.linjeklassificering;"))
+        # Transfer data from schema schema to schema_historisk with version number
+        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.agency SELECT agency_id, agency_name, agency_url, agency_timezone, agency_lang, agency_phone, agency_fare_url, {senaste_version} FROM {schema}.agency;"))
+        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.routes SELECT route_id, agency_id, route_short_name, route_long_name, route_desc, route_type, route_url, route_color, route_text_color, {senaste_version} FROM {schema}.routes;"))
+        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.calendar_dates SELECT service_id, date, exception_type, {senaste_version} FROM {schema}.calendar_dates;"))
+        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.shapes_line SELECT shape_id, geometry, antal_punkter, max_dist, {senaste_version} FROM {schema}.shapes_line;"))
+        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.stops SELECT stop_id, hpl_id, stop_name, stop_lat, stop_lon, location_type, parent_station, platform_code, geometry, {senaste_version} FROM {schema}.stops;"))
+        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.trips SELECT trip_id, route_id, service_id, trip_headsign, direction_id, shape_id, {senaste_version} FROM {schema}.trips;"))
+        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.stop_times SELECT trip_id, arrival_time, departure_time, stop_id, stop_sequence, stop_headsign, pickup_type, drop_off_type, shape_dist_traveled, timepoint, {senaste_version} FROM {schema}.stop_times;"))
+        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.linjeklassificering SELECT route_short_name, klassificering, {senaste_version} FROM {schema}.linjeklassificering;"))
         
-        # Skapa vyer för historisk data - anrop sker i versionshantering()
-        skapa_vyer_historisk_hallplats(con)
-        skapa_vyer_historisk_linjer(con)
+        # Create views for historical data - called in versionshantering()
+        skapa_vyer_historisk_hallplats(con, schema = schema_namn)
+        skapa_vyer_historisk_linjer(con, schema = schema_namn)
       }
       
-      # Kontrollera om sista_datum_db är NA och sätt start_datum_gtfs_data korrekt
-      if(is.na(sista_datum_db)){
+      # Check if sista_datum_db is NA and set start_datum_gtfs_data correctly
+      if (is.na(sista_datum_db)) {
         start_datum_gtfs_data <- min(gtfs_data$calendar_dates$date)
       } else {
         start_datum_gtfs_data <- sista_datum_db + 1
       }
-      dbExecute(con, glue("INSERT INTO gtfs_historisk.versions (version, start_date) VALUES ({ny_version}, '{start_datum_gtfs_data}');"))
+      dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.versions (version, start_date) VALUES ({ny_version}, '{start_datum_gtfs_data}');"))
     }
-  }, error = function(e){
-    stop(glue("Ett fel inträffade vid versionshanteringen: {e$message}"))
+  }, error = function(e) {
+    stop(glue::glue("Ett fel inträffade vid versionshanteringen: {e$message}"))
   })
 }
 
-
-#========== Radera versioner äldre än 3 år =====
-radera_gamla_versioner <- function(con, antal_ar){
+radera_gamla_versioner <- function(con, antal_ar, schema = schema_namn) {
   tryCatch({
-    # Hämta datumet för 3 år sedan
+    # Calculate the date 3 years ago (or specified number of years)
     tre_ar_sedan <- Sys.Date() - antal_ar * 365
     
-    # Hämta de versioner som är äldre än 3 år
-    gamla_versioner <- dbGetQuery(con, glue("SELECT version FROM gtfs_historisk.versions WHERE end_date < '{tre_ar_sedan}';"))
+    # Fetch versions that are older than the specified number of years
+    gamla_versioner <- dbGetQuery(con, glue::glue("SELECT version FROM {schema}_historisk.versions WHERE end_date < '{tre_ar_sedan}';"))
     
-    # Loopa igenom de gamla versionerna och ta bort dem från historiska tabeller
-    for(version in gamla_versioner$version){
-      dbExecute(con, glue("DELETE FROM gtfs_historisk.stop_times WHERE version = {version};"))
-      dbExecute(con, glue("DELETE FROM gtfs_historisk.trips WHERE version = {version};"))
-      dbExecute(con, glue("DELETE FROM gtfs_historisk.stops WHERE version = {version};"))
-      dbExecute(con, glue("DELETE FROM gtfs_historisk.shapes_line WHERE version = {version};"))
-      dbExecute(con, glue("DELETE FROM gtfs_historisk.calendar_dates WHERE version = {version};"))
-      dbExecute(con, glue("DELETE FROM gtfs_historisk.routes WHERE version = {version};"))
-      dbExecute(con, glue("DELETE FROM gtfs_historisk.agency WHERE version = {version};"))
-      dbExecute(con, glue("DELETE FROM gtfs_historisk.linjeklassificering WHERE version = {version};"))
+    # Loop through the old versions and delete them from the historical tables
+    for (version in gamla_versioner$version) {
+      dbExecute(con, glue::glue("DELETE FROM {schema}_historisk.stop_times WHERE version = {version};"))
+      dbExecute(con, glue::glue("DELETE FROM {schema}_historisk.trips WHERE version = {version};"))
+      dbExecute(con, glue::glue("DELETE FROM {schema}_historisk.stops WHERE version = {version};"))
+      dbExecute(con, glue::glue("DELETE FROM {schema}_historisk.shapes_line WHERE version = {version};"))
+      dbExecute(con, glue::glue("DELETE FROM {schema}_historisk.calendar_dates WHERE version = {version};"))
+      dbExecute(con, glue::glue("DELETE FROM {schema}_historisk.routes WHERE version = {version};"))
+      dbExecute(con, glue::glue("DELETE FROM {schema}_historisk.agency WHERE version = {version};"))
+      dbExecute(con, glue::glue("DELETE FROM {schema}_historisk.linjeklassificering WHERE version = {version};"))
       
-      # Ta bort versionen från versionstabellen
-      dbExecute(con, glue("DELETE FROM gtfs_historisk.versions WHERE version = {version};"))
+      # Remove the version from the versions table
+      dbExecute(con, glue::glue("DELETE FROM {schema}_historisk.versions WHERE version = {version};"))
     }
-  }, error = function(e){
-    stop(glue("Ett fel inträffade vid radering av gamla versioner: {e$message}"))
+  }, error = function(e) {
+    stop(glue::glue("Ett fel inträffade vid radering av gamla versioner: {e$message}"))
   })
 }
 
-
-#========== Ladda upp till databas ============
-ladda_upp_till_databas <- function(con, gtfs_data){
-  # Felhantera uppladdningen
+ladda_upp_till_databas <- function(con, gtfs_data, schema = schema_namn) {
+  # Error handling for data upload
   tryCatch({
     
-    # Truncate tabeller innan uppladdning
-    dbExecute(con, "TRUNCATE TABLE gtfs.stops RESTART IDENTITY CASCADE;")
-    dbExecute(con, "TRUNCATE TABLE gtfs.routes RESTART IDENTITY CASCADE;")
-    dbExecute(con, "TRUNCATE TABLE gtfs.calendar_dates RESTART IDENTITY CASCADE;")
-    dbExecute(con, "TRUNCATE TABLE gtfs.trips RESTART IDENTITY CASCADE;")
-    dbExecute(con, "TRUNCATE TABLE gtfs.shapes_line RESTART IDENTITY CASCADE;")
-    dbExecute(con, "TRUNCATE TABLE gtfs.stop_times RESTART IDENTITY CASCADE;")
-    dbExecute(con, "TRUNCATE TABLE gtfs.agency RESTART IDENTITY CASCADE;")
+    # List of tables to truncate
+    tables_to_truncate <- c("stops", "routes", "calendar_dates", "trips", "shapes_line", "stop_times", "agency")
     
-    #Spatiala tabeller
-    # Lägg till stops
-    sf_stops <- st_as_sf(gtfs_data$stops, coords = c("stop_lon", "stop_lat"), crs = 4326, remove = FALSE) %>% 
-      st_transform(3006) %>% 
-      st_set_geometry("geometry")
-    st_write(obj = sf_stops, dsn = con, Id(schema = "gtfs", table = "stops"), geomtype = "POINT", delete_layer = FALSE, append = TRUE)
-    rm(sf_stops)
+    # Truncate tables before uploading new data
+    lapply(tables_to_truncate, function(table) {
+      dbExecute(con, glue::glue("TRUNCATE TABLE {schema}.{table} RESTART IDENTITY CASCADE;"))
+    })
     
-    # Lägg till shapes
-    sf_shapes <- st_as_sf(gtfs_data$shapes, coords = c("shape_pt_lon", "shape_pt_lat"), crs = 4326, remove = FALSE) %>% 
-      st_transform(3006) %>% 
-      st_set_geometry("geometry")
+    # Spatial tables
+    # Add stops (only if the data exists)
+    if (!is.null(gtfs_data$stops)) {
+      sf_stops <- st_as_sf(gtfs_data$stops, coords = c("stop_lon", "stop_lat"), crs = 4326, remove = FALSE) %>% 
+        st_transform(3006) %>% 
+        st_set_geometry("geometry")
+      st_write(obj = sf_stops, dsn = con, Id(schema = schema, table = "stops"), geomtype = "POINT", delete_layer = FALSE, append = TRUE)
+      rm(sf_stops)
+    }
     
-    # Lägg till shapes som linjer och lägg till antal_punkter i linjen samt största avståndet mellan två punkter
-    # # Konvertera shape_dist_traveled till numerisk typ om det är en teckensträng
-    # sf_shapes$shape_dist_traveled <- as.numeric(sf_shapes$shape_dist_traveled)
-    # sf_shapes$shape_pt_sequence <- as.numeric(sf_shapes$shape_pt_sequence)
+    # Add shapes (only if the data exists)
+    if (!is.null(gtfs_data$shapes)) {
+      sf_shapes <- st_as_sf(gtfs_data$shapes, coords = c("shape_pt_lon", "shape_pt_lat"), crs = 4326, remove = FALSE) %>% 
+        st_transform(3006) %>% 
+        st_set_geometry("geometry")
+      
+      # Add shapes as lines and include fields for number of points and max distance between points
+      sf_shapes_line <- sf_shapes %>% 
+        group_by(shape_id) %>%
+        summarize(
+          geometry = st_combine(geometry) %>% st_cast("LINESTRING", safe = TRUE),
+          antal_punkter = n(),  # Number of points per shape_id
+          max_dist = max(shape_dist_traveled - lag(shape_dist_traveled, default = first(shape_dist_traveled)))  # Max distance between consecutive points
+        )
+      st_write(obj = sf_shapes_line, dsn = con, Id(schema = schema_namn, table = "shapes_line"), geomtype = "LINESTRING", delete_layer = FALSE, append = TRUE)
+    }
     
-    # Gör LINESTRINGS av alla punkter och lägg till fält för antal_punkter och maxdistans mellan 2 punkter, kan användas för att hitta linjer med glapp
-    sf_shapes_line <- sf_shapes %>% 
-      group_by(shape_id) %>%
-      summarize(
-        geometry = st_combine(geometry) %>% st_cast("LINESTRING", safe = TRUE),
-        antal_punkter = n(),  # Antalet punkter per shape_id
-        max_dist = max(shape_dist_traveled - lag(shape_dist_traveled, default = first(shape_dist_traveled)))  # Maximal distans mellan på varandra följande punkter
-      )
-    st_write(obj = sf_shapes_line, dsn = con, Id(schema = "gtfs", table = "shapes_line"), geomtype = "LINESTRING", delete_layer = FALSE, append = TRUE)
+    # Non-spatial tables (add only if they exist in gtfs_data)
+    non_spatial_tables <- c("agency", "calendar_dates", "routes", "trips", "stop_times")
+    lapply(non_spatial_tables, function(table) {
+      if (!is.null(gtfs_data[[table]])) {
+        dbWriteTable(con, Id(schema = schema, table = table), gtfs_data[[table]], append = TRUE, row.names = FALSE)
+      }
+    })
     
-    
-    # Icke spatiala tabeller
-    # # Lägg till agency
-    dbWriteTable(con, Id(schema = "gtfs", table = "agency"), gtfs_data$agency, append = TRUE, row.names = FALSE)
-    
-    # Lägg till calendar_dates
-    dbWriteTable(con, Id(schema = "gtfs", table = "calendar_dates"), gtfs_data$calendar_dates, append = TRUE, row.names = FALSE)
-    
-    # Lägg till routes
-    dbWriteTable(con, Id(schema = "gtfs", table = "routes"), gtfs_data$routes, append = TRUE, row.names = FALSE)
-    
-    # Lägg till trips
-    dbWriteTable(con, Id(schema = "gtfs", table = "trips"), gtfs_data$trips, append = TRUE, row.names = FALSE)
-    
-    # Lägg till stop_times
-    dbWriteTable(con, Id(schema = "gtfs", table = "stop_times"), gtfs_data$stop_times, append = TRUE, row.names = FALSE)
-    
-    # Dessa vet jag inte om de är så nödvändiga, bortkommenterade så länge
-    # # Lägg till calendar
-    #dbWriteTable(con, Id(schema = "gtfs", table = "calendar"), gtfs_data$calendar, overwrite = TRUE)
-    # 
-    
-    # 
-    # # Lägg till feed_info
-    #dbWriteTable(con, Id(schema = "gtfs", table = "feed_info"), gtfs_data$feed_info, overwrite = TRUE)
-    
-    # # Lägg till transfer
-    
-  }, error = function(e){
+  }, error = function(e) {
     stop(paste("Ett fel inträffade vid uppladdningen av data till databasen: ", e$message))
   })
-  
 }
 
 
-#========== Skapa och fyll linjeklassificering ==========
-skapa_tabell_linjeklassificering <- function(con) {
-  
-  # OBS!!! Om nya undantag läggs till eller satsen som # Infoga klassificeringar behöver ändras se till att lägga undantagen först.
-  # Exempel 39 - 'Landsbygdstrafik' måste ligga före 1 - 99 'Stadstrafik'
+skapa_tabell_linjeklassificering <- function(con, schema = schema_namn) {
   
   tryCatch({
-    # Rensa tabellen innan vi fyller på den
-    dbExecute(con, "TRUNCATE gtfs.linjeklassificering;")
+    # Clear the table before inserting new data
+    dbExecute(con, glue::glue("TRUNCATE {schema}.linjeklassificering;"))
     
-    # Infoga klassificeringar
-    dbExecute(con, "
-    INSERT INTO gtfs.linjeklassificering (route_short_name, klassificering)
+    # Insert classifications
+    dbExecute(con, glue::glue("
+    INSERT INTO {schema}.linjeklassificering (route_short_name, klassificering)
     SELECT DISTINCT ON (route_short_name) route_short_name,
            CASE
              WHEN route_short_name ~ '^[0-9]+$' THEN
@@ -521,44 +415,43 @@ skapa_tabell_linjeklassificering <- function(con) {
              WHEN route_short_name = 'Tåg' THEN 'Tåg'
              ELSE 'Okänd'
            END AS klassificering
-    FROM gtfs.routes
+    FROM {schema}.routes
     ORDER BY route_short_name, route_id;
-  ")
+    "))
     
   }, error = function(e) {
-    # Skriver ut felmeddelandet och returnerar NULL
+    # Print the error message and return NULL
     stop(paste("Ett fel inträffade vid skapandet av linjeklassificeringen:", e$message))
   })
 }
 
-#========== Skapa vyer för hållplats ============
-skapa_vyer_hallplats <- function(con) {
-  # Felhantering
+skapa_vyer_hallplats <- function(con, schema = schema_namn) {
+  # Error handling
   tryCatch({
-    # Droppa de materialiserade vyerna om de finns
-    dbExecute(con, "DROP MATERIALIZED VIEW IF EXISTS gtfs.vy_hallplats_avgangar CASCADE;")
-    dbExecute(con, "DROP MATERIALIZED VIEW IF EXISTS gtfs.vy_hallplatslage_avgangar CASCADE;")
+    # Drop the materialized views if they exist
+    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_hallplats_avgangar CASCADE;"))
+    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_hallplatslage_avgangar CASCADE;"))
     
-    # Skapa materialiserad vy för hållplatslägen med avgångar, rutter och klassificeringar
-    sql_hallplatslage_avgangar = "
-      CREATE MATERIALIZED VIEW gtfs.vy_hallplatslage_avgangar AS
-      WITH senaste_version AS ( -- Hämtar startdatum för den senaste versionen så att enbart trafik from detta datum tas med
+    # Create materialized view for stops with departures, routes, and classifications
+    sql_hallplatslage_avgangar = glue::glue("
+      CREATE MATERIALIZED VIEW {schema}.vy_hallplatslage_avgangar AS
+      WITH senaste_version AS ( -- Fetches start date for the latest version so that only traffic from this date is included
           SELECT start_date
-          FROM gtfs_historisk.versions
+          FROM {schema}_historisk.versions
           ORDER BY start_date DESC
           LIMIT 1
       ),
-      dagliga_avgangar AS ( -- Beräkna antalet avgångar/dag och hållplatsläge
+      dagliga_avgangar AS ( -- Calculate the number of departures/day and stop position
           SELECT
               st.stop_id,
               cd.date,
               COUNT(DISTINCT st.trip_id) AS antal_avgangar
           FROM 
-              gtfs.stop_times st
+              {schema}.stop_times st
           JOIN 
-              gtfs.trips t ON st.trip_id = t.trip_id
+              {schema}.trips t ON st.trip_id = t.trip_id
           JOIN 
-              gtfs.calendar_dates cd ON t.service_id = cd.service_id
+              {schema}.calendar_dates cd ON t.service_id = cd.service_id
           JOIN 
               senaste_version sv ON cd.date >= sv.start_date
           WHERE
@@ -566,7 +459,7 @@ skapa_vyer_hallplats <- function(con) {
           GROUP BY 
               st.stop_id, cd.date
       ),
-      avgangar_vecka AS ( -- De dagliga avgångarna summeras per vardag/lördag/söndag för varje vecka
+      avgangar_vecka AS ( -- Daily departures are summed per weekday/Saturday/Sunday for each week
           SELECT
               stop_id,
               DATE_TRUNC('week', date) AS vecka_start,
@@ -579,7 +472,7 @@ skapa_vyer_hallplats <- function(con) {
           GROUP BY
               stop_id, DATE_TRUNC('week', date)
       ),
-      normal_vecka AS ( -- Rangordnar veckorna utefter det totala antalet avgångar i syfte att hitta den vecka med flest som då anses vara en 'normal vecka'
+      normal_vecka AS ( -- Ranks the weeks based on total number of departures to find the week with the most, considered as a 'normal week'
           SELECT
               stop_id,
               vecka_start,
@@ -593,23 +486,23 @@ skapa_vyer_hallplats <- function(con) {
           ORDER BY
               stop_id, total_veckans_avgangar DESC
       ),
-      routes_per_stop AS ( -- Slår ihop rutter och dess klassificeringar som trafikerar varje hållplatsläge
+      routes_per_stop AS ( -- Combines routes and their classifications that serve each stop
           SELECT
               st.stop_id,
               STRING_AGG(DISTINCT r.route_short_name::TEXT, ',') AS linjer,
               STRING_AGG(DISTINCT lc.klassificering, ',') AS linjetyper
           FROM 
-              gtfs.stop_times st
+              {schema}.stop_times st
           JOIN 
-              gtfs.trips t ON st.trip_id = t.trip_id
+              {schema}.trips t ON st.trip_id = t.trip_id
           JOIN 
-              gtfs.routes r ON t.route_id = r.route_id
+              {schema}.routes r ON t.route_id = r.route_id
           JOIN
-              gtfs.linjeklassificering lc ON r.route_short_name = lc.route_short_name
+              {schema}.linjeklassificering lc ON r.route_short_name = lc.route_short_name
           GROUP BY
               st.stop_id
       )
-      SELECT -- Slutliga sammanställningen av all information som samlats/skapats i de föregående undersatserna (CTE:er)
+      SELECT -- Final summary of all information collected/created in the previous CTEs
           st.stop_id,
           st.hpl_id,
           st.stop_name,
@@ -625,78 +518,81 @@ skapa_vyer_hallplats <- function(con) {
       FROM
           normal_vecka nv
       JOIN
-          gtfs.stops st ON nv.stop_id = st.stop_id
+          {schema}.stops st ON nv.stop_id = st.stop_id
       LEFT JOIN
           routes_per_stop rs ON st.stop_id = rs.stop_id
       WHERE
-          nv.rank = 1;"
+          nv.rank = 1;
+    ")
     dbExecute(con, sql_hallplatslage_avgangar)
     
-    # Skapa materialiserad vy för hållplatser
-    sql_hallplats_avgangar = "
-      CREATE MATERIALIZED VIEW gtfs.vy_hallplats_avgangar AS --Slår ihop informationen från alla hållplatslägen som hör till en hållplats
-      SELECT
-          nva.parent_station AS stop_id,
-          h.hpl_id,
-          h.stop_name,
-          SUM(nva.genomsnitt_veckodag_avgangar) AS genomsnitt_veckodag_avgangar,
-          SUM(nva.antal_lordag_avgangar) AS antal_lordag_avgangar,
-          SUM(nva.antal_sondag_avgangar) AS antal_sondag_avgangar,
-          SUM(nva.genomsnitt_dagliga_avgangar) AS genomsnitt_dagliga_avgangar,
-          ARRAY_TO_STRING(
-            ARRAY(
-              SELECT DISTINCT unnest(string_to_array(STRING_AGG(DISTINCT nva.linjer, ',' ORDER BY nva.linjer), ','))
-            ORDER BY unnest
-          ), ', '
-          ) AS linjer,
-          ARRAY_TO_STRING(
-            ARRAY(
-              SELECT DISTINCT unnest(string_to_array(STRING_AGG(DISTINCT nva.linjetyper, ',' ORDER BY nva.linjetyper), ','))
-            ORDER BY unnest
-          ), ', '
-          ) AS linjetyper,
-          h.geometry
-      FROM
-          gtfs.vy_hallplatslage_avgangar nva
-      JOIN
-          gtfs.stops h ON nva.parent_station = h.stop_id
-      WHERE
-          nva.parent_station IS NOT NULL
-      GROUP BY
-          nva.parent_station, h.hpl_id, h.stop_name, h.geometry;
-    "
+    # Create materialized view for stops
+    sql_hallplats_avgangar = glue::glue("
+  CREATE MATERIALIZED VIEW {schema}.vy_hallplats_avgangar AS -- Combines information from all stop locations associated with a stop
+  SELECT
+      nva.parent_station AS stop_id,
+      h.hpl_id,
+      h.stop_name,
+      SUM(nva.genomsnitt_veckodag_avgangar) AS genomsnitt_veckodag_avgangar,
+      SUM(nva.antal_lordag_avgangar) AS antal_lordag_avgangar,
+      SUM(nva.antal_sondag_avgangar) AS antal_sondag_avgangar,
+      SUM(nva.genomsnitt_dagliga_avgangar) AS genomsnitt_dagliga_avgangar,
+      ARRAY_TO_STRING(
+        ARRAY(
+          SELECT DISTINCT unnest(string_to_array(STRING_AGG(DISTINCT nva.linjer, ',' ORDER BY nva.linjer), ','))
+        ORDER BY unnest
+      ), ', '
+      ) AS linjer,
+      ARRAY_TO_STRING(
+        ARRAY(
+          SELECT DISTINCT unnest(string_to_array(STRING_AGG(DISTINCT nva.linjetyper, ',' ORDER BY nva.linjetyper), ','))
+        ORDER BY unnest
+      ), ', '
+      ) AS linjetyper,
+      h.geometry
+  FROM
+      {schema}.vy_hallplatslage_avgangar nva
+  JOIN
+      {schema}.stops h ON nva.parent_station = h.stop_id
+  WHERE
+      nva.parent_station IS NOT NULL
+  GROUP BY
+      nva.parent_station, h.hpl_id, h.stop_name, h.geometry;
+")
     dbExecute(con, sql_hallplats_avgangar)
+    
+    
   }, error = function(e) {
-    stop(paste("Ett fel inträffade vid skapandet av vyer:", e$message))
+    # Print error message
+    stop(paste("Ett fel inträffade vid skapandet av vyer för hållplats:", e$message))
   })
 }
 
-#========== Skapa vyer linjer ========
-skapa_vyer_linjer <- function(con) {
+skapa_vyer_linjer <- function(con, schema = schema_namn) {
   tryCatch({
-    # Droppa den materialiserade vyn om den redan finns
-    dbExecute(con, "DROP MATERIALIZED VIEW IF EXISTS gtfs.vy_linjer_avgangar_alla CASCADE;")
-    dbExecute(con, "DROP MATERIALIZED VIEW IF EXISTS gtfs.vy_linjer_avgangar_vanligaste CASCADE;")
+    # Drop the materialized view if it exists
+    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_linjer_avgangar_alla CASCADE;"))
+    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_linjer_avgangar_vanligaste CASCADE;"))
     
-    # Skapa materialiserad vy för alla linjer med rutter, antal trips och dagliga avgångar
-    sql_alla_linjer_avgangar = "
-      CREATE MATERIALIZED VIEW gtfs.vy_linjer_avgangar_alla AS
-      WITH senaste_version AS ( -- Hämtar startdatum för den senaste versionen så att enbart trafik from detta datum tas med
+    # Create materialized view for all lines with routes, trips, and daily departures
+    sql_alla_linjer_avgangar = glue::glue("
+      CREATE MATERIALIZED VIEW {schema}.vy_linjer_avgangar_alla AS
+      WITH senaste_version AS ( -- Fetches the start date for the latest version so that only traffic from this date is included
           SELECT start_date
-          FROM gtfs_historisk.versions
+          FROM {schema}_historisk.versions
           ORDER BY start_date DESC
           LIMIT 1
       ),
-      dagliga_avgangar AS ( -- Beräkna antalet avgångar/dag och linje (shapes_line)
+      dagliga_avgangar AS ( -- Calculate the number of daily departures per line (shapes_line)
           SELECT
               t.shape_id,
               t.route_id,
               cd.date,
               COUNT(DISTINCT t.trip_id) AS antal_avgangar
           FROM 
-              gtfs.trips t
+              {schema}.trips t
           JOIN 
-              gtfs.calendar_dates cd ON t.service_id = cd.service_id
+              {schema}.calendar_dates cd ON t.service_id = cd.service_id
           JOIN 
               senaste_version sv ON cd.date >= sv.start_date
           WHERE
@@ -704,7 +600,7 @@ skapa_vyer_linjer <- function(con) {
           GROUP BY 
               t.shape_id, t.route_id, cd.date
       ),
-      avgangar_vecka AS ( -- De dagliga avgångarna summeras per vardag/lördag/söndag för varje vecka
+      avgangar_vecka AS ( -- Sum daily departures per weekday/Saturday/Sunday for each week
           SELECT
               shape_id,
               route_id,
@@ -718,7 +614,7 @@ skapa_vyer_linjer <- function(con) {
           GROUP BY
               shape_id, route_id, DATE_TRUNC('week', date)
       ),
-      normal_vecka AS ( -- Rangordnar veckorna utefter det totala antalet avgångar i syfte att hitta den vecka med flest som då anses vara en 'normal vecka'
+      normal_vecka AS ( -- Rank weeks based on total departures to find the week with the most, considered a 'normal week'
           SELECT
               shape_id,
               route_id,
@@ -733,7 +629,7 @@ skapa_vyer_linjer <- function(con) {
           ORDER BY
               shape_id, route_id, total_veckans_avgangar DESC
       ),
-      shapes_info AS ( -- Kopplar samman shapes_line och routes och deras klassificeringar via trips
+      shapes_info AS ( -- Join shapes_line and routes with their classifications via trips
           SELECT
               sl.shape_id,
               sl.antal_punkter,
@@ -744,15 +640,15 @@ skapa_vyer_linjer <- function(con) {
               r.route_long_name,
               lc.klassificering
           FROM
-              gtfs.shapes_line sl
+              {schema}.shapes_line sl
           JOIN
-              gtfs.trips t ON sl.shape_id = t.shape_id
+              {schema}.trips t ON sl.shape_id = t.shape_id
           JOIN
-              gtfs.routes r ON t.route_id = r.route_id
+              {schema}.routes r ON t.route_id = r.route_id
           LEFT JOIN
-              gtfs.linjeklassificering lc ON r.route_short_name = lc.route_short_name
+              {schema}.linjeklassificering lc ON r.route_short_name = lc.route_short_name
       )
-      SELECT -- Sammanställer all information
+      SELECT -- Summarize all information
           si.shape_id,
           si.route_short_name AS linjenummer,
           si.route_long_name,
@@ -770,17 +666,17 @@ skapa_vyer_linjer <- function(con) {
       JOIN
           shapes_info si ON nv.shape_id = si.shape_id AND nv.route_id = si.route_id
       LEFT JOIN
-          gtfs.trips t ON si.shape_id = t.shape_id
+          {schema}.trips t ON si.shape_id = t.shape_id
       WHERE
           nv.rank = 1
       GROUP BY
           si.shape_id, si.route_short_name, si.route_long_name, si.klassificering, si.antal_punkter, si.max_dist, si.geometry, nv.total_veckodag_avgangar, nv.total_lordag_avgangar, nv.total_sondag_avgangar, nv.total_veckans_avgangar;
-    "
+    ")
     dbExecute(con, sql_alla_linjer_avgangar)
     
-    # Skapa materialiserad vy för den vanligaste linjen för varje rutt
-    sql_vanligaste_linjen = "
-      CREATE MATERIALIZED VIEW gtfs.vy_linjer_avgangar_vanligaste AS
+    # Create materialized view for the most common line for each route
+    sql_vanligaste_linjen = glue::glue("
+      CREATE MATERIALIZED VIEW {schema}.vy_linjer_avgangar_vanligaste AS
       WITH vanligaste_linje_per_route AS (
           SELECT 
               linjenummer,
@@ -796,7 +692,7 @@ skapa_vyer_linjer <- function(con) {
               geometry,
               ROW_NUMBER() OVER (PARTITION BY linjenummer ORDER BY antal_turer DESC) AS rank
           FROM 
-              gtfs.vy_linjer_avgangar_alla
+              {schema}.vy_linjer_avgangar_alla
       )
       SELECT 
           linjenummer,
@@ -814,26 +710,25 @@ skapa_vyer_linjer <- function(con) {
           vanligaste_linje_per_route
       WHERE 
           rank = 1;
-    "
+    ")
     dbExecute(con, sql_vanligaste_linjen)
     
-    message("Materialiserad vy 'gtfs.vy_alla_linjer_avgangar' skapad framgångsrikt.")
+    message(glue::glue("Materialiserad vy '{schema}.vy_alla_linjer_avgangar' skapad framgångsrikt."))
     
   }, error = function(e) {
     stop(paste("Ett fel inträffade vid skapandet av vyn:", e$message))
   })
 }
-#========== Skapa historiska vyer för hållplats ==============
-skapa_vyer_historisk_hallplats <- function(con) {
+
+skapa_vyer_historisk_hallplats <- function(con, schema = schema_namn) {
   tryCatch({
-    # Droppa de materialiserade vyerna om de finns
-    dbExecute(con, "DROP MATERIALIZED VIEW IF EXISTS gtfs_historisk.vy_historisk_hallplatslage_avgangar CASCADE;")
-    dbExecute(con, "DROP MATERIALIZED VIEW IF EXISTS gtfs_historisk.vy_historisk_hallplats_avgangar CASCADE;")
+    # Drop the materialized views if they exist
+    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_historisk_hallplatslage_avgangar CASCADE;"))
+    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_historisk_hallplats_avgangar CASCADE;"))
     
-    # Skapa materialiserad vy för hållplatser
-    # Se till att ta med version i alla JOINS
-    sql_hallplats_avgangar = "
-      CREATE MATERIALIZED VIEW gtfs_historisk.vy_historisk_hallplatslage_avgangar AS
+    # Create materialized view for stops
+    sql_hallplats_avgangar = glue::glue("
+      CREATE MATERIALIZED VIEW {schema}.vy_historisk_hallplatslage_avgangar AS
       WITH dagliga_avgangar AS (
           SELECT
               st.stop_id,
@@ -841,13 +736,13 @@ skapa_vyer_historisk_hallplats <- function(con) {
               v.version,
               COUNT(DISTINCT st.trip_id) AS antal_avgangar
           FROM 
-              gtfs_historisk.stop_times st
+              {schema}.stop_times st
           JOIN 
-              gtfs_historisk.trips t ON st.trip_id = t.trip_id AND st.version = t.version
+              {schema}.trips t ON st.trip_id = t.trip_id AND st.version = t.version
           JOIN 
-              gtfs_historisk.calendar_dates cd ON t.service_id = cd.service_id AND t.version = cd.version
+              {schema}.calendar_dates cd ON t.service_id = cd.service_id AND t.version = cd.version
           JOIN 
-              gtfs_historisk.versions v ON t.version = v.version
+              {schema}.versions v ON t.version = v.version
           WHERE
               cd.exception_type = 1
           GROUP BY 
@@ -887,21 +782,21 @@ skapa_vyer_historisk_hallplats <- function(con) {
               STRING_AGG(DISTINCT r.route_short_name::TEXT, ', ') AS linjer,
               STRING_AGG(DISTINCT lc.klassificering, ', ') AS linjetyper
           FROM 
-              gtfs_historisk.stop_times st
+              {schema}.stop_times st
           JOIN 
-              gtfs_historisk.trips t ON st.trip_id = t.trip_id AND st.version = t.version
+              {schema}.trips t ON st.trip_id = t.trip_id AND st.version = t.version
           JOIN 
-              gtfs_historisk.routes r ON t.route_id = r.route_id AND t.version = r.version
+              {schema}.routes r ON t.route_id = r.route_id AND t.version = r.version
           LEFT JOIN
-              gtfs_historisk.linjeklassificering lc ON r.route_short_name = lc.route_short_name AND r.version = lc.version
+              {schema}.linjeklassificering lc ON r.route_short_name = lc.route_short_name AND r.version = lc.version
           JOIN
-              gtfs_historisk.versions v ON t.version = v.version
+              {schema}.versions v ON t.version = v.version
           GROUP BY
               st.stop_id, v.version
       )
       SELECT 
           DISTINCT ON (st.stop_id, v.version)
-          CONCAT(st.stop_id, '_', v.version) AS unique_id, -- Skapa en unik identifierare
+          CONCAT(st.stop_id, '_', v.version) AS unique_id, -- Create a unique identifier
           st.stop_id,
           st.hpl_id,
           st.stop_name,
@@ -913,28 +808,28 @@ skapa_vyer_historisk_hallplats <- function(con) {
           ROUND(nv.total_veckans_avgangar / 7.0, 2) AS genomsnitt_dagliga_avgangar,
           rs.linjer,
           rs.linjetyper,
-          ST_SetSRID(st.geometry, 3006) AS geometry, -- Se till att SRID är korrekt
+          ST_SetSRID(st.geometry, 3006) AS geometry, -- Ensure the SRID is correct
           v.start_date AS startdatum,
           v.end_date AS slutdatum,
           v.version
       FROM
           normal_vecka nv
       JOIN
-          gtfs_historisk.stops st ON nv.stop_id = st.stop_id AND nv.version = st.version
+          {schema}.stops st ON nv.stop_id = st.stop_id AND nv.version = st.version
       LEFT JOIN
           routes_per_stop rs ON st.stop_id = rs.stop_id AND nv.version = rs.version
       JOIN
-          gtfs_historisk.versions v ON nv.version = v.version
+          {schema}.versions v ON nv.version = v.version
       WHERE
           nv.rank = 1;
-    "
+    ")
     dbExecute(con, sql_hallplats_avgangar)
     
-    # Skapa materialiserad vy för hållplatser
-    sql_hallplats_avgangar = "
-      CREATE MATERIALIZED VIEW gtfs_historisk.vy_historisk_hallplats_avgangar AS
+    # Create materialized view for historical stops
+    sql_hallplats_avgangar = glue::glue("
+      CREATE MATERIALIZED VIEW {schema}.vy_historisk_hallplats_avgangar AS
       SELECT
-          CONCAT(nva.parent_station, '_', nva.version) AS unique_id, -- Skapa en unik identifierare
+          CONCAT(nva.parent_station, '_', nva.version) AS unique_id, -- Create a unique identifier
           nva.parent_station AS stop_id,
           h.hpl_id,
           h.stop_name,
@@ -957,35 +852,34 @@ skapa_vyer_historisk_hallplats <- function(con) {
             ORDER BY unnest
           ), ', '
           ) AS linjetyper,
-          ST_SetSRID(h.geometry, 3006) AS geometry -- Se till att SRID är korrekt
+          ST_SetSRID(h.geometry, 3006) AS geometry -- Ensure the SRID is correct
       FROM
-          gtfs_historisk.vy_historisk_hallplatslage_avgangar nva
+          {schema}.vy_historisk_hallplatslage_avgangar nva
       JOIN
-          gtfs_historisk.stops h ON nva.parent_station = h.stop_id AND nva.version = h.version
+          {schema}.stops h ON nva.parent_station = h.stop_id AND nva.version = h.version
       WHERE
           nva.parent_station IS NOT NULL
       GROUP BY
           nva.parent_station, h.hpl_id, h.stop_name, nva.startdatum, nva.slutdatum, h.geometry, nva.version;
-    "
+    ")
     dbExecute(con, sql_hallplats_avgangar)
     
     message("Materialiserade vyer skapade framgångsrikt.")
     
   }, error = function(e) {
-    stop(glue("Ett fel inträffade vid skapandet av materialiserade vyer: {e$message}"))
+    stop(glue::glue("Ett fel inträffade vid skapandet av materialiserade vyer: {e$message}"))
   })
 }
 
-#========== Skapa historiska vyer för linjer ===========
-skapa_vyer_historisk_linjer <- function(con) {
+skapa_vyer_historisk_linjer <- function(con, schema = schema_namn) {
   tryCatch({
-    # Droppa de materialiserade vyerna om de finns
-    dbExecute(con, "DROP MATERIALIZED VIEW IF EXISTS gtfs_historisk.vy_historisk_linjer_avgangar_alla CASCADE;")
-    dbExecute(con, "DROP MATERIALIZED VIEW IF EXISTS gtfs_historisk.vy_historisk_linjer_avgangar_vanligaste CASCADE;")
+    # Drop the materialized views if they exist
+    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_historisk_linjer_avgangar_alla CASCADE;"))
+    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_historisk_linjer_avgangar_vanligaste CASCADE;"))
     
-    # Skapa materialiserad vy för alla linjer med rutter, antal trips och dagliga avgångar
-    sql_alla_linjer_avgangar = "
-      CREATE MATERIALIZED VIEW gtfs_historisk.vy_historisk_linjer_avgangar_alla AS
+    # Create materialized view for all lines with routes, trips, and daily departures
+    sql_alla_linjer_avgangar = glue::glue("
+      CREATE MATERIALIZED VIEW {schema}.vy_historisk_linjer_avgangar_alla AS
       WITH dagliga_avgangar AS (
           SELECT
               t.shape_id,
@@ -994,9 +888,9 @@ skapa_vyer_historisk_linjer <- function(con) {
               t.version,
               COUNT(DISTINCT t.trip_id) AS antal_avgangar
           FROM 
-              gtfs_historisk.trips t
+              {schema}.trips t
           JOIN 
-              gtfs_historisk.calendar_dates cd ON t.service_id = cd.service_id AND t.version = cd.version
+              {schema}.calendar_dates cd ON t.service_id = cd.service_id AND t.version = cd.version
           WHERE
               cd.exception_type = 1
           GROUP BY 
@@ -1043,13 +937,13 @@ skapa_vyer_historisk_linjer <- function(con) {
               lc.klassificering,
               r.version
           FROM
-              gtfs_historisk.shapes_line sl
+              {schema}.shapes_line sl
           JOIN
-              gtfs_historisk.trips t ON sl.shape_id = t.shape_id AND sl.version = t.version
+              {schema}.trips t ON sl.shape_id = t.shape_id AND sl.version = t.version
           JOIN
-              gtfs_historisk.routes r ON t.route_id = r.route_id AND t.version = r.version
+              {schema}.routes r ON t.route_id = r.route_id AND t.version = r.version
           LEFT JOIN
-              gtfs_historisk.linjeklassificering lc ON r.route_short_name = lc.route_short_name AND r.version = lc.version
+              {schema}.linjeklassificering lc ON r.route_short_name = lc.route_short_name AND r.version = lc.version
       )
       SELECT 
           CONCAT(si.shape_id, '_', si.version) AS unique_id,
@@ -1073,19 +967,19 @@ skapa_vyer_historisk_linjer <- function(con) {
       JOIN
           shapes_info si ON nv.shape_id = si.shape_id AND nv.route_id = si.route_id AND nv.version = si.version
       LEFT JOIN
-          gtfs_historisk.trips t ON si.shape_id = t.shape_id AND si.version = t.version
+          {schema}.trips t ON si.shape_id = t.shape_id AND si.version = t.version
       JOIN
-          gtfs_historisk.versions v ON si.version = v.version
+          {schema}.versions v ON si.version = v.version
       WHERE
           nv.rank = 1
       GROUP BY
           si.shape_id, si.route_short_name, si.route_long_name, si.klassificering, si.antal_punkter, si.max_dist, si.geometry, si.version, v.start_date, v.end_date, nv.total_veckodag_avgangar, nv.total_lordag_avgangar, nv.total_sondag_avgangar, nv.total_veckans_avgangar;
-    "
+    ")
     dbExecute(con, sql_alla_linjer_avgangar)
     
-    # Skapa materialiserad vy för den vanligaste linjen för varje rutt
-    sql_vanligaste_linjen = "
-      CREATE MATERIALIZED VIEW gtfs_historisk.vy_historisk_linjer_avgangar_vanligaste AS
+    # Create materialized view for the most common line per route
+    sql_vanligaste_linjen = glue::glue("
+      CREATE MATERIALIZED VIEW {schema}.vy_historisk_linjer_avgangar_vanligaste AS
       WITH vanligaste_linje_per_route AS (
           SELECT 
               unique_id,
@@ -1105,7 +999,7 @@ skapa_vyer_historisk_linjer <- function(con) {
               slutdatum,
               ROW_NUMBER() OVER (PARTITION BY linjenummer, version ORDER BY antal_turer DESC) AS rank
           FROM 
-              gtfs_historisk.vy_historisk_linjer_avgangar_alla
+              {schema}.vy_historisk_linjer_avgangar_alla
       )
       SELECT 
           unique_id,
@@ -1127,25 +1021,12 @@ skapa_vyer_historisk_linjer <- function(con) {
           vanligaste_linje_per_route
       WHERE 
           rank = 1;
-    "
+    ")
     dbExecute(con, sql_vanligaste_linjen)
     
     message("Materialiserade vyer skapade framgångsrikt.")
     
   }, error = function(e) {
-    stop(paste("Ett fel inträffade vid skapandet av materialiserade vyer:", e$message))
+    stop(glue::glue("Ett fel inträffade vid skapandet av materialiserade vyer: {e$message}"))
   })
-}
-
-
-#========== Logg-funktion ============
-logga_event <- function(message, log_file_path) {
-  # Få den aktuella tidstämpeln
-  timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
-  
-  # Skapa loggmeddelandet
-  log_message <- paste(timestamp, message, sep=" - ")
-  
-  # Skriv meddelandet till loggfilen
-  cat(log_message, "\n", file = log_file_path, append = TRUE)
 }
