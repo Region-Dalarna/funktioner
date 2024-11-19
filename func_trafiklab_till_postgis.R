@@ -157,20 +157,22 @@ skapa_tabeller <- function(con, schema = schema_namn) {
     dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_shapes_line_geometry_historisk ON {schema_namn}_historisk.shapes_line USING GIST (geometry);"))
     
     dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.trips (
-                          trip_id VARCHAR,
-                          route_id VARCHAR,
-                          service_id VARCHAR NOT NULL,
-                          trip_headsign VARCHAR,
-                          direction_id INTEGER,
-                          shape_id VARCHAR,
-                          version INTEGER,
-                          PRIMARY KEY (trip_id, version),
-                          FOREIGN KEY (route_id, version) REFERENCES {schema_namn}_historisk.routes(route_id, version)
-                      );"))
+                      trip_id VARCHAR,
+                      route_id VARCHAR,
+                      service_id VARCHAR NOT NULL,
+                      trip_headsign VARCHAR,
+                      direction_id INTEGER,
+                      shape_id VARCHAR,
+                      version INTEGER,
+                      PRIMARY KEY (trip_id, version),
+                      FOREIGN KEY (route_id, version) REFERENCES {schema_namn}_historisk.routes(route_id, version)
+                  );"))
     
+    # Create indexes on trips table in the historical schema
     dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_trips_route_id_historisk ON {schema_namn}_historisk.trips (route_id, version);"))
     dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_trips_shape_id_historisk ON {schema_namn}_historisk.trips (shape_id);"))
     dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_trips_service_id_historisk ON {schema_namn}_historisk.trips (service_id);"))
+    
     
     dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.stops (
                           stop_id VARCHAR,
