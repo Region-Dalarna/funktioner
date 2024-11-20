@@ -108,20 +108,20 @@ skapa_tabeller <- function(con, schema = schema_namn) {
                     klassificering VARCHAR NOT NULL
                   );"))
     
-    # Tabeller med historisk data
-    # agency
-    dbExecute(con, glue::glue("CREATE TABLE IF NOT EXISTS {schema}_historisk.agency (
-                      agency_id VARCHAR,
-                      agency_name VARCHAR NOT NULL,
-                      agency_url VARCHAR NOT NULL,
-                      agency_timezone VARCHAR NOT NULL,
-                      agency_lang VARCHAR,
-                      agency_phone VARCHAR,
-                      agency_fare_url VARCHAR,
-                      version INTEGER,
-                      PRIMARY KEY (agency_id, version)
-                  );"))
+    # Tables for historical data
+    dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.agency (
+                          agency_id VARCHAR,
+                          agency_name VARCHAR NOT NULL,
+                          agency_url VARCHAR NOT NULL,
+                          agency_timezone VARCHAR NOT NULL,
+                          agency_lang VARCHAR,
+                          agency_phone VARCHAR,
+                          agency_fare_url VARCHAR,
+                          version INTEGER,
+                          PRIMARY KEY (agency_id, version)
+                      );"))
     
+    # routes
     dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.routes (
                           route_id VARCHAR,
                           agency_id VARCHAR,
@@ -137,6 +137,7 @@ skapa_tabeller <- function(con, schema = schema_namn) {
                           FOREIGN KEY (agency_id, version) REFERENCES {schema_namn}_historisk.agency(agency_id, version)
                       );"))
     
+    # calendar_dates
     dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.calendar_dates (
                           service_id VARCHAR,
                           date DATE,
@@ -145,6 +146,7 @@ skapa_tabeller <- function(con, schema = schema_namn) {
                           PRIMARY KEY (service_id, version, date)
                       );"))
     
+    # shapes_line
     dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.shapes_line (
                           shape_id VARCHAR,
                           geometry GEOMETRY(Linestring, 3006),
@@ -153,27 +155,27 @@ skapa_tabeller <- function(con, schema = schema_namn) {
                           version INTEGER,
                           PRIMARY KEY (shape_id, version)
                       );"))
-    
+    # shapes_line - index
     dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_shapes_line_geometry_historisk ON {schema_namn}_historisk.shapes_line USING GIST (geometry);"))
     
+    # trips
     dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.trips (
-                      trip_id VARCHAR,
-                      route_id VARCHAR,
-                      service_id VARCHAR NOT NULL,
-                      trip_headsign VARCHAR,
-                      direction_id INTEGER,
-                      shape_id VARCHAR,
-                      version INTEGER,
-                      PRIMARY KEY (trip_id, version),
-                      FOREIGN KEY (route_id, version) REFERENCES {schema_namn}_historisk.routes(route_id, version)
-                  );"))
-    
-    # Create indexes on trips table in the historical schema
+                          trip_id VARCHAR,
+                          route_id VARCHAR,
+                          service_id VARCHAR NOT NULL,
+                          trip_headsign VARCHAR,
+                          direction_id INTEGER,
+                          shape_id VARCHAR,
+                          version INTEGER,
+                          PRIMARY KEY (trip_id, version),
+                          FOREIGN KEY (route_id, version) REFERENCES {schema_namn}_historisk.routes(route_id, version)
+                      );"))
+    # trips - index
     dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_trips_route_id_historisk ON {schema_namn}_historisk.trips (route_id, version);"))
     dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_trips_shape_id_historisk ON {schema_namn}_historisk.trips (shape_id);"))
     dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_trips_service_id_historisk ON {schema_namn}_historisk.trips (service_id);"))
     
-    
+    # stops
     dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.stops (
                           stop_id VARCHAR,
                           hpl_id VARCHAR,
@@ -187,31 +189,29 @@ skapa_tabeller <- function(con, schema = schema_namn) {
                           version INTEGER,
                           PRIMARY KEY (stop_id, version)
                       );"))
-    
+    # stops - index
     dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_stops_geometry_historisk ON {schema_namn}_historisk.stops USING GIST (geometry);"))
     
-    # Creating the stop_times table in the historical schema
+    # stop_times
     dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.stop_times (
-                      trip_id VARCHAR,
-                      arrival_time VARCHAR, -- Using VARCHAR for time fields to handle times greater than 24:00
-                      departure_time VARCHAR, -- Using VARCHAR for time fields to handle times greater than 24:00
-                      stop_id VARCHAR,
-                      stop_sequence INTEGER,
-                      stop_headsign VARCHAR,
-                      pickup_type INTEGER,
-                      drop_off_type INTEGER,
-                      shape_dist_traveled FLOAT,
-                      timepoint INTEGER,
-                      version INTEGER,
-                      PRIMARY KEY (trip_id, version, stop_sequence),
-                      FOREIGN KEY (trip_id, version) REFERENCES {schema_namn}_historisk.trips(trip_id, version),
-                      FOREIGN KEY (stop_id, version) REFERENCES {schema_namn}_historisk.stops(stop_id, version)
-                  );"))
-    
-    # Create indexes in the historical schema
+                          trip_id VARCHAR,
+                          arrival_time VARCHAR,
+                          departure_time VARCHAR,
+                          stop_id VARCHAR,
+                          stop_sequence INTEGER,
+                          stop_headsign VARCHAR,
+                          pickup_type INTEGER,
+                          drop_off_type INTEGER,
+                          shape_dist_traveled FLOAT,
+                          timepoint INTEGER,
+                          version INTEGER,
+                          PRIMARY KEY (trip_id, version, stop_sequence),
+                          FOREIGN KEY (trip_id, version) REFERENCES {schema_namn}_historisk.trips(trip_id, version),
+                          FOREIGN KEY (stop_id, version) REFERENCES {schema_namn}_historisk.stops(stop_id, version)
+                      );"))
+    # stop_times - index
     dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_stop_times_trip_id_historisk ON {schema_namn}_historisk.stop_times (trip_id, version);"))
     dbExecute(con, glue("CREATE INDEX IF NOT EXISTS idx_stop_times_stop_id_historisk ON {schema_namn}_historisk.stop_times (stop_id, version);"))
-    
     
     # Linjeklassificering
     dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.linjeklassificering (
@@ -229,9 +229,10 @@ skapa_tabeller <- function(con, schema = schema_namn) {
                       );"))
     
   }, error = function(e){
-    stop(paste("Ett fel inträffade vid skapandet av tabeller: ", e$message))
+    stop(glue("Ett fel inträffade vid skapandet av tabeller: {e$message}"))
   })
 }
+    
 
 versionshantering <- function(con, gtfs_data, schema = schema_namn) {
   tryCatch({
@@ -358,11 +359,15 @@ ladda_upp_till_databas <- function(con, gtfs_data, schema = schema_namn) {
       rm(sf_stops)
     }
     
+    print("stops fixad")
+    
     # Add shapes (only if the data exists)
     if (!is.null(gtfs_data$shapes)) {
       sf_shapes <- st_as_sf(gtfs_data$shapes, coords = c("shape_pt_lon", "shape_pt_lat"), crs = 4326, remove = FALSE) %>% 
         st_transform(3006) %>% 
         st_set_geometry("geometry")
+      
+      print("shapes fixad")
       
       # Add shapes as lines and include fields for number of points and max distance between points
       sf_shapes_line <- sf_shapes %>% 
@@ -375,11 +380,15 @@ ladda_upp_till_databas <- function(con, gtfs_data, schema = schema_namn) {
       st_write(obj = sf_shapes_line, dsn = con, Id(schema = schema_namn, table = "shapes_line"), geomtype = "LINESTRING", delete_layer = FALSE, append = TRUE)
     }
     
+    print("Spatial tables uploaded")
+    
     # Non-spatial tables (add only if they exist in gtfs_data)
     non_spatial_tables <- c("agency", "calendar_dates", "routes", "trips", "stop_times")
     lapply(non_spatial_tables, function(table) {
       if (!is.null(gtfs_data[[table]])) {
         dbWriteTable(con, Id(schema = schema, table = table), gtfs_data[[table]], append = TRUE, row.names = FALSE)
+        
+        print(glue::glue("{table} uploaded"))
       }
     })
     
