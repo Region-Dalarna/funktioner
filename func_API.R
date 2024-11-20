@@ -2321,6 +2321,9 @@ demo_diagrambild_skapa <- function(
   
   source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_filer.R")
   
+  # vi tar bort mapp från sökvägen för så funkar skriptet nedan
+  diagramskript_filnamn <- basename(diagramskript_filnamn)
+  
   # Skapa sökväg till diagramskriptet, mapp_diagramskript_ej_github används när man inte ska revidera ett diagramskript
   # som ligger i ett github-repo utan bara lokalt
   if (is.na(mapp_diagramskript_ej_github)){
@@ -2332,7 +2335,7 @@ demo_diagrambild_skapa <- function(
   
   dia_funktion <- hitta_funktioner_i_fil_ej_inuti_andra_funktioner(diagram_sokvag)
   dia_funktion <- dia_funktion[str_sub(dia_funktion,1,4) == "diag"]     # bara första funktionen i skriptet
-  
+
   # Skapa en temporär mapp
   temp_mapp <- file.path(tempdir(), "temp_mapp")
   skapa_mapp_om_den_inte_finns(temp_mapp)
@@ -2361,7 +2364,7 @@ demo_diagrambild_skapa <- function(
   }
   
   # Lägg till output_mapp-parametern i parameter_lista, finns den redan skrivs den över
-  parameter_lista[[utmappnamn]] <- temp_mapp
+  parameter_lista[[utmappnamn]] <- if (str_sub(temp_mapp, nchar(temp_mapp)) != "/" | str_sub(temp_mapp, nchar(temp_mapp)) != "\\") temp_mapp <- paste0(temp_mapp, "/") else temp_mapp
   
   # Sätt parameter för att skriva diagramfil(er) till TRUE
   match_index <- match(names(parametrar), 
@@ -2371,7 +2374,7 @@ demo_diagrambild_skapa <- function(
   parametrar[match_index > 0] <- TRUE          # sätter de parametrar som matchar med vektorn ovan till TRUE (bör vara bara en)
   
   # Uppdatera parametrar med värden från parameter_lista där namnen överensstämmer
-  parameter_lista <- imap(parametrar, ~ if(.y %in% names(parameter_lista)) parameter_lista[[.y]] else .x)
+  parameter_lista <- imap(parametrar, ~ if(.y %in% names(parameter_lista)) parameter_lista[[.y]] else .x) 
   
   # Skapa diagrammet och skriv ut bildfiler till den temporära mappen vi skapat ovan
   resultat <- do.call(dia_funktion, parameter_lista)
