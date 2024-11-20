@@ -15,7 +15,10 @@ source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_AP
 
 # ===================================== hantera GIS i R ===============================================
 
-kartifiera <- function(skickad_df, geom_nyckel){
+kartifiera <- function(skickad_df, 
+                       geom_nyckel, 
+                       tatortspunkter = TRUE                   # används bara om det är tätorter, om TRUE returneras punkter, annars polygoner
+                       ){
   
   kartifiera_regionkoder <- unique(skickad_df[[geom_nyckel]])
   geom_nyckel_langd <- nchar(kartifiera_regionkoder) %>% unique()
@@ -28,8 +31,13 @@ kartifiera <- function(skickad_df, geom_nyckel){
     if (geom_nyckel_langd == 2) kartifiera_karttyp <- "lan"
     if (geom_nyckel_langd == 4 & all(str_detect(kartifiera_regionkoder, "^[:digit:]+$"))) kartifiera_karttyp <- "kommun" 
     if (geom_nyckel_langd == 4 & !all(str_detect(kartifiera_regionkoder, "^[:digit:]+$"))) kartifiera_karttyp <- "nuts2"
-    if (geom_nyckel_langd == 9 & !all(str_detect(kartifiera_regionkoder, "^[:digit:]+$"))) kartifiera_karttyp <- "deso"
-    if (geom_nyckel_langd == 8 & !all(str_detect(kartifiera_regionkoder, "^[:digit:]+$"))) kartifiera_karttyp <- "regso"
+    #if (geom_nyckel_langd == 9 & !all(str_detect(kartifiera_regionkoder, "^[:digit:]+$"))) kartifiera_karttyp <- "deso"
+    if (geom_nyckel_langd == 9 & all(str_sub(kartifiera_regionkoder, 5, 5) %in% c("A", "B", "C"))) kartifiera_karttyp <- "deso"
+    #if (geom_nyckel_langd == 8 & !all(str_detect(kartifiera_regionkoder, "^[:digit:]+$"))) kartifiera_karttyp <- "regso"
+    if (geom_nyckel_langd == 8 & all(str_sub(kartifiera_regionkoder, 5, 5) %in% c("R"))) kartifiera_karttyp <- "regso"
+    if (geom_nyckel_langd == 9 & all(str_sub(kartifiera_regionkoder, 5, 5) %in% c("T"))) kartifiera_karttyp <- "tatorter"
+    
+    if (kartifiera_karttyp == "tatorter" & tatortspunkter) kartifiera_karttyp <- "tatortspunkter"
     
     # vi hämtar gislagret för aktuell karttyp, för de geom_nyckelkoder som skickats med
     gis_lager <- hamta_karta(karttyp = kartifiera_karttyp, regionkoder = kartifiera_regionkoder)
@@ -37,10 +45,12 @@ kartifiera <- function(skickad_df, geom_nyckel){
     # här lägger vi till rader (dvs. tabeller) som ska vara hämtbara från geodatabasen med hamta_karta()-funktionen
     tabell_df <- hamta_karttabell()
     
-    df_rad <- suppressWarnings(str_which(tabell_df$sokord, kartifiera_karttyp))             # vi letar upp den rad som parametern karrtyp finns på
-    
+    vald_karta <- tabell_df %>%
+      mutate(ord_match = map_lgl(sokord, ~ kartifiera_karttyp %in% .)) %>% 
+      filter(ord_match)
+
     # om medskickade kartyp inte finns bland sökorden får pg_tabell värdet "finns ej" och då körs inte skriptet nedan
-    if (length(df_rad) == 0) pg_tab_idkol <- "finns ej" else pg_tab_idkol <- tabell_df$id_kol[df_rad] 
+    if (nrow(vald_karta) == 0) pg_tab_idkol <- "finns ej" else pg_tab_idkol <- vald_karta$id_kol
     
     join_sf <- skickad_df %>% 
       left_join(gis_lager, by = setNames(pg_tab_idkol, geom_nyckel)) %>% 
