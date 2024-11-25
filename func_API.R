@@ -1019,81 +1019,80 @@ period_jmfr_filter <- function(period_kolumn, vald_period, period_vekt, inkluder
 
 skapa_intervaller <- function(skickad_kolumn, antal_intervaller = 5){
   
-  antal_tecken <- function(tal) {
-    tal_retur <- 10^floor(log10(abs(tal)))
-    tal_retur <- nchar(as.character(abs(tal_retur)))
-    return(tal_retur)  # abs() används för att hantera negativa tal
+  # Hjälpfunktion för att runda till bra tal
+  runda_till_bra_tal <- function(tal) {
+    10^round(log10(tal))  # Rundar av till närmaste 10, 100, 1000, etc.
   }
   
-  min_varde <- min(skickad_kolumn)
-  max_varde <- max(skickad_kolumn)
+  # Hitta min och max i kolumnen
+  min_varde <- min(skickad_kolumn, na.rm = TRUE)
+  max_varde <- max(skickad_kolumn, na.rm = TRUE)
   
-  shift <- abs(min_varde) + 1  # Gör det minsta värdet positivt
-  min_varde_shifted <- min_varde + shift
-  max_varde_shifted <- max_varde + shift
+  # Beräkna råa intervall
+  intervall_steg <- (max_varde - min_varde) / (antal_intervaller - 1)
+  intervall_steg <- runda_till_bra_tal(intervall_steg)  # Runda till bra tal
   
-  retur_intervaller <- exp(seq(log(min_varde_shifted), log(max_varde_shifted), length.out = antal_intervaller)) - shift
+  # Justera min-värdet till ett jämnt steg
+  min_rundat <- floor(min_varde / intervall_steg) * intervall_steg
   
-  # 
-  # intervaller <- exp(seq(log(min_varde), log(max_varde), length.out = antal_intervaller))
-  # retur_intervaller <- round(intervaller, -(antal_tecken(intervaller)-1))
+  if (min_rundat <= 0) {
+    min_rundat <- intervall_steg / 2  # Sätt minsta värdet till halva intervallet
+  }
   
+  # Justera max-värdet till ett jämnt steg
+  #max_rundat <- ceiling(max_varde / intervall_steg) * intervall_steg
+  
+  # Justera min- och maxvärden för att hålla dem nära originalspannet
+  min_rundat <- max(floor(min_varde / intervall_steg) * intervall_steg, min_varde)
+  max_rundat <- min(ceiling(max_varde / intervall_steg) * intervall_steg, max_varde)
+  
+  # Kontrollera att intervallet är tillräckligt stort
+  if ((max_rundat - min_rundat) < (antal_intervaller - 1) * intervall_steg) {
+    max_rundat <- max_rundat + intervall_steg
+  }
+  
+  # Skapa intervallvektorn baserat på justerat spann
+  intervaller_obearbetad <- seq(min_rundat, max_rundat, length.out = antal_intervaller)
+  
+  retur_intervaller <- avrundning_dynamisk(intervaller_obearbetad)
+
   return(retur_intervaller)
-  
-  # intervall <- NA              # skapa variabel
-  # 
-  # max_kol <- max(skickad_kolumn) 
-  # min_kol <- min(skickad_kolumn)
-  # range_kol <- max_kol - min_kol
-  # 
-  # intervall_range <- round(range_kol / (antal_intervaller-1))
-  # 
-  # # ta fram en siffra som vi avrundar till, ska helst vara 5000 om siffran ligger nära där, 500 om siffran är nära där osv.
-  # avrundning_num <- round(intervall_range, nchar(intervall_range)*-1)/2
-  # # om avrundning blir 0 så måste vi öka på den något
-  # if (avrundning_num == 0) avrundning_num <- round(intervall_range, (nchar(intervall_range)-1)*-1)/2
-  # 
-  # intervall[1] <- min_kol
-  # intervall[antal_intervaller] <- max_kol
-  # 
-  # for (x in 2:(antal_intervaller-1)){
-  #   intervall[x] <- min_kol + (intervall_range * (x-1))
-  # }
-  # 
-  # for (x in 1:length(intervall)){
-  #   tal <- round(intervall[x])
-  #   
-  #   intervall[x] <- plyr::round_any(tal, avrundning_num)
-  #   if (intervall[x] == 0) intervall[x] <- avrundning_num/10    # speciallösning, kan kanske fungera för flera fall, om 0 använd avrundning_num / 10
-  #   #intervall[x] <- round(tal, (nchar(tal)-ifelse(nchar(tal)<5,1,2))*-1)
-  #   # lägg till om siffran blir samma som tidigare siffra i vektorn
-  #   if (x > 1){
-  #     if (intervall[x] == intervall[x-1]) intervall[x] <- intervall[x] + round(intervall_range, -2)  
-  #   }
-  #   
-  #   # fixa till om talet är under 1000 och nästa tal är över 1000, sätt till 500 i så fall
-  #   if (x < length(intervall)){
-  #     if (intervall[x] < 1000 & intervall[x+1] > 999) intervall[x] <- 500
-  #   }
-  # }
-  # return(intervall)
+
 }
 
 
 avrundning_dynamisk <- function(x, gräns_stora = 10, gräns_medel = 1, dec_stora = 0, dec_medel = 1, dec_små = 2) {
   avrunda <- function(v) {
     if (abs(v) >= gräns_stora) {
-      round(v, dec_stora)  # Inga decimaler för stora tal
+      # Runda till närmaste multipel av en "fin" grund
+      multipel <- 10^floor(log10(abs(v)))
+      round(v / multipel) * multipel
     } else if (abs(v) >= gräns_medel) {
       round(v, dec_medel)  # En decimal för medelstora tal
     } else {
       round(v, dec_små)    # Två decimaler för små tal
     }
   }
-  # Applicera på varje element i vektorn x med purrr::map_dbl
-  retur_vekt <- map_dbl(x, avrunda)
+  # Applicera avrundningen på varje element i vektorn
+  retur_vekt <- purrr::map_dbl(x, avrunda)
   return(retur_vekt)
 }
+
+
+# avrundning_dynamisk <- function(x, gräns_stora = 10, gräns_medel = 1, dec_stora = 0, dec_medel = 1, dec_små = 2) {
+#   avrunda <- function(v) {
+#     if (abs(v) >= gräns_stora) {
+#       round(v, dec_stora)  # Inga decimaler för stora tal
+#     } else if (abs(v) >= gräns_medel) {
+#       round(v, dec_medel)  # En decimal för medelstora tal
+#     } else {
+#       round(v, dec_små)    # Två decimaler för små tal
+#     }
+#   }
+#   # Applicera på varje element i vektorn x med purrr::map_dbl
+#   retur_vekt <- map_dbl(x, avrunda)
+#   return(retur_vekt)
+# }
 
 
 # ================================================= Ladda ner data utan API ==============================================
