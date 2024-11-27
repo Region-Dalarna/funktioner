@@ -2,11 +2,11 @@
 # andra paket
  
 if (!require("pacman")) install.packages("pacman")
-p_load(pxweb,
+p_load(jsonlite,
+       pxweb,
        tidyverse,
        rKolada,
        httr,
-       jsonlite,
        keyring,
        rvest,
        usethis,
@@ -1046,6 +1046,10 @@ skapa_intervaller <- function(skickad_kolumn, antal_intervaller = 5){
   min_rundat <- max(floor(min_varde / intervall_steg) * intervall_steg, min_varde)
   max_rundat <- min(ceiling(max_varde / intervall_steg) * intervall_steg, max_varde)
   
+  if (max_rundat > max_varde * 1.1) {  # Tillåt max 10 % över faktiska maxvärdet
+    max_rundat <- floor(max_varde / intervall_steg) * intervall_steg + intervall_steg / 2
+  }
+  
   # Kontrollera att intervallet är tillräckligt stort
   if ((max_rundat - min_rundat) < (antal_intervaller - 1) * intervall_steg) {
     max_rundat <- max_rundat + intervall_steg
@@ -1274,7 +1278,7 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
   retur_df <- purrr::map_df(content, function(item) {
     if (item$type == "dir") {
       # Om det är en mapp, rekursera genom att kalla funktionen igen
-      github_lista_repo_filer_ny(owner, repo, url_vekt_enbart = FALSE, skriv_source_konsol = FALSE, till_urklipp = FALSE, filtrera = filtrera, path = paste0(path, item$name, "/"))
+      github_lista_repo_filer(owner, repo, url_vekt_enbart = FALSE, skriv_source_konsol = FALSE, till_urklipp = FALSE, filtrera = filtrera, path = paste0(path, item$name, "/"))
     } else {
       # Om det är en fil, returnera dess namn och URL
       tibble::tibble(

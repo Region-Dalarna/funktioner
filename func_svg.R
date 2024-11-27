@@ -178,8 +178,8 @@ svg_element_ta_bort_med_grupp <- function(svg_lista, meta, grupp, element = c("c
   # Ta bort de valda elementen i första gruppen (groups[[1]])
   circle_nodes_1 <- xml_children(svg_lista$groups[[1]]$children[[1]])
   circle_nodes_2 <- xml_children(svg_lista$groups[[1]]$children[[2]])
-  walk(element_att_ta_bort, ~ xml_remove(circle_nodes_1[.x]))
-  walk(element_att_ta_bort, ~ xml_remove(circle_nodes_2[.x]))
+  if ("cirkel" %in% element) walk(element_att_ta_bort, ~ xml_remove(circle_nodes_1[.x]))
+  if ("text" %in% element) walk(element_att_ta_bort, ~ xml_remove(circle_nodes_2[.x]))
   
   # Ta bort de valda elementen i andra och tredje gruppen
   if ("cirkel" %in% element) svg_lista$groups[[2]]$children <- svg_lista$groups[[2]]$children[-element_att_ta_bort]    # cirkel
@@ -202,13 +202,26 @@ svg_skala_cirklar_ordna <- function(svg_lista, meta, typsnitt_storlek = 20, mell
   # Hitta gruppen "skala" och extrahera cirklarna i den
   skala_cirklar <- svg_lista$groups[[2]]$children[skala_index]  
   
+  # ta reda på höjden på samtliga skalbubblor + mellanrum
+  skala_cirklar_hojd <- map_dbl(skala_cirklar, ~ as.numeric(xml_attr(.x, "r"))) %>% 
+    sum() %>% 
+    {. + (mellanrum * (length(skala_cirklar)-1))}
+  
   # Sortera cirklarna i fallande ordning baserat på radie
   sorterade_cirklar <- skala_cirklar[order(map_dbl(skala_cirklar, ~ as.numeric(xml_attr(.x, "r"))), decreasing = TRUE)]
+  
+  # y-värdet för alla data-cirklar
+  mitt_y_data <- svg_grupp_position_hamta("data", svg_inlast, meta_df)$mitt_y
   
   # Hämta x- och y-positionen för den största cirkeln och låt den ligga kvar
   start_x <- as.numeric(xml_attr(sorterade_cirklar[[1]], "transform") %>% sub("translate\\((.*),.*", "\\1", .))
   start_y <- as.numeric(xml_attr(sorterade_cirklar[[1]], "transform") %>% sub(".*,(.*)\\)", "\\1", .))
   start_r <- as.numeric(xml_attr(sorterade_cirklar[[1]], "r"))
+  
+  # beräkna y_värde för största cirkeln
+  #nytt_y_varde <- mitt_y_data + (skala_cirklar_hojd/2) - (start_r / 2)
+  # Beräkna det nya y-värdet för den största cirkeln
+  nytt_y_varde <- mitt_y_data + (skala_cirklar_hojd / 2)
   
   # Placera varje mindre cirkel ovanför den största, med mellanrum
   for (i in seq_along(sorterade_cirklar)) {
@@ -216,7 +229,7 @@ svg_skala_cirklar_ordna <- function(svg_lista, meta, typsnitt_storlek = 20, mell
     
     # Beräkna ny y-position för varje cirkel
     if (i == 1) {
-      ny_y <- start_y  # Första (största) cirkeln behåller sin ursprungliga y-position
+      ny_y <- nytt_y_varde           # start_y  # Första (största) cirkeln behåller sin ursprungliga y-position
     } else {
       # Placera nästa cirkel ovanför den tidigare och lägg till mellanrum
       tidigare_radie <- as.numeric(xml_attr(sorterade_cirklar[[i - 1]], "r"))
@@ -243,7 +256,7 @@ svg_skala_cirklar_ordna <- function(svg_lista, meta, typsnitt_storlek = 20, mell
   sorterade_texter <- svg_lista$groups[[3]]$children[sorterade_index] %>% rev()
   
   # Bestäm x-positionen för etiketterna (lite till höger om den största cirkeln)
-  text_x_position <- start_x + (start_r * 2) + mellanrum  # Justera detta värde för önskat avstånd till höger om cirklarna
+  text_x_position <- start_x + (start_r / 2) + mellanrum  # Justera detta värde för önskat avstånd till höger om cirklarna
   
   # Uppdatera varje cirkel och motsvarande textetikett baserat på de sorterade indexen
   for (i in seq_along(sorterade_index)) {
