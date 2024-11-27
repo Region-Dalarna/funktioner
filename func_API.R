@@ -2,8 +2,7 @@
 # andra paket
  
 if (!require("pacman")) install.packages("pacman")
-p_load(jsonlite,
-       pxweb,
+p_load(pxweb,
        tidyverse,
        rKolada,
        httr,
@@ -1112,7 +1111,7 @@ hamta_fk_json_dataset_med_url <- function(url_fk) {
   
   fk_json <- GET(url_fk) %>% 
     httr::content("text") %>% 
-    fromJSON(flatten = TRUE) %>% 
+    jsonlite::fromJSON(flatten = TRUE) %>% 
     select(-contains(c("rojd"))) %>% 
     rename_with(~ str_to_sentence(str_remove_all(., "observations\\.|\\.value|dimensions\\."))) %>% 
     select(-Row_nr)
