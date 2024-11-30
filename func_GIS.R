@@ -2505,10 +2505,11 @@ gdb_extrahera_kolumnnamn_per_gislager <- function(gdb_sokvag,
     
     return(kolumnnamn_ny)
   })
-
+  
   # döp alla element efter vad dess gis-lager heter
   names(lager_kolumnnamn_lista) <- alla_lager_i_gdb
   
   # Returnera resultatet
   return(lager_kolumnnamn_lista)
 }
+
