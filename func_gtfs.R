@@ -15,7 +15,7 @@ pacman::p_load(httr,
                httr,
                keyring) # finns zip i tidyverse?
 
-gtfs_operatorer_sverige_nyckeltabell_hamta <- function(){
+gtfs_operatorer_sverige_nyckeltabell_hamta <- function(tabort_na = TRUE){
   
   # hämta nyckeltabell för regioner och operatörer så att man kan hämta en operatör med
   # regionkod
@@ -51,6 +51,8 @@ gtfs_operatorer_sverige_nyckeltabell_hamta <- function(){
   
   retur_df <- retur_df %>% 
     left_join(regionnyckel, by = "region")
+  
+  if (tabort_na) retur_df <- retur_df %>% filter(!is.na(regionkod))
   
   # Visa tabellen
   return(retur_df)
@@ -147,7 +149,15 @@ gtfs_fyll_calendar_dates_fran_calendar <- function(calendar_df,
 # =================== Hämtar GTFS-dataset ===================
 
 # Huvudfunktion för nedladdning och bearbetning av GTFS-data
-# Argument:
+#
+# För att köra skriptet krävs att man har installerat paketet keyring() och där sparat en 
+# service som heter "API_trafiklab_token", där användarnamn är "GTFS_Regional", "GTFS_Sverige_2" 
+# eller "GTFS_Sweden_3" beroende på vilket dataset man vill hämta. Själva token läggs som 
+# lösenord. Man måste skapa en användare hos Trafiklab för att få tokens som man använder för 
+# att ladda ned data. Detta skapar man här: https://developer.trafiklab.se/login och det är 
+# kostnadsfritt. 
+#
+# Parametrar i funktionen:
 #   - gtfs_dataset: Specificerar dataset att ladda ner. Kan vara en RKM-kod (ex. "skane") eller "sverige_2" eller "sweden_3".
 #   - spara_filmap: Sökväg för att spara filerna. Om ingen sökväg anges, sparas filerna temporärt.
 #   - test_mode: Om TRUE, testas endast URL-åtkomst, ingen nedladdning sker (default = FALSE).
@@ -166,22 +176,31 @@ gtfs_fyll_calendar_dates_fran_calendar <- function(calendar_df,
 # 
 # Förbättringspotential:
 #   - använda länskod för att hämta regionala dataset, funkar backar därför till en tidigare version!
-#   - hur ladda ner delar av sweden_3 eller sverige_2?
+#   - funktionalitet för att ladda ner länsversioner av sweden_3 eller sverige_2? Så att man får med all trafik i länet och inte bara den regionala operatören
 
-hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = FALSE) {
+hamta_gtfs_data <- function(gtfs_dataset = "20",   # 
+                            spara_filmap = NA, 
+                            test_mode = FALSE) {
+  
+  # kontrollera att gtfs_dataset bara är ett värde
+  if (length(gtfs_dataset) > 1) stop("Parametern gtfs_dataset kan för närvarande bara ha ett värde. Korrigera parametern och försök igen.")
+  
   tryCatch({
     datum <- str_remove_all(Sys.Date(), "-")
     
     # Retrieve API key from keyring based on dataset
-    if (gtfs_dataset == "sweden_3") {
+    if (tolower(gtfs_dataset) == "sweden_3" | tolower(gtfs_dataset) == "sweden3") {
       api_key <- key_get("API_trafiklab_token", "GTFS_Sweden_3")
       url <- paste0("https://opendata.samtrafiken.se/gtfs-sweden/sweden.zip?key=", api_key)
-    } else if (gtfs_dataset == "sverige_2") {
+    } else if (tolower(gtfs_dataset) == "sverige_2" | tolower(gtfs_dataset) == "sverige2") {
       api_key <- key_get("API_trafiklab_token", "GTFS_Sverige_2")
       url <- paste0("https://api.resrobot.se/gtfs/sweden.zip?key=", api_key)
     } else {
-      # Default to Regional dataset with specified or default RKM
-      rkm <- gtfs_dataset  # Using "dt" as default if not specified
+      # hämta en nyckel som översätter länskoder till operatörskoder (som finns hos Trafiklab)
+      regionnyckel <- gtfs_operatorer_sverige_nyckeltabell_hamta()
+      # om gtfs-dataset
+      rkm <- if (gtfs_dataset %in% regionnyckel$operatorkod) gtfs_dataset else regionnyckel$operatorkod[gtfs_dataset == regionnyckel$regionkod]
+      
       api_key <- key_get("API_trafiklab_token", "GTFS_Regional")
       url <- paste0("https://opendata.samtrafiken.se/gtfs/", rkm, "/", rkm, ".zip?key=", api_key)
     }
@@ -197,9 +216,9 @@ hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = 
       }
       
       if (response$status_code == 200) {
-        message("Test successful: The URL is accessible.")
+        message("Test framgångsrikt: URL:en finns och fungerar.")
       } else {
-        stop("The URL is not accessible. Status code: ", response$status_code)
+        stop("URL:en fungerar inte, felkod: ", response$status_code)
       }
       return(invisible())  # Exits function without further execution
     }
@@ -221,9 +240,13 @@ hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = 
     # Lista alla filer i zip-arkivet
     zip_innehall <- zip_list(gtfs_fil)$filename
     
-    # Read and process GTFS files
+    # skapa tom lista som vi fyller på med information nedan
+    gtfs_lista <- list()
+    
+    # Läs in och bearbeta gtfs-filerna
     routes <- read.csv2(file.path(unzip_dir, "routes.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
       mutate(route_type = as.integer(route_type))
+    gtfs_lista <- c(gtfs_lista, list(routes = routes))     # fyll på gtfs_lista med detta dataset
     
     stops <- read.csv2(file.path(unzip_dir, "stops.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
       mutate(
@@ -232,8 +255,9 @@ hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = 
         stop_lon = as.numeric(stop_lon),
         location_type = as.integer(location_type)
       )
+    gtfs_lista <- c(gtfs_lista, list(stops = stops))      # fyll på gtfs_lista med detta dataset
     
-    stop_times <- read.csv2(file.path(unzip_dir, "stop_times.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
+     <- read.csv2(file.path(unzip_dir, "stop_times.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
       mutate(
         stop_sequence = as.integer(stop_sequence),
         pickup_type = as.integer(pickup_type),
@@ -241,11 +265,14 @@ hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = 
         shape_dist_traveled = if ("shape_dist_traveled" %in% names(.)) suppressWarnings(as.numeric(shape_dist_traveled)) else NA_real_,
         timepoint = if ("timepoint" %in% names(.)) suppressWarnings(as.integer(timepoint)) else NA_integer_
       )
+    gtfs_lista <- c(gtfs_lista, list(stop_times = stop_times))     # fyll på gtfs_lista med detta dataset
+    
     
     trips <- read.csv2(file.path(unzip_dir, "trips.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
       mutate(
         direction_id = if ("direction_id" %in% names(.)) suppressWarnings(as.integer(direction_id)) else NA_integer_
       )
+    gtfs_lista <- c(gtfs_lista, list(trips = trips))     # fyll på gtfs_lista med detta dataset
     
     
     calendar_dates <- read.csv2(file.path(unzip_dir, "calendar_dates.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
@@ -253,38 +280,36 @@ hamta_gtfs_data <- function(gtfs_dataset = "dt", spara_filmap = NA, test_mode = 
         date = as.Date(date, format = "%Y%m%d"),
         exception_type = as.integer(exception_type)
       )
+    gtfs_lista <- c(gtfs_lista, list(calendar_dates = calendar_dates))     # fyll på gtfs_lista med detta dataset
     
-    # Conditional read for shapes.txt with warning if missing
-    # Check for the existence of shapes.txt
-    shapes <- if (file.exists(file.path(unzip_dir, "shapes.txt"))) {
-      read.csv2(file.path(unzip_dir, "shapes.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
+    
+    # Lägg bara till om shapes finns i datasetet
+    if (file.exists(file.path(unzip_dir, "shapes.txt"))) {
+      shapes <- read.csv2(file.path(unzip_dir, "shapes.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
         mutate(
           shape_pt_sequence = if ("shape_pt_sequence" %in% names(.)) as.integer(shape_pt_sequence) else NA_integer_,
           shape_dist_traveled = if ("shape_dist_traveled" %in% names(.)) suppressWarnings(as.numeric(shape_dist_traveled)) else NA_real_
         )
-    } else {
-      warning("shapes.txt is missing in the GTFS dataset.")
-      NULL
+      gtfs_lista <- c(gtfs_lista, list(shapes = shapes))     # fyll på gtfs_lista med detta dataset
+      
+    } 
+    
+    if (file.exists(file.path(unzip_dir, "agency.txt"))) {
+      agency <- read.csv2(file.path(unzip_dir, "agency.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
+      gtfs_lista <- c(gtfs_lista, list(agency = agency))     # fyll på gtfs_lista med detta dataset
+      
     }
     
-    agency <- read.csv2(file.path(unzip_dir, "agency.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
-    
-    feed_info <- read.csv2(file.path(unzip_dir, "feed_info.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
+    if (file.exists(file.path(unzip_dir, "feed_info.txt"))) {
+      feed_info <- read.csv2(file.path(unzip_dir, "feed_info.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
+      gtfs_lista <- c(gtfs_lista, list(feed_info = feed_info))     # fyll på gtfs_lista med detta dataset
+    }
     
     # Return as a list of data frames
-    return(list(
-      routes = routes,
-      stops = stops,
-      stop_times = stop_times,
-      trips = trips,
-      calendar_dates = calendar_dates,
-      shapes = shapes,  # will be NULL if shapes.txt is missing
-      agency = agency,
-      feed_info = feed_info
-    ))
+    return(gtfs_lista)
     
   }, error = function(e) {
-    stop(paste("An error occurred while downloading and processing GTFS data: ", e$message))
+    stop(paste("Följande fel har uppstått under nedladdning och bearbetning av gtfs-datasetet: ", e$message))
   })
 }    
 
