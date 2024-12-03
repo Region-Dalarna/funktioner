@@ -1106,61 +1106,256 @@ hamta_fk_json_dataset_med_url <- function(url_fk) {
   # där man kan filtrera på Försäkringskassan som organisation. Det går också att ladda ned Excelfiler från dem och då används
   # med fördel funktionen hamta_excel_dataset_med_url()
   
-  kolumnordning <- c("Period", "period", "tid", "Ar", "ar", "År", "år", "Manad", "Månad", "manad", "månad", "år_månad", "månad_år", "Lankod", "Länkod", "lankod", "länkod", 
+  
+  kolumnordning <- c("Period", "period", "tid", "Ar", "ar", "År", "år", "Manad", "Månad", "manad", "månad", "år_månad", "månad_år", "regionkod",
+                     "Regionkod", "region", "Region", "Lankod", "Länkod", "lankod", "länkod", 
                      "Län", "Lan", "län", "lan", "Kommunkod", "kommunkod", "Kommun", "kommun")
   
-  fk_json <- GET(url_fk) %>% 
+  # skapa en url för att hämta metadata för aktuell tabell - den extraheras med hjälp av url:en till datasetet
+  meta_url <- url_fk %>%
+    str_replace("/[^/]*$", "/meta.json")
+  
+  # Hämta data och gör lite bearbetning
+  data_df <- GET(url_fk) %>% 
     httr::content("text") %>% 
     jsonlite::fromJSON(flatten = TRUE) %>% 
     select(-contains(c("rojd"))) %>% 
-    rename_with(~ str_to_sentence(str_remove_all(., "observations\\.|\\.value|dimensions\\."))) %>% 
-    select(-Row_nr)
+    rename_with(~ str_remove_all(., "observations\\.|\\.value|dimensions\\.")) %>% 
+    select(-row_nr)
   
+  # Hämta metadata för datasetet
+  meta_df <-  GET(meta_url) %>% 
+    httr::content("text") %>% 
+    jsonlite::fromJSON(flatten = TRUE)
   
-  # om det finns en kommun_kod i data
-  if ("kommun_kod" %in% tolower(names(fk_json))) {
-    kommun_var <- names(fk_json) %>% .[str_detect(tolower(.), "kommun_kod")]
-    fk_json <- fk_json %>% mutate(!!kommun_var := str_remove(!!sym(kommun_var), "ALL_"),
-                                  !!kommun_var := ifelse(!!sym(kommun_var) == "ALL", "00", !!sym(kommun_var)))
-    region_nyckel <- hamtaregtab()
-    fk_json <- fk_json %>% left_join(region_nyckel, by = setNames("regionkod", kommun_var)) %>% 
-      rename(Kommun = region,
-             Kommunkod = !!sym(kommun_var))
-  } # slut if-sats om kommun_kod finns i data
+  tabellnamn <- meta_df$key
   
-  # om det finns en lan i data
-  if (any(c("lan", "lan_kod") %in% tolower(names(fk_json)))) {
-    lan_var <- names(fk_json) %>% .[tolower(.) == "lan" | tolower(.) == "lan_kod"]
-    fk_json <- fk_json %>% mutate(!!lan_var := ifelse(!!sym(lan_var) == "ALL", "00", !!sym(lan_var)))
-    region_nyckel <- hamtaregtab()
-    fk_json <- fk_json %>% left_join(region_nyckel, by = setNames("regionkod", lan_var)) %>% 
-      rename(Lankod = !!sym(lan_var),
-             Lan = region)
-  } # slut if-sats om lan finns i data
+  # Skapa en tabell med nycklar och etiketter för kolumnnamn som vi lägger till övriga kolumnnamn senare i skriptet
+  meta_kol <- meta_df$table$columns %>% 
+    mutate(element_namn = "meta_dim", under_element = NA) %>% 
+    select(-format)
   
-  if ("kon_kod" %in% tolower(names(fk_json))) {
-    kon_var <- names(fk_json) %>% .[str_detect(tolower(.), "kon_kod")]
-    fk_json <- fk_json %>% mutate(!!kon_var := case_when(toupper(!!sym(kon_var)) == "ALL" ~ "Båda könen",
-                                                         toupper(!!sym(kon_var)) == "K" ~ "Kvinnor",
-                                                         toupper(!!sym(kon_var)) == "M" ~ "Män",
-                                                         TRUE ~ !!sym(kon_var))) %>% 
-      rename(Kon := !!sym(kon_var))
-  }
+  # skapa en lista som vi använder för att extrahera klartext-värden med hjälp av key-label
+  meta_dim <- meta_df$filter$dimension
+  names(meta_dim$values) <- meta_dim$key       # döp om values från key i meta_dim
   
-  if ("manad" %in% tolower(names(fk_json))) {
-    manad_var <- names(fk_json) %>% .[str_detect(tolower(.), "manad")]
-    ar_var <- names(fk_json) %>% .[tolower(.) == "ar"]
-    fk_json <- fk_json %>% mutate(Period = paste0(!!sym(ar_var), "-", !!sym(manad_var))) %>% 
-      select(-!!sym(ar_var), -!!sym(manad_var)) %>% 
-      manader_bearbeta_scbtabeller(kolumn_manad = "Period")
-    
-  }
+  # Här hämtar vi alla klartextvärden för samtilga variabler i datasetet
+  nyckel_etikett_tabell <- json_extrahera_nyckel_etikett(meta_dim) 
+  
+  # Vi extaherar klartextvärden för kolumnnamnen och lägger på från meta_kol
+  kolumnnamn <- nyckel_etikett_tabell %>% 
+    filter(element_namn == "meta_dim") %>% 
+    bind_rows(meta_kol) %>% 
+    distinct() %>% 
+    filter(key %in% colnames(data_df)) 
+  
+  # ta bort kolumner i nyckel_etikett_tabell som inte finns i datasetet
+  nyckel_etikett_tabell <- nyckel_etikett_tabell %>% 
+    filter(under_element %in% kolumnnamn$key)
+  
+  # Uppdatera värdena i kolumnerna
+  data_df2 <- json_ersatt_nycklar_med_etiketter(data_df, nyckel_etikett_tabell) %>% 
+    rename_with(~ kolumnnamn$label[match(., kolumnnamn$key)], .cols = kolumnnamn$key)
+  
+  fk_json <- data_df2 %>% 
+    select(any_of(kolumnordning), where(~ !is.numeric(.x)), where(is.numeric))
+  
+  if (sum(c("Kommun", "Län") %in% names(fk_json)) > 1) fk_json <- fk_json %>%
+    select(-any_of(c("län", "Län", "lan", "Lan")))
+  
+  if ("Kommun" %in% names(fk_json)) fk_json <- fk_json %>%
+    separate_wider_delim(Kommun, delim = " ", names =  c("Regionkod", "Region"), too_few = "align_end", too_many = "merge")
+  
+  if ("Län" %in% names(fk_json)) fk_json <- fk_json %>%
+    separate_wider_delim(Län, delim = " ", names =  c("Länskod", "Län"), too_few = "align_end", too_many = "merge")
   
   fk_json <- fk_json %>% 
-    select(any_of(kolumnordning), where(~ !is.numeric(.x)), where(is.numeric))
+    mutate(Tabellnamn = tabellnamn) %>% 
+    relocate(Tabellnamn, .before = 1)
+  
   return(fk_json)
   
+  
+  # kolumnordning <- c("Period", "period", "tid", "Ar", "ar", "År", "år", "Manad", "Månad", "manad", "månad", "år_månad", "månad_år", "Lankod", "Länkod", "lankod", "länkod", 
+  #                    "Län", "Lan", "län", "lan", "Kommunkod", "kommunkod", "Kommun", "kommun")
+  # 
+  # fk_json <- GET(url_fk) %>% 
+  #   httr::content("text") %>% 
+  #   jsonlite::fromJSON(flatten = TRUE) %>% 
+  #   select(-contains(c("rojd"))) %>% 
+  #   rename_with(~ str_to_sentence(str_remove_all(., "observations\\.|\\.value|dimensions\\."))) %>% 
+  #   select(-Row_nr)
+  # 
+  # 
+  # # om det finns en kommun_kod i data
+  # if ("kommun_kod" %in% tolower(names(fk_json))) {
+  #   kommun_var <- names(fk_json) %>% .[str_detect(tolower(.), "kommun_kod")]
+  #   fk_json <- fk_json %>% mutate(!!kommun_var := str_remove(!!sym(kommun_var), "ALL_"),
+  #                                 !!kommun_var := ifelse(!!sym(kommun_var) == "ALL", "00", !!sym(kommun_var)))
+  #   region_nyckel <- hamtaregtab()
+  #   fk_json <- fk_json %>% left_join(region_nyckel, by = setNames("regionkod", kommun_var)) %>% 
+  #     rename(Kommun = region,
+  #            Kommunkod = !!sym(kommun_var))
+  # } # slut if-sats om kommun_kod finns i data
+  # 
+  # # om det finns en lan i data
+  # if (any(c("lan", "lan_kod") %in% tolower(names(fk_json)))) {
+  #   lan_var <- names(fk_json) %>% .[tolower(.) == "lan" | tolower(.) == "lan_kod"]
+  #   fk_json <- fk_json %>% mutate(!!lan_var := ifelse(!!sym(lan_var) == "ALL", "00", !!sym(lan_var)))
+  #   region_nyckel <- hamtaregtab()
+  #   fk_json <- fk_json %>% left_join(region_nyckel, by = setNames("regionkod", lan_var)) %>% 
+  #     rename(Lankod = !!sym(lan_var),
+  #            Lan = region)
+  # } # slut if-sats om lan finns i data
+  # 
+  # if ("kon_kod" %in% tolower(names(fk_json))) {
+  #   kon_var <- names(fk_json) %>% .[str_detect(tolower(.), "kon_kod")]
+  #   fk_json <- fk_json %>% mutate(!!kon_var := case_when(toupper(!!sym(kon_var)) == "ALL" ~ "Båda könen",
+  #                                                        toupper(!!sym(kon_var)) == "K" ~ "Kvinnor",
+  #                                                        toupper(!!sym(kon_var)) == "M" ~ "Män",
+  #                                                        TRUE ~ !!sym(kon_var))) %>% 
+  #     rename(Kon := !!sym(kon_var))
+  # }
+  # 
+  # if ("manad" %in% tolower(names(fk_json))) {
+  #   manad_var <- names(fk_json) %>% .[str_detect(tolower(.), "manad")]
+  #   ar_var <- names(fk_json) %>% .[tolower(.) == "ar"]
+  #   fk_json <- fk_json %>% mutate(Period = paste0(!!sym(ar_var), "-", !!sym(manad_var))) %>% 
+  #     select(-!!sym(ar_var), -!!sym(manad_var)) %>% 
+  #     manader_bearbeta_scbtabeller(kolumn_manad = "Period")
+  #   
+  # }
+  # 
+  # fk_json <- fk_json %>% 
+  #   select(any_of(kolumnordning), where(~ !is.numeric(.x)), where(is.numeric))
+  
 } # slut funktion
+
+json_extrahera_subdimensions <- function(meta_dim) {
+  # Kontrollera om subdimensions.values finns i values
+  map_dfr(seq_along(meta_dim$values), ~ {
+    value <- meta_dim$values[[.x]]
+    if (!is.null(value$subdimension.values) &&
+        is.list(value$subdimension.values) &&
+        "subdimension.key" %in% colnames(value)) {
+      
+      # Kontrollera att subdimension.key är av rätt storlek
+      sub_key <- value$subdimension.key
+      
+      # Iterera över subdimension.values
+      map2_dfr(value$subdimension.values, sub_key, ~ {
+        if (is.data.frame(.x)) {
+          .x %>%
+            mutate(
+              element_namn = "subdimensions.values",
+              under_element = .y # Koppla till respektive subdimension.key
+            ) %>%
+            select(element_namn, under_element, key, label) # Behåll endast relevanta kolumner
+        } else {
+          # Returnera en tom tibble om det inte är en data frame
+          tibble(element_namn = character(), under_element = character(), key = character(), label = character())
+        }
+      })
+    } else {
+      # Returnera en tom tibble om subdimensions.values inte existerar
+      tibble(element_namn = character(), under_element = character(), key = character(), label = character())
+    }
+  })
+}
+
+json_extrahera_values <- function(meta_dim) {
+  # Funktion för att extrahera nyckel/etikett från values - json-data från Försäkringskassan
+
+  map_dfr(seq_along(meta_dim$values), ~ {
+    value <- meta_dim$values[[.x]]
+    if (is.data.frame(value)) {
+      value %>%
+        mutate(
+          element_namn = "values",
+          under_element = meta_dim$key[.x] # Koppla till nyckeln från meta_dim
+        ) %>%
+        select(element_namn, under_element, key, label)
+    } else {
+      tibble(element_namn = character(), under_element = character(), key = character(), label = character())
+    }
+  })
+}
+
+json_extrahera_nyckel_etikett <- function(meta_dim) {
+  # Extrahera huvuddata från meta_dim
+  huvuddata <- meta_dim %>%
+    mutate(element_namn = "meta_dim", under_element = NA) %>%
+    select(element_namn, under_element, key, label)
+  
+  # Extrahera data från values
+  values_data <- json_extrahera_values(meta_dim)
+  
+  # Extrahera data från subdimension.values
+  subdimensions_data <- json_extrahera_subdimensions(meta_dim)
+  
+  # Extrahera unika subdimension.key och subdimension.label
+  subdimension_keys <- json_extrahera_subdimension_keys(meta_dim)
+  
+  # Kombinera allt
+  bind_rows(huvuddata, values_data, subdimensions_data, subdimension_keys) %>%
+    distinct() %>%  # Ta bort eventuella dubbletter
+    mutate(
+      element_namn = factor(
+        element_namn,
+        levels = c("meta_dim", "values", "subdimensions.values") # Definiera önskad ordning
+      )
+    ) %>%
+    arrange(element_namn, under_element, key, label)
+}
+
+
+json_extrahera_subdimension_keys <- function(meta_dim) {
+  # Iterera genom varje values-tabell och extrahera subdimension.key och subdimension.label
+  map_dfr(seq_along(meta_dim$values), ~ {
+    value <- meta_dim$values[[.x]]
+    if (is.data.frame(value) &&
+        "subdimension.key" %in% colnames(value) &&
+        "subdimension.label" %in% colnames(value)) {
+      value %>%
+        select(key = subdimension.key, label = subdimension.label) %>%
+        mutate(
+          element_namn = "meta_dim",
+          under_element = NA
+        ) %>%
+        distinct() # Ta bort eventuella dubbletter
+    } else {
+      tibble(element_namn = character(), under_element = character(), key = character(), label = character())
+    }
+  })
+}
+
+json_ersatt_nycklar_med_etiketter <- function(data_df, nyckel_etikett) {
+  # Iterera endast över kolumner som matchar "under_element"
+  data_df %>%
+    mutate(across(
+      # Filtrera kolumner som finns i under_element
+      all_of(unique(nyckel_etikett$under_element[!is.na(nyckel_etikett$under_element)])),
+      ~ {
+        # Filtrera nyckel-etikett-tabellen för den aktuella kolumnen
+        current_map <- nyckel_etikett %>%
+          filter(under_element == cur_column()) %>%
+          distinct(key, label) %>%
+          deframe() # Omvandla till named vector: key -> label
+        
+        # Byt ut värden baserat på matchning, eller behåll originalvärdet
+        current_map[.x] %>% coalesce(.x)
+      }
+    )) %>% 
+    mutate(across(
+      everything(),
+      ~ ifelse(. == "Riket", "00 Riket", .)
+    )) %>% 
+    mutate(across(
+      where(is.character),  # Använd bara på karaktärskolumner
+      ~ as.character(unname(.)) # Ta bort namn och omvandla
+    ))
+}
+
 
 hamta_excel_dataset_med_url <- function(url_excel, 
                                         skippa_rader = 0, 
