@@ -244,10 +244,13 @@ hamta_gtfs_data <- function(gtfs_dataset = "20",   #
     gtfs_lista <- list()
     
     # Läs in och bearbeta gtfs-filerna
+    
+    # routes
     routes <- read.csv2(file.path(unzip_dir, "routes.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
       mutate(route_type = as.integer(route_type))
     gtfs_lista <- c(gtfs_lista, list(routes = routes))     # fyll på gtfs_lista med detta dataset
     
+    # stops
     stops <- read.csv2(file.path(unzip_dir, "stops.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
       mutate(
         hpl_id = substr(stop_id, 8, 13),
@@ -257,7 +260,8 @@ hamta_gtfs_data <- function(gtfs_dataset = "20",   #
       )
     gtfs_lista <- c(gtfs_lista, list(stops = stops))      # fyll på gtfs_lista med detta dataset
     
-     <- read.csv2(file.path(unzip_dir, "stop_times.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
+    # stop_times
+    stop_times <- read.csv2(file.path(unzip_dir, "stop_times.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
       mutate(
         stop_sequence = as.integer(stop_sequence),
         pickup_type = as.integer(pickup_type),
@@ -267,20 +271,28 @@ hamta_gtfs_data <- function(gtfs_dataset = "20",   #
       )
     gtfs_lista <- c(gtfs_lista, list(stop_times = stop_times))     # fyll på gtfs_lista med detta dataset
     
-    
+    # trips
     trips <- read.csv2(file.path(unzip_dir, "trips.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
       mutate(
         direction_id = if ("direction_id" %in% names(.)) suppressWarnings(as.integer(direction_id)) else NA_integer_
       )
     gtfs_lista <- c(gtfs_lista, list(trips = trips))     # fyll på gtfs_lista med detta dataset
     
-    
+    # caledar_dates
     calendar_dates <- read.csv2(file.path(unzip_dir, "calendar_dates.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
       mutate(
         date = as.Date(date, format = "%Y%m%d"),
         exception_type = as.integer(exception_type)
       )
     gtfs_lista <- c(gtfs_lista, list(calendar_dates = calendar_dates))     # fyll på gtfs_lista med detta dataset
+    
+    # calendar
+    if (file.exists(file.path(unzip_dir, "calendar.txt"))) {
+      calendar <- read.csv2(file.path(unzip_dir, "shapes.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
+    } else {
+      calendar <- gtfs_fyll_calendar_dagar(calendar_dates)          # funktion för att skapa calendar-dataset om bara calendar_dates finns, calendar-datasetet behövs för vissa funktioner, tex. gtfsrouter-paketet i r
+    }
+    gtfs_lista <- c(gtfs_lista, list(calendar = calendar))     # fyll på gtfs_lista med detta dataset
     
     
     # Lägg bara till om shapes finns i datasetet
@@ -291,18 +303,31 @@ hamta_gtfs_data <- function(gtfs_dataset = "20",   #
           shape_dist_traveled = if ("shape_dist_traveled" %in% names(.)) suppressWarnings(as.numeric(shape_dist_traveled)) else NA_real_
         )
       gtfs_lista <- c(gtfs_lista, list(shapes = shapes))     # fyll på gtfs_lista med detta dataset
-      
     } 
     
+    # agency - om det finns
     if (file.exists(file.path(unzip_dir, "agency.txt"))) {
       agency <- read.csv2(file.path(unzip_dir, "agency.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
       gtfs_lista <- c(gtfs_lista, list(agency = agency))     # fyll på gtfs_lista med detta dataset
       
     }
     
+    # feed_info - om det finns
     if (file.exists(file.path(unzip_dir, "feed_info.txt"))) {
       feed_info <- read.csv2(file.path(unzip_dir, "feed_info.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
       gtfs_lista <- c(gtfs_lista, list(feed_info = feed_info))     # fyll på gtfs_lista med detta dataset
+    }
+    
+    # attributions - om det finns
+    if (file.exists(file.path(unzip_dir, "attributions.txt"))) {
+      attributions <- read.csv2(file.path(unzip_dir, "attributions.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
+      gtfs_lista <- c(gtfs_lista, list(attributions = attributions))     # fyll på gtfs_lista med detta dataset
+    }
+    
+    # transfers - om det finns
+    if (file.exists(file.path(unzip_dir, "transfers.txt"))) {
+      transfers <- read.csv2(file.path(unzip_dir, "transfers.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
+      gtfs_lista <- c(gtfs_lista, list(transfers = transfers))     # fyll på gtfs_lista med detta dataset
     }
     
     # Return as a list of data frames
