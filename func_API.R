@@ -1018,81 +1018,84 @@ period_jmfr_filter <- function(period_kolumn, vald_period, period_vekt, inkluder
 
 skapa_intervaller <- function(skickad_kolumn, antal_intervaller = 5){
   
-  antal_tecken <- function(tal) {
-    tal_retur <- 10^floor(log10(abs(tal)))
-    tal_retur <- nchar(as.character(abs(tal_retur)))
-    return(tal_retur)  # abs() används för att hantera negativa tal
+  # Hjälpfunktion för att runda till bra tal
+  runda_till_bra_tal <- function(tal) {
+    10^round(log10(tal))  # Rundar av till närmaste 10, 100, 1000, etc.
   }
   
-  min_varde <- min(skickad_kolumn)
-  max_varde <- max(skickad_kolumn)
+  # Hitta min och max i kolumnen
+  min_varde <- min(skickad_kolumn, na.rm = TRUE)
+  max_varde <- max(skickad_kolumn, na.rm = TRUE)
   
-  shift <- abs(min_varde) + 1  # Gör det minsta värdet positivt
-  min_varde_shifted <- min_varde + shift
-  max_varde_shifted <- max_varde + shift
+  # Beräkna råa intervall
+  intervall_steg <- (max_varde - min_varde) / (antal_intervaller - 1)
+  intervall_steg <- runda_till_bra_tal(intervall_steg)  # Runda till bra tal
   
-  retur_intervaller <- exp(seq(log(min_varde_shifted), log(max_varde_shifted), length.out = antal_intervaller)) - shift
+  # Justera min-värdet till ett jämnt steg
+  min_rundat <- floor(min_varde / intervall_steg) * intervall_steg
   
-  # 
-  # intervaller <- exp(seq(log(min_varde), log(max_varde), length.out = antal_intervaller))
-  # retur_intervaller <- round(intervaller, -(antal_tecken(intervaller)-1))
+  if (min_rundat <= 0) {
+    min_rundat <- intervall_steg / 2  # Sätt minsta värdet till halva intervallet
+  }
   
+  # Justera max-värdet till ett jämnt steg
+  #max_rundat <- ceiling(max_varde / intervall_steg) * intervall_steg
+  
+  # Justera min- och maxvärden för att hålla dem nära originalspannet
+  min_rundat <- max(floor(min_varde / intervall_steg) * intervall_steg, min_varde)
+  max_rundat <- min(ceiling(max_varde / intervall_steg) * intervall_steg, max_varde)
+  
+  if (max_rundat > max_varde * 1.1) {  # Tillåt max 10 % över faktiska maxvärdet
+    max_rundat <- floor(max_varde / intervall_steg) * intervall_steg + intervall_steg / 2
+  }
+  
+  # Kontrollera att intervallet är tillräckligt stort
+  if ((max_rundat - min_rundat) < (antal_intervaller - 1) * intervall_steg) {
+    max_rundat <- max_rundat + intervall_steg
+  }
+  
+  # Skapa intervallvektorn baserat på justerat spann
+  intervaller_obearbetad <- seq(min_rundat, max_rundat, length.out = antal_intervaller)
+  
+  retur_intervaller <- avrundning_dynamisk(intervaller_obearbetad)
+
   return(retur_intervaller)
-  
-  # intervall <- NA              # skapa variabel
-  # 
-  # max_kol <- max(skickad_kolumn) 
-  # min_kol <- min(skickad_kolumn)
-  # range_kol <- max_kol - min_kol
-  # 
-  # intervall_range <- round(range_kol / (antal_intervaller-1))
-  # 
-  # # ta fram en siffra som vi avrundar till, ska helst vara 5000 om siffran ligger nära där, 500 om siffran är nära där osv.
-  # avrundning_num <- round(intervall_range, nchar(intervall_range)*-1)/2
-  # # om avrundning blir 0 så måste vi öka på den något
-  # if (avrundning_num == 0) avrundning_num <- round(intervall_range, (nchar(intervall_range)-1)*-1)/2
-  # 
-  # intervall[1] <- min_kol
-  # intervall[antal_intervaller] <- max_kol
-  # 
-  # for (x in 2:(antal_intervaller-1)){
-  #   intervall[x] <- min_kol + (intervall_range * (x-1))
-  # }
-  # 
-  # for (x in 1:length(intervall)){
-  #   tal <- round(intervall[x])
-  #   
-  #   intervall[x] <- plyr::round_any(tal, avrundning_num)
-  #   if (intervall[x] == 0) intervall[x] <- avrundning_num/10    # speciallösning, kan kanske fungera för flera fall, om 0 använd avrundning_num / 10
-  #   #intervall[x] <- round(tal, (nchar(tal)-ifelse(nchar(tal)<5,1,2))*-1)
-  #   # lägg till om siffran blir samma som tidigare siffra i vektorn
-  #   if (x > 1){
-  #     if (intervall[x] == intervall[x-1]) intervall[x] <- intervall[x] + round(intervall_range, -2)  
-  #   }
-  #   
-  #   # fixa till om talet är under 1000 och nästa tal är över 1000, sätt till 500 i så fall
-  #   if (x < length(intervall)){
-  #     if (intervall[x] < 1000 & intervall[x+1] > 999) intervall[x] <- 500
-  #   }
-  # }
-  # return(intervall)
+
 }
 
 
 avrundning_dynamisk <- function(x, gräns_stora = 10, gräns_medel = 1, dec_stora = 0, dec_medel = 1, dec_små = 2) {
   avrunda <- function(v) {
     if (abs(v) >= gräns_stora) {
-      round(v, dec_stora)  # Inga decimaler för stora tal
+      # Runda till närmaste multipel av en "fin" grund
+      multipel <- 10^floor(log10(abs(v)))
+      round(v / multipel) * multipel
     } else if (abs(v) >= gräns_medel) {
       round(v, dec_medel)  # En decimal för medelstora tal
     } else {
       round(v, dec_små)    # Två decimaler för små tal
     }
   }
-  # Applicera på varje element i vektorn x med purrr::map_dbl
-  retur_vekt <- map_dbl(x, avrunda)
+  # Applicera avrundningen på varje element i vektorn
+  retur_vekt <- purrr::map_dbl(x, avrunda)
   return(retur_vekt)
 }
+
+
+# avrundning_dynamisk <- function(x, gräns_stora = 10, gräns_medel = 1, dec_stora = 0, dec_medel = 1, dec_små = 2) {
+#   avrunda <- function(v) {
+#     if (abs(v) >= gräns_stora) {
+#       round(v, dec_stora)  # Inga decimaler för stora tal
+#     } else if (abs(v) >= gräns_medel) {
+#       round(v, dec_medel)  # En decimal för medelstora tal
+#     } else {
+#       round(v, dec_små)    # Två decimaler för små tal
+#     }
+#   }
+#   # Applicera på varje element i vektorn x med purrr::map_dbl
+#   retur_vekt <- map_dbl(x, avrunda)
+#   return(retur_vekt)
+# }
 
 
 # ================================================= Ladda ner data utan API ==============================================
@@ -1103,61 +1106,256 @@ hamta_fk_json_dataset_med_url <- function(url_fk) {
   # där man kan filtrera på Försäkringskassan som organisation. Det går också att ladda ned Excelfiler från dem och då används
   # med fördel funktionen hamta_excel_dataset_med_url()
   
-  kolumnordning <- c("Period", "period", "tid", "Ar", "ar", "År", "år", "Manad", "Månad", "manad", "månad", "år_månad", "månad_år", "Lankod", "Länkod", "lankod", "länkod", 
+  
+  kolumnordning <- c("Period", "period", "tid", "Ar", "ar", "År", "år", "Manad", "Månad", "manad", "månad", "år_månad", "månad_år", "regionkod",
+                     "Regionkod", "region", "Region", "Lankod", "Länkod", "lankod", "länkod", 
                      "Län", "Lan", "län", "lan", "Kommunkod", "kommunkod", "Kommun", "kommun")
   
-  fk_json <- GET(url_fk) %>% 
+  # skapa en url för att hämta metadata för aktuell tabell - den extraheras med hjälp av url:en till datasetet
+  meta_url <- url_fk %>%
+    str_replace("/[^/]*$", "/meta.json")
+  
+  # Hämta data och gör lite bearbetning
+  data_df <- GET(url_fk) %>% 
     httr::content("text") %>% 
-    fromJSON(flatten = TRUE) %>% 
+    jsonlite::fromJSON(flatten = TRUE) %>% 
     select(-contains(c("rojd"))) %>% 
-    rename_with(~ str_to_sentence(str_remove_all(., "observations\\.|\\.value|dimensions\\."))) %>% 
-    select(-Row_nr)
+    rename_with(~ str_remove_all(., "observations\\.|\\.value|dimensions\\.")) %>% 
+    select(-row_nr)
   
+  # Hämta metadata för datasetet
+  meta_df <-  GET(meta_url) %>% 
+    httr::content("text") %>% 
+    jsonlite::fromJSON(flatten = TRUE)
   
-  # om det finns en kommun_kod i data
-  if ("kommun_kod" %in% tolower(names(fk_json))) {
-    kommun_var <- names(fk_json) %>% .[str_detect(tolower(.), "kommun_kod")]
-    fk_json <- fk_json %>% mutate(!!kommun_var := str_remove(!!sym(kommun_var), "ALL_"),
-                                  !!kommun_var := ifelse(!!sym(kommun_var) == "ALL", "00", !!sym(kommun_var)))
-    region_nyckel <- hamtaregtab()
-    fk_json <- fk_json %>% left_join(region_nyckel, by = setNames("regionkod", kommun_var)) %>% 
-      rename(Kommun = region,
-             Kommunkod = !!sym(kommun_var))
-  } # slut if-sats om kommun_kod finns i data
+  tabellnamn <- meta_df$key
   
-  # om det finns en lan i data
-  if (any(c("lan", "lan_kod") %in% tolower(names(fk_json)))) {
-    lan_var <- names(fk_json) %>% .[tolower(.) == "lan" | tolower(.) == "lan_kod"]
-    fk_json <- fk_json %>% mutate(!!lan_var := ifelse(!!sym(lan_var) == "ALL", "00", !!sym(lan_var)))
-    region_nyckel <- hamtaregtab()
-    fk_json <- fk_json %>% left_join(region_nyckel, by = setNames("regionkod", lan_var)) %>% 
-      rename(Lankod = !!sym(lan_var),
-             Lan = region)
-  } # slut if-sats om lan finns i data
+  # Skapa en tabell med nycklar och etiketter för kolumnnamn som vi lägger till övriga kolumnnamn senare i skriptet
+  meta_kol <- meta_df$table$columns %>% 
+    mutate(element_namn = "meta_dim", under_element = NA) %>% 
+    select(-format)
   
-  if ("kon_kod" %in% tolower(names(fk_json))) {
-    kon_var <- names(fk_json) %>% .[str_detect(tolower(.), "kon_kod")]
-    fk_json <- fk_json %>% mutate(!!kon_var := case_when(toupper(!!sym(kon_var)) == "ALL" ~ "Båda könen",
-                                                         toupper(!!sym(kon_var)) == "K" ~ "Kvinnor",
-                                                         toupper(!!sym(kon_var)) == "M" ~ "Män",
-                                                         TRUE ~ !!sym(kon_var))) %>% 
-      rename(Kon := !!sym(kon_var))
-  }
+  # skapa en lista som vi använder för att extrahera klartext-värden med hjälp av key-label
+  meta_dim <- meta_df$filter$dimension
+  names(meta_dim$values) <- meta_dim$key       # döp om values från key i meta_dim
   
-  if ("manad" %in% tolower(names(fk_json))) {
-    manad_var <- names(fk_json) %>% .[str_detect(tolower(.), "manad")]
-    ar_var <- names(fk_json) %>% .[tolower(.) == "ar"]
-    fk_json <- fk_json %>% mutate(Period = paste0(!!sym(ar_var), "-", !!sym(manad_var))) %>% 
-      select(-!!sym(ar_var), -!!sym(manad_var)) %>% 
-      manader_bearbeta_scbtabeller(kolumn_manad = "Period")
-    
-  }
+  # Här hämtar vi alla klartextvärden för samtilga variabler i datasetet
+  nyckel_etikett_tabell <- json_extrahera_nyckel_etikett(meta_dim) 
+  
+  # Vi extaherar klartextvärden för kolumnnamnen och lägger på från meta_kol
+  kolumnnamn <- nyckel_etikett_tabell %>% 
+    filter(element_namn == "meta_dim") %>% 
+    bind_rows(meta_kol) %>% 
+    distinct() %>% 
+    filter(key %in% colnames(data_df)) 
+  
+  # ta bort kolumner i nyckel_etikett_tabell som inte finns i datasetet
+  nyckel_etikett_tabell <- nyckel_etikett_tabell %>% 
+    filter(under_element %in% kolumnnamn$key)
+  
+  # Uppdatera värdena i kolumnerna
+  data_df2 <- json_ersatt_nycklar_med_etiketter(data_df, nyckel_etikett_tabell) %>% 
+    rename_with(~ kolumnnamn$label[match(., kolumnnamn$key)], .cols = kolumnnamn$key)
+  
+  fk_json <- data_df2 %>% 
+    select(any_of(kolumnordning), where(~ !is.numeric(.x)), where(is.numeric))
+  
+  if (sum(c("Kommun", "Län") %in% names(fk_json)) > 1) fk_json <- fk_json %>%
+    select(-any_of(c("län", "Län", "lan", "Lan")))
+  
+  if ("Kommun" %in% names(fk_json)) fk_json <- fk_json %>%
+    separate_wider_delim(Kommun, delim = " ", names =  c("Regionkod", "Region"), too_few = "align_end", too_many = "merge")
+  
+  if ("Län" %in% names(fk_json)) fk_json <- fk_json %>%
+    separate_wider_delim(Län, delim = " ", names =  c("Länskod", "Län"), too_few = "align_end", too_many = "merge")
   
   fk_json <- fk_json %>% 
-    select(any_of(kolumnordning), where(~ !is.numeric(.x)), where(is.numeric))
+    mutate(Tabellnamn = tabellnamn) %>% 
+    relocate(Tabellnamn, .before = 1)
+  
   return(fk_json)
   
+  
+  # kolumnordning <- c("Period", "period", "tid", "Ar", "ar", "År", "år", "Manad", "Månad", "manad", "månad", "år_månad", "månad_år", "Lankod", "Länkod", "lankod", "länkod", 
+  #                    "Län", "Lan", "län", "lan", "Kommunkod", "kommunkod", "Kommun", "kommun")
+  # 
+  # fk_json <- GET(url_fk) %>% 
+  #   httr::content("text") %>% 
+  #   jsonlite::fromJSON(flatten = TRUE) %>% 
+  #   select(-contains(c("rojd"))) %>% 
+  #   rename_with(~ str_to_sentence(str_remove_all(., "observations\\.|\\.value|dimensions\\."))) %>% 
+  #   select(-Row_nr)
+  # 
+  # 
+  # # om det finns en kommun_kod i data
+  # if ("kommun_kod" %in% tolower(names(fk_json))) {
+  #   kommun_var <- names(fk_json) %>% .[str_detect(tolower(.), "kommun_kod")]
+  #   fk_json <- fk_json %>% mutate(!!kommun_var := str_remove(!!sym(kommun_var), "ALL_"),
+  #                                 !!kommun_var := ifelse(!!sym(kommun_var) == "ALL", "00", !!sym(kommun_var)))
+  #   region_nyckel <- hamtaregtab()
+  #   fk_json <- fk_json %>% left_join(region_nyckel, by = setNames("regionkod", kommun_var)) %>% 
+  #     rename(Kommun = region,
+  #            Kommunkod = !!sym(kommun_var))
+  # } # slut if-sats om kommun_kod finns i data
+  # 
+  # # om det finns en lan i data
+  # if (any(c("lan", "lan_kod") %in% tolower(names(fk_json)))) {
+  #   lan_var <- names(fk_json) %>% .[tolower(.) == "lan" | tolower(.) == "lan_kod"]
+  #   fk_json <- fk_json %>% mutate(!!lan_var := ifelse(!!sym(lan_var) == "ALL", "00", !!sym(lan_var)))
+  #   region_nyckel <- hamtaregtab()
+  #   fk_json <- fk_json %>% left_join(region_nyckel, by = setNames("regionkod", lan_var)) %>% 
+  #     rename(Lankod = !!sym(lan_var),
+  #            Lan = region)
+  # } # slut if-sats om lan finns i data
+  # 
+  # if ("kon_kod" %in% tolower(names(fk_json))) {
+  #   kon_var <- names(fk_json) %>% .[str_detect(tolower(.), "kon_kod")]
+  #   fk_json <- fk_json %>% mutate(!!kon_var := case_when(toupper(!!sym(kon_var)) == "ALL" ~ "Båda könen",
+  #                                                        toupper(!!sym(kon_var)) == "K" ~ "Kvinnor",
+  #                                                        toupper(!!sym(kon_var)) == "M" ~ "Män",
+  #                                                        TRUE ~ !!sym(kon_var))) %>% 
+  #     rename(Kon := !!sym(kon_var))
+  # }
+  # 
+  # if ("manad" %in% tolower(names(fk_json))) {
+  #   manad_var <- names(fk_json) %>% .[str_detect(tolower(.), "manad")]
+  #   ar_var <- names(fk_json) %>% .[tolower(.) == "ar"]
+  #   fk_json <- fk_json %>% mutate(Period = paste0(!!sym(ar_var), "-", !!sym(manad_var))) %>% 
+  #     select(-!!sym(ar_var), -!!sym(manad_var)) %>% 
+  #     manader_bearbeta_scbtabeller(kolumn_manad = "Period")
+  #   
+  # }
+  # 
+  # fk_json <- fk_json %>% 
+  #   select(any_of(kolumnordning), where(~ !is.numeric(.x)), where(is.numeric))
+  
 } # slut funktion
+
+json_extrahera_subdimensions <- function(meta_dim) {
+  # Kontrollera om subdimensions.values finns i values
+  map_dfr(seq_along(meta_dim$values), ~ {
+    value <- meta_dim$values[[.x]]
+    if (!is.null(value$subdimension.values) &&
+        is.list(value$subdimension.values) &&
+        "subdimension.key" %in% colnames(value)) {
+      
+      # Kontrollera att subdimension.key är av rätt storlek
+      sub_key <- value$subdimension.key
+      
+      # Iterera över subdimension.values
+      map2_dfr(value$subdimension.values, sub_key, ~ {
+        if (is.data.frame(.x)) {
+          .x %>%
+            mutate(
+              element_namn = "subdimensions.values",
+              under_element = .y # Koppla till respektive subdimension.key
+            ) %>%
+            select(element_namn, under_element, key, label) # Behåll endast relevanta kolumner
+        } else {
+          # Returnera en tom tibble om det inte är en data frame
+          tibble(element_namn = character(), under_element = character(), key = character(), label = character())
+        }
+      })
+    } else {
+      # Returnera en tom tibble om subdimensions.values inte existerar
+      tibble(element_namn = character(), under_element = character(), key = character(), label = character())
+    }
+  })
+}
+
+json_extrahera_values <- function(meta_dim) {
+  # Funktion för att extrahera nyckel/etikett från values - json-data från Försäkringskassan
+
+  map_dfr(seq_along(meta_dim$values), ~ {
+    value <- meta_dim$values[[.x]]
+    if (is.data.frame(value)) {
+      value %>%
+        mutate(
+          element_namn = "values",
+          under_element = meta_dim$key[.x] # Koppla till nyckeln från meta_dim
+        ) %>%
+        select(element_namn, under_element, key, label)
+    } else {
+      tibble(element_namn = character(), under_element = character(), key = character(), label = character())
+    }
+  })
+}
+
+json_extrahera_nyckel_etikett <- function(meta_dim) {
+  # Extrahera huvuddata från meta_dim
+  huvuddata <- meta_dim %>%
+    mutate(element_namn = "meta_dim", under_element = NA) %>%
+    select(element_namn, under_element, key, label)
+  
+  # Extrahera data från values
+  values_data <- json_extrahera_values(meta_dim)
+  
+  # Extrahera data från subdimension.values
+  subdimensions_data <- json_extrahera_subdimensions(meta_dim)
+  
+  # Extrahera unika subdimension.key och subdimension.label
+  subdimension_keys <- json_extrahera_subdimension_keys(meta_dim)
+  
+  # Kombinera allt
+  bind_rows(huvuddata, values_data, subdimensions_data, subdimension_keys) %>%
+    distinct() %>%  # Ta bort eventuella dubbletter
+    mutate(
+      element_namn = factor(
+        element_namn,
+        levels = c("meta_dim", "values", "subdimensions.values") # Definiera önskad ordning
+      )
+    ) %>%
+    arrange(element_namn, under_element, key, label)
+}
+
+
+json_extrahera_subdimension_keys <- function(meta_dim) {
+  # Iterera genom varje values-tabell och extrahera subdimension.key och subdimension.label
+  map_dfr(seq_along(meta_dim$values), ~ {
+    value <- meta_dim$values[[.x]]
+    if (is.data.frame(value) &&
+        "subdimension.key" %in% colnames(value) &&
+        "subdimension.label" %in% colnames(value)) {
+      value %>%
+        select(key = subdimension.key, label = subdimension.label) %>%
+        mutate(
+          element_namn = "meta_dim",
+          under_element = NA
+        ) %>%
+        distinct() # Ta bort eventuella dubbletter
+    } else {
+      tibble(element_namn = character(), under_element = character(), key = character(), label = character())
+    }
+  })
+}
+
+json_ersatt_nycklar_med_etiketter <- function(data_df, nyckel_etikett) {
+  # Iterera endast över kolumner som matchar "under_element"
+  data_df %>%
+    mutate(across(
+      # Filtrera kolumner som finns i under_element
+      all_of(unique(nyckel_etikett$under_element[!is.na(nyckel_etikett$under_element)])),
+      ~ {
+        # Filtrera nyckel-etikett-tabellen för den aktuella kolumnen
+        current_map <- nyckel_etikett %>%
+          filter(under_element == cur_column()) %>%
+          distinct(key, label) %>%
+          deframe() # Omvandla till named vector: key -> label
+        
+        # Byt ut värden baserat på matchning, eller behåll originalvärdet
+        current_map[.x] %>% coalesce(.x)
+      }
+    )) %>% 
+    mutate(across(
+      everything(),
+      ~ ifelse(. == "Riket", "00 Riket", .)
+    )) %>% 
+    mutate(across(
+      where(is.character),  # Använd bara på karaktärskolumner
+      ~ as.character(unname(.)) # Ta bort namn och omvandla
+    ))
+}
+
 
 hamta_excel_dataset_med_url <- function(url_excel, 
                                         skippa_rader = 0, 
@@ -1274,7 +1472,7 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
   retur_df <- purrr::map_df(content, function(item) {
     if (item$type == "dir") {
       # Om det är en mapp, rekursera genom att kalla funktionen igen
-      github_lista_repo_filer_ny(owner, repo, url_vekt_enbart = FALSE, skriv_source_konsol = FALSE, till_urklipp = FALSE, filtrera = filtrera, path = paste0(path, item$name, "/"))
+      github_lista_repo_filer(owner, repo, url_vekt_enbart = FALSE, skriv_source_konsol = FALSE, till_urklipp = FALSE, filtrera = filtrera, path = paste0(path, item$name, "/"))
     } else {
       # Om det är en fil, returnera dess namn och URL
       tibble::tibble(
@@ -2321,6 +2519,9 @@ demo_diagrambild_skapa <- function(
   
   source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_filer.R")
   
+  # vi tar bort mapp från sökvägen för så funkar skriptet nedan
+  diagramskript_filnamn <- basename(diagramskript_filnamn)
+  
   # Skapa sökväg till diagramskriptet, mapp_diagramskript_ej_github används när man inte ska revidera ett diagramskript
   # som ligger i ett github-repo utan bara lokalt
   if (is.na(mapp_diagramskript_ej_github)){
@@ -2332,7 +2533,7 @@ demo_diagrambild_skapa <- function(
   
   dia_funktion <- hitta_funktioner_i_fil_ej_inuti_andra_funktioner(diagram_sokvag)
   dia_funktion <- dia_funktion[str_sub(dia_funktion,1,4) == "diag"]     # bara första funktionen i skriptet
-  
+
   # Skapa en temporär mapp
   temp_mapp <- file.path(tempdir(), "temp_mapp")
   skapa_mapp_om_den_inte_finns(temp_mapp)
@@ -2361,7 +2562,7 @@ demo_diagrambild_skapa <- function(
   }
   
   # Lägg till output_mapp-parametern i parameter_lista, finns den redan skrivs den över
-  parameter_lista[[utmappnamn]] <- temp_mapp
+  parameter_lista[[utmappnamn]] <- if (str_sub(temp_mapp, nchar(temp_mapp)) != "/" | str_sub(temp_mapp, nchar(temp_mapp)) != "\\") temp_mapp <- paste0(temp_mapp, "/") else temp_mapp
   
   # Sätt parameter för att skriva diagramfil(er) till TRUE
   match_index <- match(names(parametrar), 
@@ -2371,7 +2572,7 @@ demo_diagrambild_skapa <- function(
   parametrar[match_index > 0] <- TRUE          # sätter de parametrar som matchar med vektorn ovan till TRUE (bör vara bara en)
   
   # Uppdatera parametrar med värden från parameter_lista där namnen överensstämmer
-  parameter_lista <- imap(parametrar, ~ if(.y %in% names(parameter_lista)) parameter_lista[[.y]] else .x)
+  parameter_lista <- imap(parametrar, ~ if(.y %in% names(parameter_lista)) parameter_lista[[.y]] else .x) 
   
   # Skapa diagrammet och skriv ut bildfiler till den temporära mappen vi skapat ovan
   resultat <- do.call(dia_funktion, parameter_lista)

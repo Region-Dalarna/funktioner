@@ -2502,12 +2502,14 @@ gdb_extrahera_kolumnnamn_per_gislager <- function(gdb_sokvag,
     kolumnnamn_ny <- kolumnnamn_ny %>%
       modify_at(id_kol, ~ if (!is.na(nytt_namn_id_kol)) nytt_namn_id_kol else .x) %>%
       modify_at(geo_kol, ~ if (!is.na(nytt_namn_geo_kol)) nytt_namn_geo_kol else .x)
-    return(retur_vekt)
+    
+    return(kolumnnamn_ny)
   })
-
+  
   # döp alla element efter vad dess gis-lager heter
   names(lager_kolumnnamn_lista) <- alla_lager_i_gdb
   
   # Returnera resultatet
   return(lager_kolumnnamn_lista)
 }
+
