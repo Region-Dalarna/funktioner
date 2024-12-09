@@ -2535,7 +2535,7 @@ gdb_extrahera_kolumnnamn_per_gislager <- function(gdb_sokvag,
   #  Steg 2: Extrahera kolumnnamn för alla lager och lägg i en lista
   lager_kolumnnamn_lista <- map(alla_lager_i_gdb, function(lager_namn) {
     
-    kolumner_namn <- system(glue("{ogr_sokvag} {gdb_sokvag} {lager_namn} -so"), intern = TRUE)
+    kolumner_namn <- system(glue('"{ogr_sokvag}" {gdb_sokvag} {lager_namn} -so'), intern = TRUE)
     id_kol <- str_extract(str_subset(kolumner_namn, "FID Column"), '(?<= = ).*')        # extrahera namn på id_kolumn
     geo_kol <- str_extract(str_subset(kolumner_namn, "Geometry Column"), '(?<= = ).*')  # extrahera namn på geo-kolumn
     
