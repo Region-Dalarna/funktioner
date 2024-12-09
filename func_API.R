@@ -8,6 +8,7 @@ p_load(pxweb,
        httr,
        keyring,
        rvest,
+       curl,
        usethis,
        git2r,
        glue)
@@ -1115,17 +1116,17 @@ hamta_fk_json_dataset_med_url <- function(url_fk) {
   meta_url <- url_fk %>%
     str_replace("/[^/]*$", "/meta.json")
   
-  # Hämta data och gör lite bearbetning
-  data_df <- GET(url_fk) %>% 
-    httr::content("text") %>% 
+  # hämta datasetet
+  data_df <- curl_fetch_memory(url_fk) %>% 
+    {rawToChar(.$content)} %>% 
     jsonlite::fromJSON(flatten = TRUE) %>% 
     select(-contains(c("rojd"))) %>% 
     rename_with(~ str_remove_all(., "observations\\.|\\.value|dimensions\\.")) %>% 
     select(-row_nr)
   
   # Hämta metadata för datasetet
-  meta_df <-  GET(meta_url) %>% 
-    httr::content("text") %>% 
+  meta_df <-  curl_fetch_memory(meta_url) %>% 
+    {rawToChar(.$content)} %>% 
     jsonlite::fromJSON(flatten = TRUE)
   
   tabellnamn <- meta_df$key
@@ -1174,60 +1175,6 @@ hamta_fk_json_dataset_med_url <- function(url_fk) {
     relocate(Tabellnamn, .before = 1)
   
   return(fk_json)
-  
-  
-  # kolumnordning <- c("Period", "period", "tid", "Ar", "ar", "År", "år", "Manad", "Månad", "manad", "månad", "år_månad", "månad_år", "Lankod", "Länkod", "lankod", "länkod", 
-  #                    "Län", "Lan", "län", "lan", "Kommunkod", "kommunkod", "Kommun", "kommun")
-  # 
-  # fk_json <- GET(url_fk) %>% 
-  #   httr::content("text") %>% 
-  #   jsonlite::fromJSON(flatten = TRUE) %>% 
-  #   select(-contains(c("rojd"))) %>% 
-  #   rename_with(~ str_to_sentence(str_remove_all(., "observations\\.|\\.value|dimensions\\."))) %>% 
-  #   select(-Row_nr)
-  # 
-  # 
-  # # om det finns en kommun_kod i data
-  # if ("kommun_kod" %in% tolower(names(fk_json))) {
-  #   kommun_var <- names(fk_json) %>% .[str_detect(tolower(.), "kommun_kod")]
-  #   fk_json <- fk_json %>% mutate(!!kommun_var := str_remove(!!sym(kommun_var), "ALL_"),
-  #                                 !!kommun_var := ifelse(!!sym(kommun_var) == "ALL", "00", !!sym(kommun_var)))
-  #   region_nyckel <- hamtaregtab()
-  #   fk_json <- fk_json %>% left_join(region_nyckel, by = setNames("regionkod", kommun_var)) %>% 
-  #     rename(Kommun = region,
-  #            Kommunkod = !!sym(kommun_var))
-  # } # slut if-sats om kommun_kod finns i data
-  # 
-  # # om det finns en lan i data
-  # if (any(c("lan", "lan_kod") %in% tolower(names(fk_json)))) {
-  #   lan_var <- names(fk_json) %>% .[tolower(.) == "lan" | tolower(.) == "lan_kod"]
-  #   fk_json <- fk_json %>% mutate(!!lan_var := ifelse(!!sym(lan_var) == "ALL", "00", !!sym(lan_var)))
-  #   region_nyckel <- hamtaregtab()
-  #   fk_json <- fk_json %>% left_join(region_nyckel, by = setNames("regionkod", lan_var)) %>% 
-  #     rename(Lankod = !!sym(lan_var),
-  #            Lan = region)
-  # } # slut if-sats om lan finns i data
-  # 
-  # if ("kon_kod" %in% tolower(names(fk_json))) {
-  #   kon_var <- names(fk_json) %>% .[str_detect(tolower(.), "kon_kod")]
-  #   fk_json <- fk_json %>% mutate(!!kon_var := case_when(toupper(!!sym(kon_var)) == "ALL" ~ "Båda könen",
-  #                                                        toupper(!!sym(kon_var)) == "K" ~ "Kvinnor",
-  #                                                        toupper(!!sym(kon_var)) == "M" ~ "Män",
-  #                                                        TRUE ~ !!sym(kon_var))) %>% 
-  #     rename(Kon := !!sym(kon_var))
-  # }
-  # 
-  # if ("manad" %in% tolower(names(fk_json))) {
-  #   manad_var <- names(fk_json) %>% .[str_detect(tolower(.), "manad")]
-  #   ar_var <- names(fk_json) %>% .[tolower(.) == "ar"]
-  #   fk_json <- fk_json %>% mutate(Period = paste0(!!sym(ar_var), "-", !!sym(manad_var))) %>% 
-  #     select(-!!sym(ar_var), -!!sym(manad_var)) %>% 
-  #     manader_bearbeta_scbtabeller(kolumn_manad = "Period")
-  #   
-  # }
-  # 
-  # fk_json <- fk_json %>% 
-  #   select(any_of(kolumnordning), where(~ !is.numeric(.x)), where(is.numeric))
   
 } # slut funktion
 
@@ -1377,7 +1324,9 @@ hamta_excel_dataset_med_url <- function(url_excel,
   # läs in dataset
   td = tempdir()                                                                         # skapa temporär mapp
   excel_fil <- tempfile(tmpdir=td, fileext = ".xlsx")                                    # skapa temorär fil
-  GET(url_excel, write_disk(excel_fil, overwrite = TRUE))                                # ladda ner temporär fil
+  #GET(url_excel, write_disk(excel_fil, overwrite = TRUE))                                # ladda ner temporär fil
+  curl_fetch_disk(url_excel, path = excel_fil)
+  
   
   flikar <- excel_sheets(excel_fil)                                                      # läs in flikar
   if (!is.na(hoppa_over_flikar)) flikar <- flikar[!flikar %in% hoppa_over_flikar]        # ta bort flikar som läses in om det finns värden i hoppa_over_flikar
