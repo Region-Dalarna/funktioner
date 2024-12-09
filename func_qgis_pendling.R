@@ -567,37 +567,79 @@ pendling_kraftfalt <- function(
       "commonla_areas"
     )
     
-    # Write layers to Geopackage or return as a list
+    # Write layers to GeoPackage or return as a list
     if (write_to_gpkg) {
-      # Write each layer to the Geopackage
+      # Write only non-empty layers to the GeoPackage
       map(
-        layers, 
-        ~ write_pgtable2gpkg(
-          lyrname = str_glue(.x), 
-          output_folder = output_folder, 
-          gpkg = gpkg, 
-          append = TRUE # Append layers to the same Geopackage
-        )
+        layers,
+        ~ {
+          tryCatch({
+            # Check if the layer exists in the database
+            query <- str_glue("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '{.x}')")
+            layer_exists <- dbGetQuery(con, query)[1, 1]
+            
+            if (layer_exists) {
+              lyr <- st_read(con, query = str_glue("SELECT * FROM {.x}"))
+              if (nrow(lyr) > 0) { # Only write if the layer is non-empty
+                write_pgtable2gpkg(
+                  lyrname = .x,
+                  output_folder = output_folder,
+                  gpkg = gpkg,
+                  append = TRUE # Append layers to the same GeoPackage
+                )
+              } else {
+                message(glue("Layer `{.x}` is empty, skipping..."))
+              }
+            } else {
+              message(glue("Layer `{.x}` does not exist, skipping..."))
+            }
+          }, error = function(e) {
+            message(glue("Error processing layer `{.x}`: {e$message}"))
+          })
+        }
       )
-      message(glue("All layers written to {file.path(output_folder, gpkg)}"))
+      message(glue("Finished writing non-empty layers to {file.path(output_folder, gpkg)}"))
     } else {
-      # Read each layer into a list and return
-      results <- map(
-        layers, 
-        ~ st_read(con, query = str_glue("SELECT * FROM {.x}"))
-      )
-      names(results) <- layers # Name the list elements by their layer names
+      # Create a named list with all layers, include NULL for missing or empty layers
+      results <- list()
+      for (layer in layers) {
+        results[[layer]] <- tryCatch({
+          query <- str_glue("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '{layer}')")
+          layer_exists <- dbGetQuery(con, query)[1, 1]
+          
+          if (layer_exists) {
+            lyr <- st_read(con, query = str_glue("SELECT * FROM {layer}"))
+            if (nrow(lyr) > 0) {
+              lyr # Return non-empty layer
+            } else {
+              message(glue("Layer `{layer}` is empty, skipping..."))
+              NULL
+            }
+          } else {
+            message(glue("Layer `{layer}` does not exist, skipping..."))
+            NULL
+          }
+        }, error = function(e) {
+          message(glue("Error processing layer `{layer}`: {e$message}"))
+          NULL
+        })
+      }
+      
+      # Explicitly return all layers as a named list
       return(results)
-      # return(list("selected" = selected, "in_commuting" = in_commuting, "out_commuting" = out_commuting)) från rut_pendling
     }
+    
+    
+    
   }, error = function(e){
     stop(glue("Ett fel inträffade vid skapandet av tabeller: {e$message}"))
   })
   
 }
 
-
-# pendling <- skapa_pendling_kraftfalt(gpkg = "kraftfält_qgis_test10.gpkg")
+# kraftfält <- pendling_kraftfalt(write_to_gpkg = FALSE)
+# 
+# mapview::mapview(kraftfält)
 
 # ------------------- funktion som skapar pendlingsnätverk -------------------------
 
@@ -781,7 +823,7 @@ pendling_ruta <- function(version = c("PostGIS", "R"),
                         SELECT c.*, r.geom 
                         FROM commuters_in c 
                           JOIN ruta r ON c.boruta = r.rut_id")
-    in_commuting <- st_read(con, query = query)
+    in_pendling <- st_read(con, query = query)
     
     # Out-commuting
     query <- str_glue("WITH commuters_out AS (
@@ -796,15 +838,15 @@ pendling_ruta <- function(version = c("PostGIS", "R"),
                       SELECT c.*, r.geom 
                       FROM commuters_out c 
                         JOIN ruta r ON c.arbruta = r.rut_id")
-    out_commuting <- st_read(con, query = query)
+    ut_pendling <- st_read(con, query = query)
     
     if (output_gpkg) {
       st_write(selected, file.path(output_folder, "rut_pendling_pg.gpkg"), "område", delete_dsn = TRUE, append = FALSE)
-      st_write(in_commuting, file.path(output_folder, "rut_pendling_pg.gpkg"), "in_pend", append = FALSE)
-      st_write(out_commuting, file.path(output_folder, "rut_pendling_pg.gpkg"), "ut_pend", append = FALSE)
+      st_write(in_pendling, file.path(output_folder, "rut_pendling_pg.gpkg"), "in_pend", append = FALSE)
+      st_write(ut_pendling, file.path(output_folder, "rut_pendling_pg.gpkg"), "ut_pend", append = FALSE)
     }
     
-    return(list("selected" = selected, "in_commuting" = in_commuting, "out_commuting" = out_commuting))
+    return(list("selected" = selected, "in_pendling" = in_pendling, "ut_pendling" = ut_pendling))
     
   } else if (version == "R") {
     selected <- st_filter(grid, selected_polygon)
@@ -837,16 +879,21 @@ pendling_ruta <- function(version = c("PostGIS", "R"),
       rename("rut_id" = "boruta")
     result <- merge(grid, full_table, by = "rut_id")
     
-    in_commuting <- filter(result, !is.na(commute_from)) %>% select(-commute_to)
-    out_commuting <- filter(result, !is.na(commute_to)) %>% select(-commute_from)
+    in_pendling <- filter(result, !is.na(commute_from)) %>% select(-commute_to)
+    ut_pendling <- filter(result, !is.na(commute_to)) %>% select(-commute_from)
     
     if (output_gpkg) {
       st_write(selected, file.path(output_folder, "rut_pendlingR.gpkg"), "område", delete_dsn = TRUE, append = FALSE)
-      st_write(in_commuting, file.path(output_folder, "rut_pendlingR.gpkg"), "in_pend", append = FALSE)
-      st_write(out_commuting, file.path(output_folder, "rut_pendlingR.gpkg"), "ut_pend", append = FALSE)
+      st_write(in_pendling, file.path(output_folder, "rut_pendlingR.gpkg"), "in_pend", append = FALSE)
+      st_write(ut_pendling, file.path(output_folder, "rut_pendlingR.gpkg"), "ut_pend", append = FALSE)
     }
     
-    return(list("selected" = selected, "in_commuting" = in_commuting, "out_commuting" = out_commuting))
+    return(list(
+      "selected" = if (exists("selected") && nrow(selected) > 0) selected else NULL,
+      "in_pendling" = if (exists("in_pendling") && nrow(in_pendling) > 0) in_pendling else NULL,
+      "ut_pendling" = if (exists("ut_pendling") && nrow(ut_pendling) > 0) ut_pendling else NULL
+    ))
+    
   }
 }
 
