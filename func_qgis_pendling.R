@@ -1,5 +1,5 @@
 
-
+# ------------------- funktion som skapar vägnätverk, tätorter och tabeller i postgis -------------------------
 
 skapa_vagnatverk_tatort <- function(
     vagfil = NULL,
@@ -235,12 +235,12 @@ skapa_vagnatverk_tatort <- function(
 
 
 
-# ------------------- funktion skapa kraftfält -------------------------
+# ------------------- funktion som skapa kraftfält -------------------------
 
 
-# funktionen är skapad av Henrik Aldén
+# funktionen är skapad av Henrik Aldén från SWECOS skript G:/skript/gis/sweco_dec_2022/orginalskript/ del1_kraftfält_QGIS_plugin_uppdaterad.r
 
-# Först  kör funktionen skapa_vagnatverk_tatort() för att skapa tabeller i postgis
+# Först  kör funktionen skapa_vagnatverk_tatort() för att skapa temporära tabeller i postgis
 # skapa_vagnatverk_tatort()
 
 # LOGIKEN FÖR ANALYSEN FÖLJER
@@ -273,15 +273,7 @@ skapa_vagnatverk_tatort <- function(
 #   4. skapa kraftfältspolygoner genom buffer av resväg mellan satelliter för LA tätorter.
 # 
 
-# data till postgis med pgrouting är ordnat i skapa_väg_tätort_tabeller.r
-#
-
-
-
-
-
-
-skapa_pendling_kraftfalt <- function(
+pendling_kraftfalt <- function(
     datafile = "G:/Samhällsanalys/GIS/grundkartor/mona/pendlingsrelationer_tatort_nattbef_filtrerad.csv",
     output_folder = "G:/skript/gis/sweco_dec_2022/utdata", 
     gpkg = "kraftfält_qgis_test.gpkg",
@@ -575,40 +567,83 @@ skapa_pendling_kraftfalt <- function(
       "commonla_areas"
     )
     
-    # Write layers to Geopackage or return as a list
+    # Write layers to GeoPackage or return as a list
     if (write_to_gpkg) {
-      # Write each layer to the Geopackage
+      # Write only non-empty layers to the GeoPackage
       map(
-        layers, 
-        ~ write_pgtable2gpkg(
-          lyrname = str_glue(.x), 
-          output_folder = output_folder, 
-          gpkg = gpkg, 
-          append = TRUE # Append layers to the same Geopackage
-        )
+        layers,
+        ~ {
+          tryCatch({
+            # Check if the layer exists in the database
+            query <- str_glue("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '{.x}')")
+            layer_exists <- dbGetQuery(con, query)[1, 1]
+            
+            if (layer_exists) {
+              lyr <- st_read(con, query = str_glue("SELECT * FROM {.x}"))
+              if (nrow(lyr) > 0) { # Only write if the layer is non-empty
+                write_pgtable2gpkg(
+                  lyrname = .x,
+                  output_folder = output_folder,
+                  gpkg = gpkg,
+                  append = TRUE # Append layers to the same GeoPackage
+                )
+              } else {
+                message(glue("Layer `{.x}` is empty, skipping..."))
+              }
+            } else {
+              message(glue("Layer `{.x}` does not exist, skipping..."))
+            }
+          }, error = function(e) {
+            message(glue("Error processing layer `{.x}`: {e$message}"))
+          })
+        }
       )
-      message(glue("All layers written to {file.path(output_folder, gpkg)}"))
+      message(glue("Finished writing non-empty layers to {file.path(output_folder, gpkg)}"))
     } else {
-      # Read each layer into a list and return
-      results <- map(
-        layers, 
-        ~ st_read(con, query = str_glue("SELECT * FROM {.x}"))
-      )
-      names(results) <- layers # Name the list elements by their layer names
+      # Create a named list with all layers, include NULL for missing or empty layers
+      results <- list()
+      for (layer in layers) {
+        results[[layer]] <- tryCatch({
+          query <- str_glue("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '{layer}')")
+          layer_exists <- dbGetQuery(con, query)[1, 1]
+          
+          if (layer_exists) {
+            lyr <- st_read(con, query = str_glue("SELECT * FROM {layer}"))
+            if (nrow(lyr) > 0) {
+              lyr # Return non-empty layer
+            } else {
+              message(glue("Layer `{layer}` is empty, skipping..."))
+              NULL
+            }
+          } else {
+            message(glue("Layer `{layer}` does not exist, skipping..."))
+            NULL
+          }
+        }, error = function(e) {
+          message(glue("Error processing layer `{layer}`: {e$message}"))
+          NULL
+        })
+      }
+      
+      # Explicitly return all layers as a named list
       return(results)
     }
+    
+    
+    
   }, error = function(e){
     stop(glue("Ett fel inträffade vid skapandet av tabeller: {e$message}"))
   })
   
 }
 
+# kraftfält <- pendling_kraftfalt(write_to_gpkg = FALSE)
+# 
+# mapview::mapview(kraftfält)
 
-# pendling <- skapa_pendling_kraftfalt(gpkg = "kraftfält_qgis_test10.gpkg")
+# ------------------- funktion som skapar pendlingsnätverk -------------------------
 
-# ------------------- funktion skapa nätverk -------------------------
-
-skapa_pendling_natverk <- function(
+pendling_natverk <- function(
     datafile = "G:/Samhällsanalys/GIS/grundkartor/mona/pendlingsrelationer_tatort_nattbef_filtrerad.csv",
     con = uppkoppling_db(service = "test_geodata", db_name = "test_geodata"),
     dist = 2000, # max avstånd till vägnätet
@@ -709,10 +744,162 @@ skapa_pendling_natverk <- function(
   }
 }
 
-# network <- skapa_pendling_natverk(gpkg = FALSE)
+# network <- pendling_natverk(gpkg = FALSE)
 # 
 # mapview::mapview(network, zcol = "antal_pend", lwd = "antal_pend", alpha = 0.5)
 
 
+# ------------------- funktion in och utpendling på ruta -------------------------
 
+# funktionen är skapad av Henrik Aldén från SWECOS skript G:/skript/gis/sweco_dec_2022/orginalskript/ del3_rut_pendling.r
 
+# två versioner av skriptet finns som argument. Ev är postgis versionen snabbare vid stora dataset?
+
+# indata parameter ska läggas till
+
+pendling_ruta <- function(version = c("PostGIS", "R"),
+                          con_params = list(service = "test_geodata", db_name = "test_geodata"),
+                          files_path = "G:/skript/gis/sweco_dec_2022/data/del3",
+                          output_folder = "G:/skript/gis/sweco_dec_2022/utdata",
+                          grid_epsg = 3006,
+                          output_gpkg = FALSE) {
+  library(stringr)
+  library(dplyr)
+  library(sf)
+  library(DBI)
+  library(RPostgres)
+  
+  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R", encoding = "utf-8", echo = FALSE)
+  
+  # Validate version
+  version <- match.arg(version)
+  
+  # File paths
+  tab <- "RutPendtab.TAB"
+  grid <- "RutPendmap.TAB"
+  tabfile <- file.path(files_path, tab)
+  gridfile <- file.path(files_path, grid)
+  
+  # Read files
+  data_tab <- st_read(tabfile) %>%
+    rename(boruta = boruta, arbruta = arbruta, antalpend = antalpend)
+  
+  grid <- st_read(gridfile) %>%
+    rename(rut_id = Rut_Id)
+  
+  st_crs(grid) <- grid_epsg
+  st_geometry(grid) <- "geom"
+  
+  # Select polygon
+  pol <- data.frame(id = 1)
+  pol$geom <- ("POLYGON((1485116 6479039,
+                        1487385 6472727,
+                        1493118 6473596,
+                        1494589 6478925,
+                        1492357 6480547,
+                        1485116 6479039))")
+  selected_polygon <- st_as_sf(pol, wkt = "geom")
+  st_crs(selected_polygon) <- grid_epsg
+  
+  if (version == "PostGIS") {
+    con <- uppkoppling_db(service = con_params$service, db_name = con_params$db_name)
+    
+    dbWriteTable(con, "ruta", grid, overwrite = TRUE, temporary = TRUE)
+    dbWriteTable(con, "rutpendling", data_tab, overwrite = TRUE, temporary = TRUE)
+    
+    selected <- st_read(con, layer = "ruta") %>% st_filter(selected_polygon)
+    selected_ids <- paste(selected$rut_id, collapse = ", ")
+    
+    # In-commuting
+    query <- str_glue("WITH commuters_in AS (
+                      SELECT
+                        boruta, 
+                        sum(antalpend) AS total
+                      FROM rutpendling
+                      WHERE arbruta::BIGINT IN ({selected_ids}) 
+                        AND boruta::BIGINT NOT IN ({selected_ids}) 
+                      GROUP BY boruta
+                      ) 
+                        SELECT c.*, r.geom 
+                        FROM commuters_in c 
+                          JOIN ruta r ON c.boruta = r.rut_id")
+    in_pendling <- st_read(con, query = query)
+    
+    # Out-commuting
+    query <- str_glue("WITH commuters_out AS (
+                      SELECT
+                        arbruta,
+                        sum(antalpend) AS total
+                      FROM rutpendling
+                      WHERE boruta::BIGINT IN ({selected_ids})
+                        AND arbruta::BIGINT NOT IN ({selected_ids}) 
+                      GROUP BY arbruta
+                      )
+                      SELECT c.*, r.geom 
+                      FROM commuters_out c 
+                        JOIN ruta r ON c.arbruta = r.rut_id")
+    ut_pendling <- st_read(con, query = query)
+    
+    if (output_gpkg) {
+      st_write(selected, file.path(output_folder, "rut_pendling_pg.gpkg"), "område", delete_dsn = TRUE, append = FALSE)
+      st_write(in_pendling, file.path(output_folder, "rut_pendling_pg.gpkg"), "in_pend", append = FALSE)
+      st_write(ut_pendling, file.path(output_folder, "rut_pendling_pg.gpkg"), "ut_pend", append = FALSE)
+    }
+    
+    return(list("selected" = selected, "in_pendling" = in_pendling, "ut_pendling" = ut_pendling))
+    
+  } else if (version == "R") {
+    selected <- st_filter(grid, selected_polygon)
+    
+    get_commuters_from_grid <- function(commute_data) {
+      commute_data %>%
+        group_by(boruta) %>%
+        summarise(commute_from = sum(antalpend))
+    }
+    get_commuters_to_grid <- function(commute_data) {
+      commute_data %>%
+        group_by(arbruta) %>%
+        summarise(commute_to = sum(antalpend))
+    }
+    filter_with_selected <- function(commute_data, selected) {
+      from_selected <- filter(commute_data,
+                              (boruta %in% selected$rut_id) &
+                                !(arbruta %in% selected$rut_id))
+      to_selected <- filter(commute_data,
+                            (arbruta %in% selected$rut_id) &
+                              !(boruta %in% selected$rut_id))
+      list("from_selected" = from_selected, "to_selected" = to_selected)
+    }
+    
+    data <- filter_with_selected(data_tab, selected)
+    from_c <- get_commuters_from_grid(data$to_selected)
+    to_c <- get_commuters_to_grid(data$from_selected)
+    
+    full_table <- full_join(from_c, to_c, by = c("boruta" = "arbruta")) %>%
+      rename("rut_id" = "boruta")
+    result <- merge(grid, full_table, by = "rut_id")
+    
+    in_pendling <- filter(result, !is.na(commute_from)) %>% select(-commute_to)
+    ut_pendling <- filter(result, !is.na(commute_to)) %>% select(-commute_from)
+    
+    if (output_gpkg) {
+      st_write(selected, file.path(output_folder, "rut_pendlingR.gpkg"), "område", delete_dsn = TRUE, append = FALSE)
+      st_write(in_pendling, file.path(output_folder, "rut_pendlingR.gpkg"), "in_pend", append = FALSE)
+      st_write(ut_pendling, file.path(output_folder, "rut_pendlingR.gpkg"), "ut_pend", append = FALSE)
+    }
+    
+    return(list(
+      "selected" = if (exists("selected") && nrow(selected) > 0) selected else NULL,
+      "in_pendling" = if (exists("in_pendling") && nrow(in_pendling) > 0) in_pendling else NULL,
+      "ut_pendling" = if (exists("ut_pendling") && nrow(ut_pendling) > 0) ut_pendling else NULL
+    ))
+    
+  }
+}
+
+# # Example usage
+# r <- rut_pendling(version = "PostGIS")
+# s <- rut_pendling(version = "R")
+# 
+# mapview::mapview(r$selected)
+# 
