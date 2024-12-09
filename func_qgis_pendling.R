@@ -1,5 +1,5 @@
 
-# ------------------- funktion som skapar vägnätverk, tätorter och tabeller i postgis -------------------------
+# ------------------- funktion skapar vägnätverk, tätorter och tabeller i postgis -------------------------
 
 skapa_vagnatverk_tatort <- function(
     vagfil = NULL,
@@ -235,10 +235,10 @@ skapa_vagnatverk_tatort <- function(
 
 
 
-# ------------------- funktion som skapa kraftfält -------------------------
+# ------------------- funktion skapa kraftfält -------------------------
 
 
-# funktionen är skapad av Henrik Aldén från SWECOS skript G:/skript/gis/sweco_dec_2022/orginalskript/ del1_kraftfält_QGIS_plugin_uppdaterad.r
+# funktionen är skapad av Henrik Aldén från SWECOS skript G:/skript/gis/sweco_dec_2022/orginalskript/ del1_kraftfält_QGIS_plugin(_uppdaterad).r
 
 # Först  kör funktionen skapa_vagnatverk_tatort() för att skapa temporära tabeller i postgis
 # skapa_vagnatverk_tatort()
@@ -276,7 +276,7 @@ skapa_vagnatverk_tatort <- function(
 pendling_kraftfalt <- function(
     datafile = "G:/Samhällsanalys/GIS/grundkartor/mona/pendlingsrelationer_tatort_nattbef_filtrerad.csv",
     output_folder = "G:/skript/gis/sweco_dec_2022/utdata", 
-    gpkg = "kraftfält_qgis_test.gpkg",
+    gpkg_name = "kraftfält.gpkg",
     enskilt_tröskelvärde = 20,
     totalt_tröskelvärde = 35,
     primary_la_zone_buffer_length = 2000,
@@ -303,10 +303,10 @@ pendling_kraftfalt <- function(
     reverse_cost_col = "dist_reverse_cost"
     
     # simpel funktion för att skriva postgis tabell till gpkg
-    write_pgtable2gpkg <- function(lyrname, output_folder, gpkg, append=FALSE, delete_dsn=FALSE) {
+    write_pgtable2gpkg <- function(lyrname, output_folder, gpkg_name, append=FALSE, delete_dsn=FALSE) {
       lyr <- st_read(con, lyrname)
       st_write(lyr, 
-               file.path(output_folder, gpkg),
+               file.path(output_folder, gpkg_name),
                lyrname, 
                append=append,
                delete_dsn=delete_dsn
@@ -384,7 +384,7 @@ pendling_kraftfalt <- function(
     dbExecute(con, "DROP TABLE IF EXISTS la;")
     dbExecute(con, query)
     # skriv till geopackage
-    # write_pgtable2gpkg(str_glue("la"), output_folder, gpkg)
+    # write_pgtable2gpkg(str_glue("la"), output_folder, gpkg_name)
     
 # solitär
     query <- str_glue("CREATE TEMP TABLE solitary AS
@@ -401,7 +401,7 @@ pendling_kraftfalt <- function(
     dbExecute(con, "DROP TABLE IF EXISTS solitary;")
     dbExecute(con, query)
     # skriv till geopackage
-    # write_pgtable2gpkg(str_glue("solitary"), output_folder, gpkg)
+    # write_pgtable2gpkg(str_glue("solitary"), output_folder, gpkg_name)
     
     
 # common la
@@ -425,7 +425,7 @@ pendling_kraftfalt <- function(
     dbExecute(con, "DROP TABLE IF EXISTS common_la;")
     dbExecute(con, query)
     # skriv till geopackage
-    # write_pgtable2gpkg(str_glue("common_la"), output_folder, gpkg)
+    # write_pgtable2gpkg(str_glue("common_la"), output_folder, gpkg_name)
     
 # satelit
     query <- str_glue("CREATE TEMP TABLE satellites AS
@@ -462,7 +462,7 @@ pendling_kraftfalt <- function(
     dbExecute(con, "DROP TABLE IF EXISTS satellites;")
     dbExecute(con, query)
     # skriv till geopackage
-    # write_pgtable2gpkg(str_glue("satellites"), output_folder, gpkg)
+    # write_pgtable2gpkg(str_glue("satellites"), output_folder, gpkg_name)
     
 # ruttningsanalys
     
@@ -512,7 +512,7 @@ pendling_kraftfalt <- function(
                     and c.end_vid=p.end_vid")
     dbExecute(con, "DROP TABLE IF EXISTS routes;")
     dbExecute(con, query)
-    # write_pgtable2gpkg(str_glue("routes"), output_folder, gpkg)
+    # write_pgtable2gpkg(str_glue("routes"), output_folder, gpkg_name)
     
     
     
@@ -527,7 +527,7 @@ pendling_kraftfalt <- function(
           ;")
     dbExecute(con, "DROP TABLE IF EXISTS secla_areas;")
     dbExecute(con, query)
-    # write_pgtable2gpkg(str_glue("secla_areas"), output_folder, gpkg)
+    # write_pgtable2gpkg(str_glue("secla_areas"), output_folder, gpkg_name)
     
     
     # rutter till primary LA
@@ -541,7 +541,7 @@ pendling_kraftfalt <- function(
           ;")
     dbExecute(con, "DROP TABLE IF EXISTS primla_areas;")
     dbExecute(con, query)
-    # write_pgtable2gpkg(str_glue("primla_areas"), output_folder, gpkg)
+    # write_pgtable2gpkg(str_glue("primla_areas"), output_folder, gpkg_name)
     
     # rutter mellan CommonLA
     query <- str_glue("CREATE TEMP TABLE commonla_areas AS
@@ -553,7 +553,7 @@ pendling_kraftfalt <- function(
           ;")
     dbExecute(con, "DROP TABLE IF EXISTS commonla_areas;")
     dbExecute(con, query)
-    # write_pgtable2gpkg(str_glue("commonla_areas"), output_folder, gpkg)
+    # write_pgtable2gpkg(str_glue("commonla_areas"), output_folder, gpkg_name)
     
     # Define layers to process
     layers <- c(
@@ -584,7 +584,7 @@ pendling_kraftfalt <- function(
                 write_pgtable2gpkg(
                   lyrname = .x,
                   output_folder = output_folder,
-                  gpkg = gpkg,
+                  gpkg_name = gpkg_name,
                   append = TRUE # Append layers to the same GeoPackage
                 )
               } else {
@@ -598,7 +598,7 @@ pendling_kraftfalt <- function(
           })
         }
       )
-      message(glue("Finished writing non-empty layers to {file.path(output_folder, gpkg)}"))
+      message(glue("Finished writing non-empty layers to {file.path(output_folder, gpkg_name)}"))
     } else {
       # Create a named list with all layers, include NULL for missing or empty layers
       results <- list()
@@ -637,7 +637,9 @@ pendling_kraftfalt <- function(
   
 }
 
-# kraftfält <- pendling_kraftfalt(write_to_gpkg = FALSE)
+# kraftfält <- pendling_kraftfalt()
+# 
+# pendling_kraftfalt()
 # 
 # mapview::mapview(kraftfält)
 
@@ -647,7 +649,7 @@ pendling_natverk <- function(
     datafile = "G:/Samhällsanalys/GIS/grundkartor/mona/pendlingsrelationer_tatort_nattbef_filtrerad.csv",
     con = uppkoppling_db(service = "test_geodata", db_name = "test_geodata"),
     dist = 2000, # max avstånd till vägnätet
-    gpkg = TRUE, # Flag to control output
+    write_to_gpkg = FALSE, # Flag to control output
     output_folder = "G:/skript/gis/sweco_dec_2022/utdata", # Output folder for geopackage
     gpkg_name = "pendling_natverk.gpkg" # Name of the geopackage
 ) { 
@@ -733,7 +735,7 @@ pendling_natverk <- function(
   network <- st_read(con, query = query)
   
   # Check if output is to a geopackage or as R object
-  if (gpkg) {
+  if (write_to_gpkg) {
     # Write to geopackage
     output_path <- file.path(output_folder, gpkg_name)
     st_write(network, output_path, delete_dsn = TRUE)
@@ -744,9 +746,9 @@ pendling_natverk <- function(
   }
 }
 
-# network <- pendling_natverk(gpkg = FALSE)
+network <- pendling_natverk(write_to_gpkg = FALSE)
 # 
-# mapview::mapview(network, zcol = "antal_pend", lwd = "antal_pend", alpha = 0.5)
+mapview::mapview(network, zcol = "antal_pend", lwd = "antal_pend", alpha = 0.5)
 
 
 # ------------------- funktion in och utpendling på ruta -------------------------
@@ -758,11 +760,13 @@ pendling_natverk <- function(
 # indata parameter ska läggas till
 
 pendling_ruta <- function(version = c("PostGIS", "R"),
-                          con_params = list(service = "test_geodata", db_name = "test_geodata"),
+                          con = uppkoppling_db(service = "test_geodata", db_name = "test_geodata"),
+                          tab,
+                          grid,
                           files_path = "G:/skript/gis/sweco_dec_2022/data/del3",
                           output_folder = "G:/skript/gis/sweco_dec_2022/utdata",
                           grid_epsg = 3006,
-                          output_gpkg = FALSE) {
+                          write_to_gpkg = FALSE) {
   library(stringr)
   library(dplyr)
   library(sf)
@@ -802,7 +806,6 @@ pendling_ruta <- function(version = c("PostGIS", "R"),
   st_crs(selected_polygon) <- grid_epsg
   
   if (version == "PostGIS") {
-    con <- uppkoppling_db(service = con_params$service, db_name = con_params$db_name)
     
     dbWriteTable(con, "ruta", grid, overwrite = TRUE, temporary = TRUE)
     dbWriteTable(con, "rutpendling", data_tab, overwrite = TRUE, temporary = TRUE)
@@ -840,7 +843,7 @@ pendling_ruta <- function(version = c("PostGIS", "R"),
                         JOIN ruta r ON c.arbruta = r.rut_id")
     ut_pendling <- st_read(con, query = query)
     
-    if (output_gpkg) {
+    if (write_to_gpkg) {
       st_write(selected, file.path(output_folder, "rut_pendling_pg.gpkg"), "område", delete_dsn = TRUE, append = FALSE)
       st_write(in_pendling, file.path(output_folder, "rut_pendling_pg.gpkg"), "in_pend", append = FALSE)
       st_write(ut_pendling, file.path(output_folder, "rut_pendling_pg.gpkg"), "ut_pend", append = FALSE)
@@ -882,7 +885,7 @@ pendling_ruta <- function(version = c("PostGIS", "R"),
     in_pendling <- filter(result, !is.na(commute_from)) %>% select(-commute_to)
     ut_pendling <- filter(result, !is.na(commute_to)) %>% select(-commute_from)
     
-    if (output_gpkg) {
+    if (write_to_gpkg) {
       st_write(selected, file.path(output_folder, "rut_pendlingR.gpkg"), "område", delete_dsn = TRUE, append = FALSE)
       st_write(in_pendling, file.path(output_folder, "rut_pendlingR.gpkg"), "in_pend", append = FALSE)
       st_write(ut_pendling, file.path(output_folder, "rut_pendlingR.gpkg"), "ut_pend", append = FALSE)
@@ -898,8 +901,8 @@ pendling_ruta <- function(version = c("PostGIS", "R"),
 }
 
 # # Example usage
-# r <- rut_pendling(version = "PostGIS")
-# s <- rut_pendling(version = "R")
-# 
-# mapview::mapview(r$selected)
-# 
+# r <- pendling_ruta(version = "PostGIS")
+# # s <- rut_pendling(version = "R")
+# #
+# mapview::mapview(r)
+# # 
