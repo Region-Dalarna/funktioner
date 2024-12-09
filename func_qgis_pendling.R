@@ -283,7 +283,7 @@ pendling_kraftfalt <- function(
     secondary_la_zone_buffer_length = 1000,
     common_la_zone_buffer_length = 5000,
     con = uppkoppling_db(service = "test_geodata", db_name = "test_geodata"),
-    write_to_gpkg = TRUE # Flag to control whether to write to GPKG or return as list
+    write_to_gpkg = FALSE # Flag to control whether to write to GPKG or return as list
 ) {
   tryCatch({
     
