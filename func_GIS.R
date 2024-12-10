@@ -1524,6 +1524,91 @@ postgres_schema_ta_bort <- function(con = "default",
   
 }
 
+postgres_metadata_uppdatera <- function(con, schema, tabell, version_datum = NA, version_tid = NA,
+                               uppdaterad_datum = Sys.Date(), uppdaterad_tid = format(Sys.time(), "%H:%M:%S"),
+                               lyckad_uppdatering, kommentar = NA) {
+  
+  # Funktion för att uppdatera metadata-tabellen varje gång en tabell i geodatabasen
+  # uppdateras
+  
+  # Kontrollera att schema och tabell är angivna
+  if (missing(schema) || missing(tabell)) {
+    stop("Parametrarna 'schema' och 'tabell' är obligatoriska. Ge dessa parametrar ett värde och försök igen.")
+  }
+  
+  # om version_datum och version_tid = NA så tar de samma värde som uppdaterad_datum och uppdaterad_tid
+  if (is.na(version_datum)) version_datum <- uppdaterad_datum
+  if (is.na(version_tid)) version_tid <- uppdaterad_tid
+  
+  # Kontrollera om schemat och tabellen metadata.uppdateringar finns, skapa om nödvändigt
+  query_schema_exists <- paste0(
+    "SELECT EXISTS (
+      SELECT 1 
+      FROM information_schema.schemata 
+      WHERE schema_name = 'metadata'
+    );"
+  )
+  
+  schema_exists <- dbGetQuery(con, query_schema_exists)$exists
+  
+  if (!schema_exists) {
+    dbExecute(con, "CREATE SCHEMA IF NOT EXISTS metadata;")
+  }
+  
+  query_table_exists <- paste0(
+    "SELECT EXISTS (
+      SELECT 1 
+      FROM information_schema.tables 
+      WHERE table_schema = 'metadata' AND table_name = 'uppdateringar'
+    );"
+  )
+  
+  table_exists <- dbGetQuery(con, query_table_exists)$exists
+  
+  if (!table_exists) {
+    dbExecute(con, paste0(
+      "CREATE TABLE metadata.uppdateringar (
+        id SERIAL PRIMARY KEY,
+        schema TEXT NOT NULL,
+        tabell TEXT NOT NULL,
+        version_datum DATE,
+        version_tid TIME,
+        uppdaterad_datum DATE DEFAULT CURRENT_DATE,
+        uppdaterad_tid TIME DEFAULT CURRENT_TIME,
+        lyckad_uppdatering BOOLEAN,
+        kommentar TEXT
+      );"
+    ))
+  }
+  
+  # Infoga metadata
+  insert_query <- paste0(
+    "INSERT INTO metadata.uppdateringar (
+      id,
+      schema,
+      tabell,
+      version_datum,
+      version_tid,
+      uppdaterad_datum,
+      uppdaterad_tid,
+      lyckad_uppdatering,
+      kommentar
+   ) VALUES (
+      (SELECT COALESCE(MAX(id), 0) + 1 FROM metadata.uppdateringar),
+      $1, $2, $3, $4, $5, $6, $7, $8
+   );"
+  )
+  
+  
+  dbExecute(con, insert_query, params = list(
+    schema, tabell, version_datum, version_tid,
+    uppdaterad_datum, uppdaterad_tid, lyckad_uppdatering, kommentar
+  ))
+  
+  message("Metadata har lagts till för tabellen: ", schema, ".", tabell)
+}
+
+
 
 # ================================= postgis-funktioner ================================================
 
