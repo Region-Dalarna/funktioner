@@ -1,5 +1,6 @@
 
 # ------------------- funktion skapar vägnätverk, tätorter och tabeller i postgis -------------------------
+# kör denna först, före pendling_kraftfalt() och pendling_nätverk() 
 
 skapa_vagnatverk_tatort <- function(
     vagfil = NULL,
@@ -272,6 +273,7 @@ skapa_vagnatverk_tatort <- function(
 #   3. köra ruttning mellan satelliter och LA (kör även ruttning mellan satelliter och solitärer och andra satelliter)
 #   4. skapa kraftfältspolygoner genom buffer av resväg mellan satelliter för LA tätorter.
 # 
+# kommentera parametrar
 
 pendling_kraftfalt <- function(
     datafile = "G:/Samhällsanalys/GIS/grundkartor/mona/pendlingsrelationer_tatort_nattbef_filtrerad.csv",
@@ -287,6 +289,8 @@ pendling_kraftfalt <- function(
 ) {
   tryCatch({
     
+    # skapa_vagnatverk_tatort() inte här, schemalägg så att denna uppdateras när ny data kommer
+    
     library(readxl)
     library(stringr)
     library(dplyr)
@@ -296,6 +300,8 @@ pendling_kraftfalt <- function(
     library(purrr)
     
     source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R", encoding = "utf-8", echo = FALSE)
+    
+    # lägg nedan i ett schema och hämta därifrån
     
     edges_table = "nvdb_noded"
     vertices_table = "nvdb_noded_vertices_pgr"
@@ -795,7 +801,7 @@ pendling_ruta <- function(version = c("PostGIS", "R"),
   st_geometry(grid) <- "geom"
   
   # Select polygon
-  pol <- data.frame(id = 1)
+  pol <- data.frame(id = 1) # hur välja polygon?
   pol$geom <- ("POLYGON((1485116 6479039,
                         1487385 6472727,
                         1493118 6473596,
