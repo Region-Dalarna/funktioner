@@ -12,6 +12,7 @@ p_load(sf,
        httr)
 
 source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R", encoding = "utf-8")
+source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_text.R", encoding = "utf-8")
 
 # ===================================== hantera GIS i R ===============================================
 
@@ -1147,13 +1148,16 @@ postgres_anvandare_ta_bort <- function(con = "default",
 
 
 postgres_rattigheter_anvandare_lagg_till <- function(con = "default", 
-                                                     anvandarnamn, 
-                                                     databas = "geodata", 
+                                                     anvandarnamn,
                                                      schema = "alla", 
                                                      rattigheter = c("CONNECT", "SELECT", "USAGE"),
                                                      meddelande_tid = FALSE
                                                      ){
   starttid <- Sys.time()  # Starta tidtagning
+  
+  # för läsrättigheter så kan c("CONNECT", "SELECT", "USAGE") användas
+  # för skrivrättigheter så kan "alla" användas
+  # är typ c("CONNECT", "SELECT", "USAGE", "INSERT", "UPDATE", "DELETE", "CREATE") användas
   
   # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
   if (is.character(con) && con == "default") {
@@ -1168,8 +1172,7 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default",
   # Lista över system-scheman som ska undantas
   system_scheman <- c("pg_catalog", "information_schema", "pg_toast")
   
-  # Iterera över varje databas i vektorn och tilldela rättigheter
-  for (db in databas) {
+
     # Steg 1: Tilldela anslutningsrättigheter till den specifika databasen (CONNECT på databasnivå)
     if ("CONNECT" %in% rattigheter) {
       tilldela_atkomst_query <- paste0("GRANT CONNECT ON DATABASE ", db, " TO ", anvandarnamn, ";")
@@ -1181,20 +1184,9 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default",
       })
     }
     
-    # Kontrollera om alla scheman ska behandlas
-    if (all(schema == "alla")) {
-      # Hämta alla scheman i databasen utan att använda catalog_name
-      alla_scheman_query <- "SELECT schema_name FROM information_schema.schemata;"
-      alla_scheman <- dbGetQuery(con, alla_scheman_query)$schema_name
-    } else {
-      kontroll_schema_query <- paste0("SELECT schema_name FROM information_schema.schemata WHERE schema_name IN (", paste(sprintf("'%s'", schema), collapse = ", "), ");")
-      alla_scheman <- dbGetQuery(con, kontroll_schema_query)$schema_name
-    }
-    
-    # Filtrera bort system-scheman från listan över scheman att bearbeta
-    scheman_att_bearbeta <- setdiff(alla_scheman, system_scheman)
-    # Filtrera också bort alla scheman som börjar med "pg_"
-    scheman_att_bearbeta <- scheman_att_bearbeta[!grepl("^pg_", scheman_att_bearbeta)]
+    scheman_att_bearbeta <- postgres_lista_scheman_tabeller(con = con) %>% names()
+    if (!all(schema == "alla")) scheman_att_bearbeta <- scheman_att_bearbeta[scheman_att_bearbeta %in% schema] 
+    if (length(scheman_att_bearbeta) < 1) stop(glue("Scheman {schema %>% list_komma_och()} finns inte i databasen. Kontrollera uppgifterna och försök igen."))
     
     # Iterera över varje schema som existerar och tilldela rättigheter
     for (schema_namn in scheman_att_bearbeta) {
@@ -1224,18 +1216,17 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default",
         }
       }
     }
-  }
   
   if (default_flagga) dbDisconnect(con)  # Koppla ner om defaultuppkopplingen har använts
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)  # Beräkna och skriv ut tidsåtgång
   if (meddelande_tid) cat(glue("Processen tog {berakningstid} sekunder att köra"))
-}
+} # slut funktion
 
 
 # Funktion för att ta bort rättigheter från användare
 postgres_rattigheter_anvandare_ta_bort <- function(con = "default", 
-                                                   anvandarnamn, 
-                                                   databas, 
+                                                   anvandarnamn,
+                                                   schema = "alla",
                                                    rattigheter = "alla",
                                                    meddelande_tid = FALSE
                                                    ) {
@@ -1252,32 +1243,81 @@ postgres_rattigheter_anvandare_ta_bort <- function(con = "default",
     default_flagga <- FALSE
   }
   
-  if (all(rattigheter == "alla")) rattigheter <- postgres_lista_giltiga_rattigheter()$Rattighet
+  # hämta giltiga rättigheter och fördela per kategori
+  giltiga_rattigheter <- postgres_lista_giltiga_rattigheter()$Rattighet
+  rattigheter_databas <- c("CONNECT", "TEMP")
+  rattigheter_tabell <- c("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES")     # "TRIGGER"
+  rattigheter_schema <- c("USAGE", "CREATE")
   
-  # Iterera över varje databas i vektorn och ta bort rättigheter
-  for (db in databas) {
-    # Ta bort anslutningsrättigheter till databasen
-    ta_bort_atkomst_query <- paste0("REVOKE CONNECT ON DATABASE ", db, " FROM ", anvandarnamn, ";")
-    dbExecute(con, ta_bort_atkomst_query)
-    
-    # Om rättigheter är "ALL", ta bort alla rättigheter från användaren för alla tabeller
-    if (all(rattigheter == "alla")) {
-      ta_bort_rattigheter_query <- paste0("REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM ", anvandarnamn, ";")
-      dbExecute(con, ta_bort_rattigheter_query)
-      message(paste("Alla rättigheter har tagits bort för användaren", anvandarnamn, "i databasen", db))
-    } else {
-      # Annars, iterera över varje rättighet och validera om den är giltig
-      for (rattighet in rattigheter) {
-        if (rattighet %in% postgres_lista_giltiga_rattigheter()$Rattighet) {
-          ta_bort_rattigheter_query <- paste0("REVOKE ", rattighet, " ON ALL TABLES IN SCHEMA public FROM ", anvandarnamn, ";")
-          dbExecute(con, ta_bort_rattigheter_query)
-          message(paste("Rättigheten", rattighet, "har tagits bort från användaren", anvandarnamn, "i databasen", db))
-        } else {
-          message(paste("Ogiltig rättighet:", rattighet, "- denna rättighet har inte tagits bort."))
-        }
+  if (all(rattigheter == "alla")) rattigheter <- postgres_lista_giltiga_rattigheter()$Rattighet
+
+  # hämta scheman för vald databas (som styrs med con)
+  scheman_att_bearbeta <- postgres_lista_scheman_tabeller() %>% names()
+  if (!all(schema == "alla")) scheman_att_bearbeta <- scheman_att_bearbeta[scheman_att_bearbeta %in% schema] 
+  if (length(scheman_att_bearbeta) < 1) stop(glue("Scheman {schema %>% list_komma_och()} finns inte i databasen. Kontrollera uppgifterna och försök igen."))
+
+  # Ta bort rättigheter för databasen
+  databas_rattigheter <- intersect(rattigheter, rattigheter_databas)
+  if (length(databas_rattigheter) > 0) {
+    for (rattighet in databas_rattigheter) {
+      ta_bort_atkomst_query <- glue("REVOKE {rattighet} ON DATABASE {db} FROM {anvandarnamn};")
+      dbExecute(con, ta_bort_atkomst_query)
+      message(glue("Rättigheten {rattighet} har tagits bort från användaren {anvandarnamn} i databasen {dbGetInfo(con)$dbname}."))
+    }
+  }
+  
+  # Ta bort andra rättigheter för scheman
+  schema_rattigheter <- intersect(rattigheter, rattigheter_schema)
+  if (length(schema_rattigheter) > 0) {
+    for (schema_loop in scheman_att_bearbeta) {
+      for (rattighet in schema_rattigheter) {
+        ta_bort_schema_query <- glue("REVOKE {rattighet} ON SCHEMA {schema_loop} FROM {anvandarnamn};")
+        dbExecute(con, ta_bort_schema_query)
+        message(glue("Rättigheten {rattighet} har tagits bort från användaren {anvandarnamn} på schemat {schema_loop}."))
       }
     }
   }
+  
+  # Ta bort rättigheter för tabeller
+  tabell_rattigheter <- intersect(rattigheter, rattigheter_tabell)
+  if (length(tabell_rattigheter) > 0) {
+    for (schema_loop in scheman_att_bearbeta) {
+      for (rattighet in tabell_rattigheter) {
+        ta_bort_rattigheter_query <- glue("REVOKE {rattighet} ON ALL TABLES IN SCHEMA {schema_loop} FROM {anvandarnamn};")
+        dbExecute(con, ta_bort_rattigheter_query)
+        message(glue("Rättigheten {rattighet} har tagits bort från användaren {anvandarnamn} i schemat {schema_loop}."))
+      }
+    }
+  }
+    
+    # if ("CONNECT" %in% rattigheter) {
+    #   # Ta bort anslutningsrättigheter till databasen
+    #   ta_bort_atkomst_query <- paste0("REVOKE CONNECT ON DATABASE ", db, " FROM ", anvandarnamn, ";")
+    #   dbExecute(con, ta_bort_atkomst_query)
+    #   message(paste("Rättigheten CONNECT har tagits bort från användaren", anvandarnamn, "i databasen", db))
+    # }
+    # 
+    # # Om rättigheter är "ALL", ta bort alla rättigheter från användaren för alla tabeller
+    # if (all(rattigheter == "alla")) {
+    #   ta_bort_rattigheter_query <- paste0("REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM ", anvandarnamn, ";")
+    #   dbExecute(con, ta_bort_rattigheter_query)
+    #   message(paste("Alla rättigheter har tagits bort för användaren", anvandarnamn, "i databasen", db))
+    # } else {
+    #   # Annars, iterera över varje rättighet och validera om den är giltig men ta bort rättigheter som hanteras på databasnivå
+    #   rattigheter_schema_valda <- rattigheter %>% .[. != "CONNECT"]
+    #   for (rattighet in rattigheter_schema_valda) {
+    #     
+    #     rattigheter_scheman <- postgres_lista_giltiga_rattigheter()$Rattighet %>% .[. != "CONNECT"]
+    #     if (rattighet %in% rattigheter_scheman) {
+    #       ta_bort_rattigheter_query <- paste0("REVOKE ", rattighet, " ON ALL TABLES IN SCHEMA public FROM ", anvandarnamn, ";")
+    #       dbExecute(con, ta_bort_rattigheter_query)
+    #       message(paste("Rättigheten", rattighet, "har tagits bort från användaren", anvandarnamn, "i databasen", db))
+    #     } else {
+    #       message(paste("Ogiltig rättighet:", rattighet, "- denna rättighet har inte tagits bort."))
+    #     }
+    #   }
+    # }
+  
   
   if (default_flagga) dbDisconnect(con)  # Koppla ner om defaultuppkopplingen har använts
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)  # Beräkna och skriv ut tidsåtgång
@@ -1483,6 +1523,91 @@ postgres_schema_ta_bort <- function(con = "default",
   if (meddelande_tid) cat(glue("Processen tog {berakningstid} sekunder att köra"))
   
 }
+
+postgres_metadata_uppdatera <- function(con, schema, tabell, version_datum = NA, version_tid = NA,
+                               uppdaterad_datum = Sys.Date(), uppdaterad_tid = format(Sys.time(), "%H:%M:%S"),
+                               lyckad_uppdatering, kommentar = NA) {
+  
+  # Funktion för att uppdatera metadata-tabellen varje gång en tabell i geodatabasen
+  # uppdateras
+  
+  # Kontrollera att schema och tabell är angivna
+  if (missing(schema) || missing(tabell)) {
+    stop("Parametrarna 'schema' och 'tabell' är obligatoriska. Ge dessa parametrar ett värde och försök igen.")
+  }
+  
+  # om version_datum och version_tid = NA så tar de samma värde som uppdaterad_datum och uppdaterad_tid
+  if (is.na(version_datum)) version_datum <- uppdaterad_datum
+  if (is.na(version_tid)) version_tid <- uppdaterad_tid
+  
+  # Kontrollera om schemat och tabellen metadata.uppdateringar finns, skapa om nödvändigt
+  query_schema_exists <- paste0(
+    "SELECT EXISTS (
+      SELECT 1 
+      FROM information_schema.schemata 
+      WHERE schema_name = 'metadata'
+    );"
+  )
+  
+  schema_exists <- dbGetQuery(con, query_schema_exists)$exists
+  
+  if (!schema_exists) {
+    dbExecute(con, "CREATE SCHEMA IF NOT EXISTS metadata;")
+  }
+  
+  query_table_exists <- paste0(
+    "SELECT EXISTS (
+      SELECT 1 
+      FROM information_schema.tables 
+      WHERE table_schema = 'metadata' AND table_name = 'uppdateringar'
+    );"
+  )
+  
+  table_exists <- dbGetQuery(con, query_table_exists)$exists
+  
+  if (!table_exists) {
+    dbExecute(con, paste0(
+      "CREATE TABLE metadata.uppdateringar (
+        id SERIAL PRIMARY KEY,
+        schema TEXT NOT NULL,
+        tabell TEXT NOT NULL,
+        version_datum DATE,
+        version_tid TIME,
+        uppdaterad_datum DATE DEFAULT CURRENT_DATE,
+        uppdaterad_tid TIME DEFAULT CURRENT_TIME,
+        lyckad_uppdatering BOOLEAN,
+        kommentar TEXT
+      );"
+    ))
+  }
+  
+  # Infoga metadata
+  insert_query <- paste0(
+    "INSERT INTO metadata.uppdateringar (
+      id,
+      schema,
+      tabell,
+      version_datum,
+      version_tid,
+      uppdaterad_datum,
+      uppdaterad_tid,
+      lyckad_uppdatering,
+      kommentar
+   ) VALUES (
+      (SELECT COALESCE(MAX(id), 0) + 1 FROM metadata.uppdateringar),
+      $1, $2, $3, $4, $5, $6, $7, $8
+   );"
+  )
+  
+  
+  dbExecute(con, insert_query, params = list(
+    schema, tabell, version_datum, version_tid,
+    uppdaterad_datum, uppdaterad_tid, lyckad_uppdatering, kommentar
+  ))
+  
+  message("Metadata har lagts till för tabellen: ", schema, ".", tabell)
+}
+
 
 
 # ================================= postgis-funktioner ================================================
@@ -2464,6 +2589,30 @@ gdb_extrahera_kolumnnamn_per_gislager <- function(gdb_sokvag,
   # denna funktion extrahera vettiga kolumnnamn i en namnsatt vektor som kan användas till 
   # att döpa om ett sf-objekt som lästs in från ESRI Geodatabase.
   
+  # Vi kollar om ogrinfo.exe finns tillgängligt och om inte tittar vi efter
+  # QGIS och om ogrinfo.exe finns där, hittas den inte där stoppas funktionen
+  if (Sys.which("ogrinfo") == "") {
+
+      hitta_ogrinfo <- function() {
+        program_files <- Sys.getenv("ProgramFiles")
+  
+        # Lista kataloger under Program Files och filtrera på de som börjar med QGIS
+        qgis_dirs <- list.dirs(program_files, recursive = FALSE) %>%
+          keep(~ str_starts(basename(.x), "QGIS"))
+        
+        # Kontrollera varje QGIS-katalog om ogrinfo.exe finns i bin-mappen
+        ogrinfo_path <- qgis_dirs %>%
+          map(~ file.path(.x, "bin", "ogrinfo.exe")) %>%
+          #keep(file.exists()) %>%
+          first()
+        
+        # Returnera sökväg eller NULL om ingen fil hittades
+        ogrinfo_path %||% NULL
+      } # slut funktion
+      ogr_sokvag <- hitta_ogrinfo()
+      if (is.null(hitta_ogrinfo())) stop("GDAL-programvaran ogrinfo.exe krävs för att köra denna funktion. Installera programvaran om du vill använda funktionen.")  
+    } else ogr_sokvag <- "ogrinfo"
+  
   
   # Steg 1: Hämta namnet på alla gis-lager som finns i geodatabasen
   alla_lager_i_gdb <- st_layers(gdb_sokvag)$name
@@ -2471,7 +2620,7 @@ gdb_extrahera_kolumnnamn_per_gislager <- function(gdb_sokvag,
   #  Steg 2: Extrahera kolumnnamn för alla lager och lägg i en lista
   lager_kolumnnamn_lista <- map(alla_lager_i_gdb, function(lager_namn) {
     
-    kolumner_namn <- system(glue("ogrinfo {gdb_sokvag} {lager_namn} -so"), intern = TRUE)
+    kolumner_namn <- system(glue('"{ogr_sokvag}" {gdb_sokvag} {lager_namn} -so'), intern = TRUE)
     id_kol <- str_extract(str_subset(kolumner_namn, "FID Column"), '(?<= = ).*')        # extrahera namn på id_kolumn
     geo_kol <- str_extract(str_subset(kolumner_namn, "Geometry Column"), '(?<= = ).*')  # extrahera namn på geo-kolumn
     
