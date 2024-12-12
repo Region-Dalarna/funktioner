@@ -2588,26 +2588,28 @@ gdb_extrahera_kolumnnamn_per_gislager <- function(gdb_sokvag,
   # denna funktion extrahera vettiga kolumnnamn i en namnsatt vektor som kan användas till 
   # att döpa om ett sf-objekt som lästs in från ESRI Geodatabase.
   
+  # definiera en funktion som används nedan
+  hitta_ogrinfo <- function() {
+    program_files <- Sys.getenv("ProgramFiles")
+    
+    # Lista kataloger under Program Files och filtrera på de som börjar med QGIS
+    qgis_dirs <- list.dirs(program_files, recursive = FALSE) %>%
+      keep(~ str_starts(basename(.x), "QGIS"))
+    
+    # Kontrollera varje QGIS-katalog om ogrinfo.exe finns i bin-mappen
+    ogrinfo_path <- qgis_dirs %>%
+      map(~ file.path(.x, "bin", "ogrinfo.exe")) %>%
+      #keep(file.exists()) %>%
+      first()
+    
+    # Returnera sökväg eller NULL om ingen fil hittades
+    ogrinfo_path %||% NULL
+  } # slut funktion
+  
   # Vi kollar om ogrinfo.exe finns tillgängligt och om inte tittar vi efter
   # QGIS och om ogrinfo.exe finns där, hittas den inte där stoppas funktionen
   if (Sys.which("ogrinfo") == "") {
     
-    hitta_ogrinfo <- function() {
-      program_files <- Sys.getenv("ProgramFiles")
-      
-      # Lista kataloger under Program Files och filtrera på de som börjar med QGIS
-      qgis_dirs <- list.dirs(program_files, recursive = FALSE) %>%
-        keep(~ str_starts(basename(.x), "QGIS"))
-      
-      # Kontrollera varje QGIS-katalog om ogrinfo.exe finns i bin-mappen
-      ogrinfo_path <- qgis_dirs %>%
-        map(~ file.path(.x, "bin", "ogrinfo.exe")) %>%
-        #keep(file.exists()) %>%
-        first()
-      
-      # Returnera sökväg eller NULL om ingen fil hittades
-      ogrinfo_path %||% NULL
-    } # slut funktion
     ogr_sokvag <- hitta_ogrinfo()
     if (is.null(hitta_ogrinfo())) stop("GDAL-programvaran ogrinfo.exe krävs för att köra denna funktion. Installera programvaran om du vill använda funktionen.")  
   } else ogr_sokvag <- "ogrinfo"
@@ -2618,38 +2620,46 @@ gdb_extrahera_kolumnnamn_per_gislager <- function(gdb_sokvag,
   
   #  Steg 2: Extrahera kolumnnamn för alla lager och lägg i en lista
   lager_kolumnnamn_lista <- map(alla_lager_i_gdb, function(lager_namn) {
-    
     kolumner_namn <- system(glue('"{ogr_sokvag}" {gdb_sokvag} {lager_namn} -so'), intern = TRUE)
-    id_kol <- str_extract(str_subset(kolumner_namn, "FID Column"), '(?<= = ).*')        # extrahera namn på id_kolumn
-    geo_kol <- str_extract(str_subset(kolumner_namn, "Geometry Column"), '(?<= = ).*')  # extrahera namn på geo-kolumn
-  
+    id_kol <- str_extract(str_subset(kolumner_namn, "FID Column"), "(?<= = ).*") # extrahera namn på id_kolumn
+    geo_kol <- str_extract(str_subset(kolumner_namn, "Geometry Column"), "(?<= = ).*") # extrahera namn på geo-kolumn
+    
     # hitta startelement för där kolumnnamnen finns
-    kolumner_start <- str_which(kolumner_namn, "Geometry Column = ") + 1 
+    kolumner_start <- str_which(kolumner_namn, "Geometry Column = ") + 1
     kolumner_namn <- kolumner_namn[kolumner_start:length(kolumner_namn)]
     kolumner_namn <- c(paste0(id_kol, ":"), kolumner_namn, paste0(geo_kol, ":"))
     
-    kolumnnamn_ny <- set_names(map_chr(kolumner_namn, ~ {
-      old_name <- str_extract(.x, "^[^:]+")
-      new_name <- str_extract(.x, 'alternative name=\\"([^"]+)\\"') %>% 
-        str_replace_all('\\"', "") %>% 
-        str_remove("alternative name=") %>% 
-        str_trim()
-      
-      retur_vekt <- ifelse(is.na(new_name), old_name, new_name)
-      
-      # korrigera utifrån parametrar i funktionen
-      if (tabort_paranteser) retur_vekt <- retur_vekt %>% str_remove_all("\\(") %>% str_remove_all("\\)") %>% str_trim()
-      if (byt_ut_slash_mot_understreck) retur_vekt <- retur_vekt %>% str_replace_all("/", "_")
-      if (byt_ut_mellanslag_mot_understreck) retur_vekt <- retur_vekt %>% str_replace_all(" ", "_")
-      if (enbart_gemener) retur_vekt <- retur_vekt %>% tolower()
-      if (byt_ut_svenska_tecken) retur_vekt <- retur_vekt %>% svenska_tecken_byt_ut()
-      
-    }), map_chr(kolumner_namn, ~ str_extract(.x, "^[^:]+"))) 
+    kolumnnamn_ny <- set_names(
+      map_chr(kolumner_namn, ~ {
+        old_name <- str_extract(.x, "^[^:]+")
+        new_name <- str_extract(.x, 'alternative name=\\"([^"]+)\\"') %>%
+          str_replace_all('\\"', "") %>%
+          str_remove("alternative name=") %>%
+          str_trim()
+        
+        retur_vekt <- ifelse(is.na(new_name), old_name, new_name)
+        
+        # korrigera utifrån parametrar i funktionen
+        retur_vekt <- retur_vekt %>%
+          { if (tabort_paranteser) str_remove_all(., "\\(|\\)") %>% str_trim() else . } %>%
+          { if (byt_ut_slash_mot_understreck) str_replace_all(., "/", "_") else . } %>%
+          { if (byt_ut_mellanslag_mot_understreck) str_replace_all(., " ", "_") else . } %>%
+          { if (enbart_gemener) tolower(.) else . } %>%
+          { if (byt_ut_svenska_tecken) svenska_tecken_byt_ut(.) else . }
+        retur_vekt
+      }),
+      map_chr(kolumner_namn, ~ str_extract(.x, "^[^:]+"))
+    )
     
-    # ändra kolumnnamn för id- respektive geokolumn om användaren valt det
-    kolumnnamn_ny <- kolumnnamn_ny %>%
-      modify_at(id_kol, ~ if (!is.na(nytt_namn_id_kol)) nytt_namn_id_kol else .x) %>%
-      modify_at(geo_kol, ~ if (!is.na(nytt_namn_geo_kol)) nytt_namn_geo_kol else .x)
+    # Ändra kolumnnamn för id-kolumn om användaren valt det
+    if (!is.null(id_kol) && !is.na(id_kol) && !is.na(nytt_namn_id_kol)) {
+      kolumnnamn_ny[id_kol] <- nytt_namn_id_kol
+    }
+    
+    # Ändra kolumnnamn för geo-kolumn om användaren valt det
+    if (!is.null(geo_kol) && !is.na(geo_kol) && !is.na(nytt_namn_geo_kol)) {
+      kolumnnamn_ny[geo_kol] <- nytt_namn_geo_kol
+    }
     
     return(kolumnnamn_ny)
   })
