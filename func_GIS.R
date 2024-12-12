@@ -1421,14 +1421,16 @@ postgres_tabell_till_df <- function(con = "default",
 }
 
 
+# ny version gjord av Henrik Aldén den 2024-12-11, lagt till drop cascade som parameter.
 postgres_tabell_ta_bort <- function(con = "default", 
                                     schema, 
                                     tabell,
-                                    meddelande_tid = FALSE
-) {
+                                    drop_cascade = FALSE,
+                                    meddelande_tid = FALSE) {
   
-  starttid <- Sys.time()                                        # Starta tidstagning
+  starttid <- Sys.time()  # Starta tidstagning
   
+  # Kombinera schema och tabellnamn
   schema_tabell <- paste0(schema, ".", tabell)
   
   # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
@@ -1440,37 +1442,34 @@ postgres_tabell_ta_bort <- function(con = "default",
   }
   
   # Kontrollera om tabellen existerar
-  full_tabell_namn <- paste0(schema, ".", tabell)
   tabell_finns <- dbExistsTable(con, Id(schema = schema, table = tabell))
   
   if (!tabell_finns) {
-    message("Tabellen '", full_tabell_namn, "' existerar inte. Ingen åtgärd vidtogs.")
+    message("Tabellen '", schema_tabell, "' existerar inte. Ingen åtgärd vidtogs.")
   } else {
-    # Ta bort tabellen om den existerar
-    sql <- paste0("DROP TABLE ", DBI::dbQuoteIdentifier(con, schema), ".", DBI::dbQuoteIdentifier(con, tabell), ";")
+    # Bygg SQL-frågan baserat på parametern drop_cascade
+    sql <- paste0(
+      "DROP TABLE ", 
+      DBI::dbQuoteIdentifier(con, schema), ".", 
+      DBI::dbQuoteIdentifier(con, tabell), 
+      if (drop_cascade) " CASCADE;" else ";"
+    )
+    
+    # Utför DROP TABLE
     dbExecute(con, sql)
-    message("Tabellen '", full_tabell_namn, "' har tagits bort.")
+    if (drop_cascade) {
+      message("Tabellen '", schema_tabell, "' har tagits bort med CASCADE.")
+    } else {
+      message("Tabellen '", schema_tabell, "' har tagits bort.")
+    }
   }
   
   # Koppla ner anslutningen om den skapades som default
-  if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
-  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
-  if (meddelande_tid) cat(glue("Processen tog {berakningstid} sekunder att köra"))
+  if (default_flagga) dbDisconnect(con)  # Koppla ner om defaultuppkopplingen har använts
   
-}
-
-postgres_schema_finns <- function(con, 
-                                  schema_namn) {
-  query <- sprintf("
-    SELECT EXISTS (
-      SELECT 1
-      FROM information_schema.schemata
-      WHERE schema_name = '%s'
-    ) AS schema_exists;
-  ", schema_namn)
-  
-  result <- dbGetQuery(con, query)
-  return(result$schema_exists[1])
+  # Beräkna och skriv ut tidsåtgång
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)
+  if (meddelande_tid) cat(glue::glue("Processen tog {berakningstid} sekunder att köra"))
 }
 
 postgres_schema_ta_bort <- function(con = "default", 
@@ -2623,7 +2622,7 @@ gdb_extrahera_kolumnnamn_per_gislager <- function(gdb_sokvag,
     kolumner_namn <- system(glue('"{ogr_sokvag}" {gdb_sokvag} {lager_namn} -so'), intern = TRUE)
     id_kol <- str_extract(str_subset(kolumner_namn, "FID Column"), '(?<= = ).*')        # extrahera namn på id_kolumn
     geo_kol <- str_extract(str_subset(kolumner_namn, "Geometry Column"), '(?<= = ).*')  # extrahera namn på geo-kolumn
-    
+  
     # hitta startelement för där kolumnnamnen finns
     kolumner_start <- str_which(kolumner_namn, "Geometry Column = ") + 1 
     kolumner_namn <- kolumner_namn[kolumner_start:length(kolumner_namn)]
