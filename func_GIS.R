@@ -705,6 +705,10 @@ skapa_sf_fran_csv_eller_excel_supercross <- function(fil_med_sokvag,            
 # ============================== postgres-funktioner (för att hantera databaser) ============================================
 
 
+uppkoppling_adm <- function() {
+  uppkoppling_db(service_name = "rd_geodata")
+}
+
 uppkoppling_db <- function(
     
   # 0. Funktion för att koppla upp mot databasen. Kan användas med defaultvärden enligt nedan eller egna parametrar.
@@ -1167,6 +1171,9 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default",
     default_flagga <- FALSE
   }
   
+  # lägg databasnamnet i variabeln db som används nedan
+  db <- dbGetInfo(con)$dbname
+  
   if (all(rattigheter == "alla")) rattigheter <- postgres_lista_giltiga_rattigheter()$Rattighet
   
   # Lista över system-scheman som ska undantas
@@ -1250,6 +1257,8 @@ postgres_rattigheter_anvandare_ta_bort <- function(con = "default",
   rattigheter_schema <- c("USAGE", "CREATE")
   
   if (all(rattigheter == "alla")) rattigheter <- postgres_lista_giltiga_rattigheter()$Rattighet
+  db <- dbGetInfo(con)$dbname
+  
   
   # hämta scheman för vald databas (som styrs med con)
   scheman_att_bearbeta <- postgres_lista_scheman_tabeller() %>% names()
@@ -1470,6 +1479,20 @@ postgres_tabell_ta_bort <- function(con = "default",
   # Beräkna och skriv ut tidsåtgång
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)
   if (meddelande_tid) cat(glue::glue("Processen tog {berakningstid} sekunder att köra"))
+}
+
+postgres_schema_finns <- function(con, 
+                                  schema_namn) {
+  query <- sprintf("
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.schemata
+      WHERE schema_name = '%s'
+    ) AS schema_exists;
+  ", schema_namn)
+  
+  result <- dbGetQuery(con, query)
+  return(result$schema_exists[1])
 }
 
 postgres_schema_ta_bort <- function(con = "default", 
