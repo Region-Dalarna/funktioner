@@ -1,240 +1,4 @@
 
-# ------------------- funktion skapar vägnätverk, tätorter och tabeller i postgis -------------------------
-# kör denna först, före pendling_kraftfalt() och pendling_nätverk() 
-
-skapa_vagnatverk_tatort <- function(
-    vagfil = NULL,
-    tatortsfil = hamta_karta(karttyp = "tatortspunkter"),
-    reparera = TRUE,
-    extract_vertices = TRUE,
-    con = uppkoppling_db(service = "rd_geodata")
-) {
-  
-  
-  library(stringr)
-  library(dplyr)
-  library(sf)
-  library(DBI)
-  library(RPostgres)
-  library(rlang)
-  
-  
-  # Ladda externa funktioner från Region-Dalarna
-  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R", encoding = "utf-8", echo = FALSE)
-  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R", encoding = "utf-8", echo = FALSE)
-  
-  # data input tätort från geodatabasen
-  tatortsfil <- hamta_karta(karttyp = "tatortspunkter") # tatortsfil blir en parameter i funktionen
-  
-  # inställningar för tätorter
-  regionkod <- 20 # regionkod blir en parameter i funktionen
-  tatortskod <- "tatortskod" # tatortskod blir en parameter i funktionen? i formatet tex 2084TB023
-  tatort <- "tatort" # tatortskod blir en parameter i funktionen? i formatet tex Svärdsjö
-  
-  # inställningar för vägar till hämtning av data från databasen
-  schema_namn <- "nvdb"
-  tabell_namn <- "dala_med_grannlan"
-  query_namn = "SELECT * FROM nvdb.dala_med_grannlan 
-           WHERE kommunlanreg_kommunkod::text LIKE '20%' 
-             AND dala_med_grannlan.barighetsklass >= 1;"
-  
-  # hämta vägfilen från geodatabasen
-  vagfil <- postgis_postgistabell_till_sf(            
-    schema = schema_namn,
-    tabell = tabell_namn,
-    query = query_namn
-  )
-  
-  # SKAPA TABELL ÖVER TÄTORTER 
-  
-  con <- uppkoppling_db(service = "test_geodata", db_name = "test_geodata") # Uppkoppling blir en parameter i funktionen
-  
-  dbExecute(con, "CREATE EXTENSION IF NOT EXISTS postgis")
-  dbExecute(con, "CREATE EXTENSION IF NOT EXISTS pgrouting")
-  
-  # definera tokod som användsi resterande skript, och gör alla andra kolumnnamn små 
-  tatort <- tatortsfil %>%
-    filter(lan == regionkod) %>%
-    rename_with(tolower) %>% 
-    rename(tokod = tatortskod,
-           tobeteckn = tatort)
-  
-  #mutate(tokod = substr(tatortskod, nchar(tatortskod) - 4, nchar(tatortskod))) # mutate spara endast samma mängd som i swecos tatorter
-  
-  # byt namn på geometry kolumnen för använding i resterande skript
-  st_geometry(tatort) <- 'geom'
-  
-  # Write to the database with additional checks
-  tryCatch({
-    dbWriteTable(con, 'tatort', tatort, overwrite = TRUE)
-  }, error = function(e) {
-    message("Error writing `tatort` to database: ", e)
-  })
-  
-  # mer inställningar för vägar
-  riktning_med_variabel <- "hastighetsgrans_f"
-  riktning_mot_variabel <- "hastighetsgrans_b"
-  hastighets_variabel <- "hastighetsgrans_f"
-  
-  r <- vagfil %>%
-    mutate(
-      riktning_med = ifelse(!is.na(!!sym(riktning_med_variabel)) & !!sym(riktning_med_variabel) > 0, TRUE, FALSE),
-      riktning_mot = ifelse(!is.na(!!sym(riktning_mot_variabel)) & !!sym(riktning_mot_variabel) > 0, TRUE, FALSE),
-      hastighet = !!sym(hastighets_variabel)
-    ) %>%
-    select(riktning_med, riktning_mot, hastighet)
-  
-  # skapa en id kolumn
-  r$id <- seq.int(nrow(r))
-  
-  # Set geometry to 2D
-  st_geometry(r) <- 'geom'
-  r <- st_zm(r, drop = TRUE, what = "ZM")
-  # st_crs(r) <- 3006  # Set the CRS for SWEREF99 TM
-  
-  r <- r %>%
-    mutate(geom = st_line_merge(geom)) %>%
-    filter(st_geometry_type(geom) == "LINESTRING")
-  
-  # Writing r to the database
-  tryCatch({
-    dbWriteTable(con, "nvdb", r, overwrite = TRUE)
-  }, error = function(e) {
-    message("Error writing `nvdb` to database: ", e)
-  })
-  # dbWriteTable(con, "nvdb2", r, temporary=FALSE, overwrite=TRUE)
-  
-  
-  add_cost_columns <- function(edges) {
-    query <- str_glue("ALTER TABLE {edges}
-              ADD COLUMN dist_cost FLOAT GENERATED ALWAYS AS 
-                (CASE WHEN riktning_med THEN ST_Length(geom) ELSE -1 END) STORED,
-              ADD COLUMN dist_reverse_cost FLOAT GENERATED ALWAYS AS 
-                (CASE WHEN riktning_mot THEN ST_Length(geom) ELSE -1 END) STORED,
-              ADD COLUMN time_cost FLOAT GENERATED ALWAYS AS 
-                (CASE WHEN riktning_med THEN 3.6*ST_Length(geom)/hastighet ELSE -1 END) STORED,
-              ADD COLUMN time_reverse_cost FLOAT GENERATED ALWAYS AS
-                (CASE WHEN riktning_mot THEN 3.6*ST_Length(geom)/hastighet ELSE -1 END) STORED")
-    dbExecute(con, query)
-  }
-  
-  add_coordinate_columns <- function(edges) {
-    dbExecute(con, str_glue("ALTER TABLE {edges}
-              ADD COLUMN x1 FLOAT GENERATED ALWAYS AS (ST_X(ST_StartPoint(geom))) STORED,
-              ADD COLUMN y1 FLOAT GENERATED ALWAYS AS (ST_Y(ST_StartPoint(geom))) STORED,
-              ADD COLUMN x2 FLOAT GENERATED ALWAYS AS (ST_X(ST_EndPoint(geom))) STORED,
-              ADD COLUMN y2 FLOAT GENERATED ALWAYS AS (ST_Y(ST_EndPoint(geom))) STORED;"))
-  }
-  
-  
-  # använder pgrouting standard pgr_createTopology()
-  build_topology <- function(edges) {
-    # lägg till source/target kolumner
-    dbExecute(con, str_glue('ALTER TABLE {edges}
-                            ADD COLUMN IF NOT EXISTS source BIGINT,
-                            ADD COLUMN IF NOT EXISTS target BIGINT;'))
-    
-    dbExecute(con, str_glue("DROP TABLE IF EXISTS {edges}_vertices_pgr;"))
-    
-    # bygg topologi
-    dbExecute(con, str_glue("SELECT pgr_createTopology('{edges}', 0.1, 'geom', clean:=true);"))
-    dbExecute(con, str_glue("ALTER TABLE {edges}_vertices_pgr RENAME COLUMN the_geom TO geom;"))
-    
-    add_coordinate_columns(edges)  
-    add_cost_columns(edges)
-  }
-  
-  # metod som fungerar om alla verticer är korrekta: connected med relevanta vägar 
-  build_topology_extracted_vertices <- function(edges) {
-    vertices_table <- str_glue("{edges}_vertices_pgr")
-    # extrahera verticer
-    query <- str_glue("SELECT * INTO {vertices_table}
-            FROM pgr_extractVertices('SELECT id, geom FROM {edges} ORDER BY id');")
-    dbExecute(con, str_glue("DROP TABLE IF EXISTS {vertices_table};"))
-    dbExecute(con, query)
-    
-    # lägg till och fyll topologi kolumner
-    dbExecute(con, str_glue("ALTER TABLE {edges}
-                            ADD COLUMN IF NOT EXISTS source BIGINT,
-                            ADD column IF NOT EXISTS target BIGINT,
-                            ADD column IF NOT EXISTS x1 FLOAT,
-                            ADD COLUMN IF NOT EXISTS y1 FLOAT,
-                            ADD COLUMN IF NOT EXISTS x2 FLOAT,
-                            ADD COLUMN IF NOT EXISTS y2 FLOAT;"))
-    
-    dbExecute(con, str_glue("UPDATE {edges}
-                            SET source = NULL, target = NULL,
-                            x1 = NULL, y1 = NULL,
-                            x2 = NULL, y2 = NULL;"))
-    
-    dbExecute(con, str_glue("WITH out_going AS (
-                           SELECT id AS vid, unnest(out_edges) AS eid, x, y
-                           FROM {vertices_table}
-                          )
-                          UPDATE {edges}
-                          SET source = vid, x1 = x, y1 = y
-                          FROM out_going WHERE id = eid;"))
-    
-    dbExecute(con, str_glue("WITH in_coming AS (
-                           SELECT id AS vid, unnest(in_edges) AS eid, x, y
-                           FROM {vertices_table}
-                          )
-                          UPDATE {edges}
-                          SET target = vid, x2 = x, y2 = y
-                          FROM in_coming WHERE id = eid;"))
-    
-    dbExecute(con, str_glue("CREATE INDEX IF NOT EXISTS {edges}_id_idx ON {edges} (id);"))
-    dbExecute(con, str_glue("CREATE INDEX IF NOT EXISTS {edges}_source_idx ON {edges} (source);"))
-    dbExecute(con, str_glue("CREATE INDEX IF NOT EXISTS {edges}_target_idx ON {edges} (target);"))
-    dbExecute(con, str_glue("CREATE INDEX IF NOT EXISTS {edges}_geom_idx ON {edges} USING GIST(geom);"))
-    dbExecute(con, str_glue("CREATE INDEX IF NOT EXISTS {vertices_table}_idx ON {vertices_table} (id);"))
-    dbExecute(con, str_glue("CREATE INDEX IF NOT EXISTS {vertices_table}_geom_idx ON {vertices_table} USING GIST(geom);"))
-    
-    add_cost_columns(edges)
-  }
-  
-  # funktion som reparerar nätverket med pg_nodenetwork
-  create_noded_network_extracted_vertices <- function(edges, extract_vertices=FALSE) {
-    # reparera nätverket: lägger till noder där vägar korsar varandra.
-    # Kommer felaktigt att koppla ihop vägar broar/tunnlar
-    dbExecute(con, str_glue("DROP TABLE IF EXISTS {edges}_noded;"))
-    dbExecute(con, str_glue("DROP TABLE IF EXISTS {edges}_noded_vertices_pgr;"))
-    #dbExecute(con, str_glue("DROP TABLE IF EXISTS {vertices}_noded;"))
-    
-    dbExecute(con, str_glue("SELECT pgr_nodeNetwork('{edges}', 0.1, 'id', 'geom');"))
-    
-    dbExecute(con, str_glue("ALTER TABLE {edges}_noded
-                ADD COLUMN IF NOT EXISTS hastighet FLOAT,
-                ADD COLUMN IF NOT EXISTS riktning_med BOOLEAN,
-                ADD COLUMN IF NOT EXISTS riktning_mot BOOLEAN;"))
-    
-    dbExecute(con, str_glue("UPDATE {edges}_noded rn
-                SET hastighet=r.hastighet, 
-                    riktning_med=r.riktning_med,
-                    riktning_mot=r.riktning_mot
-                FROM {edges} r
-                WHERE rn.old_id=r.id;"))
-    
-    # extract vertices version av build_topology eller vanlig metod 
-    if(extract_vertices) {
-      build_topology_extracted_vertices(str_glue("{edges}_noded"))
-    } else {
-      build_topology(str_glue("{edges}_noded"))
-    }
-  }
-  
-  
-  build_topology("nvdb")
-  create_noded_network_extracted_vertices("nvdb")
-  
-  # snabbare om vertices är korrekta - men ingen punkt snapping
-  #build_topology_extracted_vertices("nvdb2")
-  #create_noded_network_extracted_vertices("nvdb2", extract_vertices=TRUE)
-}
-
-# skapa_vagnatverk_tatort()
-
-
 
 # ------------------- funktion skapa kraftfält -------------------------
 
@@ -246,8 +10,8 @@ skapa_vagnatverk_tatort <- function(
 
 # LOGIKEN FÖR ANALYSEN FÖLJER
 # 
-# enskilt_tröskelvärde=15%
-# totalt_tröskelvärde=40%
+# enskilt_troskelvarde=15%
+# totalt_troskelvarde=40%
 # 
 # LA: 
 #   ingen enskild utpendlingsrelation över 15% och total utpendling under 40%
@@ -275,77 +39,103 @@ skapa_vagnatverk_tatort <- function(
 # 
 # kommentera parametrar
 
+# gå igenom och svenskifiera
+
 pendling_kraftfalt <- function(
-    datafile = "G:/Samhällsanalys/GIS/grundkartor/mona/pendlingsrelationer_tatort_nattbef_filtrerad.csv",
-    output_folder = "G:/skript/gis/sweco_dec_2022/utdata", 
-    gpkg_name = "kraftfält.gpkg",
-    enskilt_tröskelvärde = 20,
-    totalt_tröskelvärde = 35,
+    datafile = NA,
+    output_folder = NA, 
+    gpkg_name = NA,
+    enskilt_troskelvarde = 20,
+    totalt_troskelvarde = 35,
     primary_la_zone_buffer_length = 2000,
     secondary_la_zone_buffer_length = 1000,
     common_la_zone_buffer_length = 5000,
-    con = uppkoppling_db(service = "test_geodata", db_name = "test_geodata"),
+    con = NA,
+    dist = 2000, # max avstånd till vägnätet
     write_to_gpkg = FALSE # Flag to control whether to write to GPKG or return as list
-) {
-  tryCatch({
-    
-    # skapa_vagnatverk_tatort() inte här, schemalägg så att denna uppdateras när ny data kommer
-    
-    library(readxl)
-    library(stringr)
-    library(dplyr)
-    library(sf)
-    library(DBI)
-    library(RPostgres)
-    library(purrr)
-    
-    source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R", encoding = "utf-8", echo = FALSE)
-    
-    # lägg nedan i ett schema och hämta därifrån
-    
-    edges_table = "nvdb_noded"
-    vertices_table = "nvdb_noded_vertices_pgr"
-    cost_col = "dist_cost"
-    reverse_cost_col = "dist_reverse_cost"
-    
-    # simpel funktion för att skriva postgis tabell till gpkg
-    write_pgtable2gpkg <- function(lyrname, output_folder, gpkg_name, append=FALSE, delete_dsn=FALSE) {
-      lyr <- st_read(con, lyrname)
-      st_write(lyr, 
-               file.path(output_folder, gpkg_name),
-               lyrname, 
-               append=append,
-               delete_dsn=delete_dsn
-      )  
-    }  
-    
-    
-    pendlingsdata <- read_csv(datafile, locale = locale(encoding = "ISO-8859-1"))
-    
-    data <- pendlingsdata %>%
-      mutate(
-        from_id = substr(from_id, 3, 11),
-        to_id = substr(to_id, 3, 11)
-      ) %>% 
-      select(from_id, to_id, n)
-    
-    dbWriteTable(con, 'data', data, overwrite=TRUE, temporary=FALSE)
-    
-    query <- str_glue("CREATE TABLE tatort_vertex AS
-                    SELECT t.tokod, e.id, e.dist
-                    FROM tatort t
-                    JOIN lateral(
-                      SELECT id, e.geom <-> t.geom as dist
-                        FROM {vertices_table} e
-                      ORDER BY t.geom <-> e.geom
-                      LIMIT 1
-                    ) AS e
-                    ON true
-                    where dist < 2000;")
-    dbExecute(con, "DROP TABLE IF EXISTS tatort_vertex;")
-    dbExecute(con, query)
-    
-    query <- str_glue("CREATE TABLE commute_combinations AS
+) { 
+  library(readxl)
+  library(stringr)
+  library(dplyr)
+  library(sf)
+  library(DBI)
+  library(RPostgres)
+  library(purrr)
+  
+  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R", encoding = "utf-8", echo = FALSE)
+  
+  # lägg nedan i ett schema och hämta därifrån
+  
+  
+  
+  # Hantera NA i parametrar
+  # indata med pendlingsrelationer hämtas förslagsvis på MONA
+  if (is.na(datafile)) {
+    datafile <- "G:/Samhällsanalys/GIS/grundkartor/mona/pendlingsrelationer_tatort_nattbef_filtrerad.csv" # lägg i geodatabasen
+  }
+  # där du eventuellt sparar data lokalt
+  if (is.na(output_folder)) {
+    output_folder <- "G:/skript/gis/sweco_dec_2022/utdata"
+  }
+  # det namn du ger din geopackage
+  if (is.na(gpkg_name)) {
+    gpkg_name <- "kraftfält.gpkg"
+  }
+  # uppkoppling till din Postgres databas
+  if (is.na(con)) {
+    con <- uppkoppling_db(service = "rd_geodata")
+  }
+  
+  dbExecute(con, "SET search_path TO grafer, public;") # denna är lite mystisk, men det funkar...
+  
+  # vägnätet skapat med skapat med skapa_vagnatverk_tatort() ligger i schemat grafer
+  edges_table <- "nvdb_noded" 
+  vertices_table <- "grafer.nvdb_noded_vertices_pgr" 
+  
+  cost_col = "dist_cost" # kolumn i nvdb_noded med kostnad
+  reverse_cost_col = "dist_reverse_cost" # kolumn i nvdb_noded med omvänd kostnad
+  
+  # simpel funktion för att skriva postgis tabell till gpkg om write_to_gpkg=TRUE
+  write_pgtable2gpkg <- function(lyrname, output_folder, gpkg_name, append=FALSE, delete_dsn=FALSE) {
+    lyr <- st_read(con, lyrname)
+    st_write(lyr, 
+             file.path(output_folder, gpkg_name),
+             lyrname, 
+             append=append,
+             delete_dsn=delete_dsn
+    )  
+  }  
+  
+  # läs in pendlingsdata
+  pendlingsdata <- read_csv(datafile, locale = locale(encoding = "ISO-8859-1"))
+  
+  data <- pendlingsdata %>%
+    mutate(
+      from_id = substr(from_id, 3, 11), # tar bort länskoden och tätortsnamnet från t.ex. 202084TC101 Avesta
+      to_id = substr(to_id, 3, 11)      # tar bort länskoden och tätortsnamnet från t.ex. 202080TC108 Falun
+    ) %>% 
+    select(from_id, to_id, n)
+  
+  # dbWriteTable(con, 'grafer.data', data, overwrite=TRUE, temporary=FALSE) # denna skriv till grafer.grafer.data !!
+  dbWriteTable(con, 'data', data, overwrite=TRUE, temporary=FALSE) # skriver till grafer.data således schema grafer
+  
+  
+  # hitta närmaste vertex i vägnätet till varje tätort
+  query <- str_glue("CREATE TEMP TABLE tatort_vertex AS
+                      SELECT t.tokod, e.id, e.dist
+                      FROM tatort t
+                      JOIN lateral(
+                        SELECT id, e.geom <-> t.geom as dist
+                          FROM {vertices_table} e
+                        ORDER BY t.geom <-> e.geom
+                        LIMIT 1
+                      ) AS e
+                      ON true
+                      WHERE dist < {dist};")
+  dbExecute(con, "DROP TABLE IF EXISTS tatort_vertex;")
+  dbExecute(con, query)
+  
+  query <- str_glue("CREATE TABLE commute_combinations AS
                       with temp_commute_data as (
                       	SELECT
                       	      from_id,
@@ -353,7 +143,7 @@ pendling_kraftfalt <- function(
                       	      n,
                       	      sum(n) OVER w AS totalworkers, /* totalt antal arbetare i from_id */
                       	      sum(n) FILTER (WHERE from_id=to_id) OVER w AS localworkers /* totalt antal lokala arbetare i from_id */
-                        from data
+                        from grafer.data
                         WHERE from_id IN (SELECT tokod FROM tatort_vertex)
                         WINDOW w AS (PARTITION BY from_id)
                       )
@@ -373,130 +163,133 @@ pendling_kraftfalt <- function(
                       WHERE to_id IN (SELECT tokod FROM tatort_vertex)
                       window wd AS (PARTITION BY from_id ORDER BY n DESC)
                       order by from_id, n desc;")
-    
-    
- # la
-    query <- str_glue("CREATE TEMP TABLE la AS
-                    select 
-                    	c.from_id as id, c.totalworkers, 
-                    	c.localworkers, c.perc_total_commuters,
-                    	t.tobeteckn, t.lan,t.kommun, 
-                    	t.kommunnamn,t.geom 
-                    from commute_combinations c
-                    join tatort t on t.tokod=c.from_id
-                    where ranking=1 and perc <= {enskilt_tröskelvärde} 
-                    and perc_total_commuters <= {totalt_tröskelvärde}
-                    ;")
-    dbExecute(con, "DROP TABLE IF EXISTS la;")
-    dbExecute(con, query)
-    # skriv till geopackage
-    # write_pgtable2gpkg(str_glue("la"), output_folder, gpkg_name)
-    
-# solitär
-    query <- str_glue("CREATE TEMP TABLE solitary AS
+  dbExecute(con, "DROP TABLE IF EXISTS commute_combinations;")
+  dbExecute(con, query)
+  
+  
+  # la
+  query <- str_glue("CREATE TEMP TABLE la AS
+                  SELECT 
+                      c.from_id AS id, c.totalworkers, 
+                      c.localworkers, c.perc_total_commuters,
+                      t.tobeteckn, t.lan, t.kommun, 
+                      t.kommunnamn, t.geom 
+                  FROM commute_combinations c
+                  JOIN grafer.tatort t ON t.tokod = c.from_id
+                  WHERE ranking = 1 
+                    AND perc <= {enskilt_troskelvarde} 
+                    AND perc_total_commuters <= {totalt_troskelvarde};")
+  dbExecute(con, "DROP TABLE IF EXISTS la;")
+  dbExecute(con, query)
+  
+  # skriv till geopackage
+  # write_pgtable2gpkg(str_glue("la"), output_folder, gpkg_name)
+  
+  # solitär
+  query <- str_glue("CREATE TEMP TABLE solitary AS
                   select 
                     	c.from_id as id, c.totalworkers, 
                     	c.localworkers, c.perc_total_commuters,
                     	t.tobeteckn, t.lan,t.kommun, 
                     	t.kommunnamn,t.geom 
                     from commute_combinations c
-                    join tatort t on t.tokod=c.from_id
-                  where ranking=1 and perc <= {enskilt_tröskelvärde}
-                  and perc_total_commuters > {totalt_tröskelvärde}
+                    join grafer.tatort t on t.tokod=c.from_id
+                  where ranking=1 and perc <= {enskilt_troskelvarde}
+                  and perc_total_commuters > {totalt_troskelvarde}
                   ;")
-    dbExecute(con, "DROP TABLE IF EXISTS solitary;")
-    dbExecute(con, query)
-    # skriv till geopackage
-    # write_pgtable2gpkg(str_glue("solitary"), output_folder, gpkg_name)
-    
-    
-# common la
-    query <- str_glue("CREATE TEMP TABLE common_la AS
-                    with sats as (
-                    	select *
-                    	from commute_combinations
-                    	where ranking>1 and perc>{enskilt_tröskelvärde}
-                    ), common_la as (
-                    	select a.*
-                    	from sats a join sats b 
-                    		on a.from_id=b.to_id and a.to_id=b.from_id
-                    )
-                    select
-                    	c.from_id as id, c.to_id as common_la, 
-                    	c.totalworkers, c.localworkers, c.perc_total_commuters,
-                    	t.tobeteckn, t.lan,t.kommun, t.kommunnamn,t.geom
-                    from common_la c
-                    join tatort t on t.tokod=c.from_id
-                  ;")
-    dbExecute(con, "DROP TABLE IF EXISTS common_la;")
-    dbExecute(con, query)
-    # skriv till geopackage
-    # write_pgtable2gpkg(str_glue("common_la"), output_folder, gpkg_name)
-    
-# satelit
-    query <- str_glue("CREATE TEMP TABLE satellites AS
-                    with sats as (
-                    	select *
-                    	from commute_combinations
-                    	where ranking in (1,2) 
-                    		and perc>{enskilt_tröskelvärde}
-                    	and from_id not in (select id from common_la)
-                    ), la_id as (
-                    	select id from la 
-                    	union 
-                    	select id from common_la
-                    ), agg as (
-                    	select 
-                    	  from_id, 
-                    	  array_agg(to_id order by ranking) as id_array_all,
-                    	  array_agg(to_id order by ranking) filter (where to_id in (select id from la_id)) as id_array
-                    	from sats
-                    	group by from_id
-                    )
-                    select 
-                    	a.from_id as id,
-                    	id_array[1] as primary_la, 
-                    	id_array[2] as secondary_la,
-                    	id_array_all[1] as primary_destination,
-                    	id_array_all[2] as secondary_destination,
-                    	s.totalworkers, s.localworkers, s.perc_total_commuters,
-                    	t.tobeteckn, t.lan,t.kommun, t.kommunnamn,t.geom
-                    from agg a
-                    join sats s on a.from_id=s.from_id
-                    join tatort t on t.tokod=s.from_id
-                  ;")
-    dbExecute(con, "DROP TABLE IF EXISTS satellites;")
-    dbExecute(con, query)
-    # skriv till geopackage
-    # write_pgtable2gpkg(str_glue("satellites"), output_folder, gpkg_name)
-    
-# ruttningsanalys
-    
-    # tabell med allar rutter som ska köras (satelliter+commonLA)
-    query <- str_glue("CREATE TEMP TABLE route_combinations AS
+  dbExecute(con, "DROP TABLE IF EXISTS solitary;")
+  dbExecute(con, query)
+  # skriv till geopackage
+  # write_pgtable2gpkg(str_glue("solitary"), output_folder, gpkg_name)
+  
+  
+  # common la
+  query <- str_glue("CREATE TEMP TABLE common_la AS
+                  WITH sats AS (
+                     SELECT *
+                     FROM commute_combinations
+                     WHERE ranking > 1 AND perc > {enskilt_troskelvarde}
+                  ), common_la_cte AS (
+                     SELECT a.*
+                     FROM sats a
+                     JOIN sats b ON a.from_id = b.to_id AND a.to_id = b.from_id
+                  )
+                  SELECT
+                     c.from_id AS id, c.to_id AS common_la, 
+                     c.totalworkers, c.localworkers, c.perc_total_commuters,
+                     t.tobeteckn, t.lan, t.kommun, t.kommunnamn, t.geom
+                  FROM common_la_cte c
+                  JOIN grafer.tatort t ON t.tokod = c.from_id;")
+  
+  dbExecute(con, "DROP TABLE IF EXISTS common_la;")
+  dbExecute(con, query)
+  # skriv till geopackage
+  # write_pgtable2gpkg(str_glue("common_la"), output_folder, gpkg_name)
+  
+  # satelit
+  query <- str_glue("CREATE TEMP TABLE satellites AS
+                  WITH sats AS (
+                      SELECT *
+                      FROM commute_combinations
+                      WHERE ranking IN (1, 2) 
+                        AND perc > {enskilt_troskelvarde}
+                        AND from_id NOT IN (SELECT id FROM common_la)
+                  ), la_id AS (
+                      SELECT id FROM la 
+                      UNION 
+                      SELECT id FROM common_la
+                  ), agg AS (
+                      SELECT 
+                          from_id, 
+                          array_agg(to_id ORDER BY ranking) AS id_array_all,
+                          array_agg(to_id ORDER BY ranking) FILTER (WHERE to_id IN (SELECT id FROM la_id)) AS id_array
+                      FROM sats
+                      GROUP BY from_id
+                  )
+                  SELECT 
+                      a.from_id AS id,
+                      id_array[1] AS primary_la, 
+                      id_array[2] AS secondary_la,
+                      id_array_all[1] AS primary_destination,
+                      id_array_all[2] AS secondary_destination,
+                      s.totalworkers, s.localworkers, s.perc_total_commuters,
+                      t.tobeteckn, t.lan, t.kommun, t.kommunnamn, t.geom
+                  FROM agg a
+                  JOIN sats s ON a.from_id = s.from_id
+                  JOIN grafer.tatort t ON t.tokod = s.from_id;")
+  dbExecute(con, "DROP TABLE IF EXISTS satellites;")
+  dbExecute(con, query)
+  
+  # skriv till geopackage
+  # write_pgtable2gpkg(str_glue("satellites"), output_folder, gpkg_name)
+  
+  # ruttningsanalys
+  
+  # tabell med allar rutter som ska köras (satelliter+commonLA)
+  query <- str_glue("CREATE TEMP TABLE route_combinations AS
                     with sats as (
                     	select from_id, to_id, ranking
                     	from commute_combinations
                     	where ranking in (1,2) 
-                    		and perc > {enskilt_tröskelvärde}
+                    		and perc > {enskilt_troskelvarde}
                     )
                     select s.*, f.id as start_vid, t.id as end_vid
                     from sats s
                     JOIN tatort_vertex f ON f.tokod=s.from_id
                     JOIN tatort_vertex t ON t.tokod=s.to_id
                   ;")
-    dbExecute(con, "DROP TABLE IF EXISTS route_combinations;")
-    dbExecute(con, query)
-    
-    
-    query <- str_glue("CREATE TEMP TABLE routes AS
+  dbExecute(con, "DROP TABLE IF EXISTS route_combinations;")
+  dbExecute(con, query)
+  
+  
+  query <- str_glue("CREATE TEMP TABLE routes AS
                   WITH astar AS( 
                     SELECT * FROM pgr_aStar(
                       'SELECT id, source, target,
                               {cost_col} AS cost,
                               {reverse_cost_col} AS reverse_cost,
                               x1, y1, x2, y2
-                  	   FROM {edges_table}',
+                  	   FROM grafer.{edges_table}',
                       'SELECT 
                         start_vid AS source, 
                         end_vid AS target
@@ -509,35 +302,33 @@ pendling_kraftfalt <- function(
                       sum(a.cost) AS cost,
                       max(a.agg_cost) AS agg_cost,
                       st_LineMerge(st_union(r.geom)) AS geom
-                    FROM astar a JOIN {edges_table} r ON a.edge=r.id
+                    FROM astar a JOIN grafer.{edges_table} r ON a.edge=r.id
                     GROUP BY a.start_vid, a.end_vid
                   )
                   SELECT c.*, p.agg_cost, p.geom
                   FROM route_combinations c 
                   JOIN paths p ON c.start_vid=p.start_vid 
                     and c.end_vid=p.end_vid")
-    dbExecute(con, "DROP TABLE IF EXISTS routes;")
-    dbExecute(con, query)
-    # write_pgtable2gpkg(str_glue("routes"), output_folder, gpkg_name)
-    
-    
-    
-    # rutter till secondary LA
-    query <- str_glue("CREATE TEMP TABLE secla_areas AS
+  dbExecute(con, "DROP TABLE IF EXISTS routes;")
+  dbExecute(con, query)
+  # write_pgtable2gpkg(str_glue("routes"), output_folder, gpkg_name)
+  
+  
+  # rutter till secondary LA
+  query <- str_glue("CREATE TEMP TABLE secla_areas AS
           select
-            to_id, max(ranking),
+            to_id, MAX(ranking) AS max_ranking,
             st_buffer(st_collect(r.geom), {secondary_la_zone_buffer_length}) as geom
           from satellites s
           join routes r on s.id=r.from_id and s.secondary_la=r.to_id
           group by to_id
           ;")
-    dbExecute(con, "DROP TABLE IF EXISTS secla_areas;")
-    dbExecute(con, query)
-    # write_pgtable2gpkg(str_glue("secla_areas"), output_folder, gpkg_name)
-    
-    
-    # rutter till primary LA
-    query <- str_glue("CREATE TEMP TABLE primla_areas AS
+  dbExecute(con, "DROP TABLE IF EXISTS secla_areas;")
+  dbExecute(con, query)
+  # write_pgtable2gpkg(str_glue("secla_areas"), output_folder, gpkg_name)
+  
+  # rutter till primary LA
+  query <- str_glue("CREATE TEMP TABLE primla_areas AS
           select
             to_id, max(ranking),
             st_buffer(st_collect(r.geom), {primary_la_zone_buffer_length}) as geom
@@ -545,119 +336,126 @@ pendling_kraftfalt <- function(
           join routes r on s.id=r.from_id and s.primary_la=r.to_id
           group by to_id
           ;")
-    dbExecute(con, "DROP TABLE IF EXISTS primla_areas;")
-    dbExecute(con, query)
-    # write_pgtable2gpkg(str_glue("primla_areas"), output_folder, gpkg_name)
-    
-    # rutter mellan CommonLA
-    query <- str_glue("CREATE TEMP TABLE commonla_areas AS
+  dbExecute(con, "DROP TABLE IF EXISTS primla_areas;")
+  dbExecute(con, query)
+  # write_pgtable2gpkg(str_glue("primla_areas"), output_folder, gpkg_name)
+  
+  # rutter mellan CommonLA
+  query <- str_glue("CREATE TEMP TABLE commonla_areas AS
           select
             from_id, to_id, ranking,
             st_buffer(r.geom, {common_la_zone_buffer_length}) as geom
           from common_la s
           join routes r on s.id=r.from_id and s.common_la=r.to_id
           ;")
-    dbExecute(con, "DROP TABLE IF EXISTS commonla_areas;")
-    dbExecute(con, query)
-    # write_pgtable2gpkg(str_glue("commonla_areas"), output_folder, gpkg_name)
-    
-    # Define layers to process
-    layers <- c(
-      "la", 
-      "solitary", 
-      "common_la", 
-      "satellites", 
-      "routes", 
-      "secla_areas", 
-      "primla_areas", 
-      "commonla_areas"
-    )
-    
-    # Write layers to GeoPackage or return as a list
-    if (write_to_gpkg) {
-      # Write only non-empty layers to the GeoPackage
-      map(
-        layers,
-        ~ {
-          tryCatch({
-            # Check if the layer exists in the database
-            query <- str_glue("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '{.x}')")
-            layer_exists <- dbGetQuery(con, query)[1, 1]
-            
-            if (layer_exists) {
-              lyr <- st_read(con, query = str_glue("SELECT * FROM {.x}"))
-              if (nrow(lyr) > 0) { # Only write if the layer is non-empty
-                write_pgtable2gpkg(
-                  lyrname = .x,
-                  output_folder = output_folder,
-                  gpkg_name = gpkg_name,
-                  append = TRUE # Append layers to the same GeoPackage
-                )
-              } else {
-                message(glue("Layer `{.x}` is empty, skipping..."))
-              }
-            } else {
-              message(glue("Layer `{.x}` does not exist, skipping..."))
-            }
-          }, error = function(e) {
-            message(glue("Error processing layer `{.x}`: {e$message}"))
-          })
-        }
-      )
-      message(glue("Finished writing non-empty layers to {file.path(output_folder, gpkg_name)}"))
-    } else {
-      # Create a named list with all layers, include NULL for missing or empty layers
-      results <- list()
-      for (layer in layers) {
-        results[[layer]] <- tryCatch({
-          query <- str_glue("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '{layer}')")
+  dbExecute(con, "DROP TABLE IF EXISTS commonla_areas;")
+  dbExecute(con, query)
+  # write_pgtable2gpkg(str_glue("commonla_areas"), output_folder, gpkg_name)
+  
+  # Define layers to process
+  layers <- c(
+    "la", 
+    "solitary", 
+    "common_la", 
+    "satellites", 
+    "routes", 
+    "secla_areas", 
+    "primla_areas", 
+    "commonla_areas"
+  )
+  
+  # Write layers to GeoPackage or return as a list
+  if (write_to_gpkg) {
+    # Write only non-empty layers to the GeoPackage
+    purrr::walk(
+      layers,
+      ~ {
+        tryCatch({
+          # Check if the layer exists in the database
+          query <- str_glue("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '{str_remove(.x, 'grafer.')}')")
           layer_exists <- dbGetQuery(con, query)[1, 1]
           
           if (layer_exists) {
-            lyr <- st_read(con, query = str_glue("SELECT * FROM {layer}"))
-            if (nrow(lyr) > 0) {
-              lyr # Return non-empty layer
+            lyr <- st_read(con, query = str_glue("SELECT * FROM {.x}"))
+            if (nrow(lyr) > 0) { # Only write if the layer is non-empty
+              write_pgtable2gpkg(
+                lyrname = str_remove(.x, "grafer."), # Remove schema prefix for GPKG
+                output_folder = output_folder,
+                gpkg_name = gpkg_name,
+                append = TRUE # Append layers to the same GeoPackage
+              )
             } else {
-              message(glue("Layer `{layer}` is empty, skipping..."))
-              NULL
+              message(glue("Layer `{.x}` is empty, skipping..."))
             }
           } else {
-            message(glue("Layer `{layer}` does not exist, skipping..."))
-            NULL
+            message(glue("Layer `{.x}` does not exist, skipping..."))
           }
         }, error = function(e) {
-          message(glue("Error processing layer `{layer}`: {e$message}"))
-          NULL
+          message(glue("Error processing layer `{.x}`: {e$message}"))
         })
       }
-      
-      # Explicitly return all layers as a named list
-      return(results)
-    }
-    
-    
-    
-  }, error = function(e){
-    stop(glue("Ett fel inträffade vid skapandet av tabeller: {e$message}"))
-  })
-  
+    )
+    message(glue("Finished writing non-empty layers to {file.path(output_folder, gpkg_name)}"))
+  } else {
+    # Create a named list with all layers, include NULL for missing or empty layers
+    results <- purrr::map(
+      layers,
+      ~ {
+        tryCatch({
+          query <- str_glue("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '{str_remove(.x, 'grafer.')}')")
+          layer_exists <- dbGetQuery(con, query)[1, 1]
+          
+          if (layer_exists) {
+            lyr <- st_read(con, query = str_glue("SELECT * FROM {.x}"))
+            if (nrow(lyr) > 0) {
+              return(lyr) # Return non-empty layer
+            } else {
+              message(glue("Layer `{.x}` is empty, skipping..."))
+              return(NULL)
+            }
+          } else {
+            message(glue("Layer `{.x}` does not exist, skipping..."))
+            return(NULL)
+          }
+        }, error = function(e) {
+          message(glue("Error processing layer `{.x}`: {e$message}"))
+          return(NULL)
+        })
+      }
+    )
+    # Name results list with the layer names (sans schema)
+    names(results) <- str_remove(layers, "grafer.")
+    return(results)
+  }
 }
 
-# kraftfält <- pendling_kraftfalt()
+# # Exempel på hur funktionen kan användas
 # 
-# pendling_kraftfalt()
+# kraftfalt_20_40 <- pendling_kraftfalt(enskilt_troskelvarde = 20, totalt_troskelvarde = 40)
 # 
-# mapview::mapview(kraftfält)
+# # Define custom colors for better readability
+# road_color <- "#4D4D4D" # Dark gray for roads
+# area_color <- "green" # Green for areas
+# point_color_primary <- "red" # Red for primary points
+# point_color_secondary <- "orange" # Orange for secondary points
+# 
+# # Update mapview layers
+# mapview::mapview(kraftfalt_20_40$la, col.regions = area_color, alpha.regions = 0.5, cex = 6) +
+#   mapview::mapview(kraftfalt_20_40$solitary, col.regions = point_color_secondary, cex = 4) +
+#   mapview::mapview(kraftfalt_20_40$routes, color = road_color, lwd = 2)  +
+#   mapview::mapview(kraftfalt_20_40$satellites, col.regions = point_color_primary, cex = 3)+
+#   mapview::mapview(kraftfalt_20_40$primla_areas, col.regions = "blue", alpha.regions = 0.3)+
+#   mapview::mapview(kraftfalt_20_40$secla_areas, col.regions = "orange", alpha.regions = 0.4)
 
 # ------------------- funktion som skapar pendlingsnätverk -------------------------
 
 pendling_natverk <- function(
-    datafile = "G:/Samhällsanalys/GIS/grundkartor/mona/pendlingsrelationer_tatort_nattbef_filtrerad.csv",
-    con = uppkoppling_db(service = "test_geodata", db_name = "test_geodata"),
+    datafile = NA,
+    con = NA,
     dist = 2000, # max avstånd till vägnätet
     write_to_gpkg = FALSE, # Flag to control output
-    output_folder = "G:/skript/gis/sweco_dec_2022/utdata", # Output folder for geopackage
-    gpkg_name = "pendling_natverk.gpkg" # Name of the geopackage
+    output_folder = NA, # Output folder for geopackage
+    gpkg_name = NA # Name of the geopackage
 ) { 
   
   library(readxl)
@@ -667,13 +465,34 @@ pendling_natverk <- function(
   library(DBI)
   library(RPostgres)
   
-  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R", encoding = "utf-8", echo = FALSE)
   source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R", encoding = "utf-8", echo = FALSE)
   
-  edges_table <- "nvdb_noded"
-  vertices_table <- "nvdb_noded_vertices_pgr"
-  cost_col <- "dist_cost"
-  reverse_cost_col <- "dist_reverse_cost"
+  # Hantera NA i parametrar
+  # indata med pendlingsrelationer hämtas förslagsvis på MONA
+  if (is.na(datafile)) {
+    datafile <- "G:/Samhällsanalys/GIS/grundkartor/mona/pendlingsrelationer_tatort_nattbef_filtrerad.csv" # lägg i geodatabasen
+  }
+  # där du eventuellt sparar data lokalt
+  if (is.na(output_folder)) {
+    output_folder <- "G:/skript/gis/sweco_dec_2022/utdata"
+  }
+  # det namn du ger din geopackage
+  if (is.na(gpkg_name)) {
+    gpkg_name <- "pendling_natverk.gpkg"
+  }
+  # uppkoppling till din Postgres databas
+  if (is.na(con)) {
+    con <- uppkoppling_db(service = "rd_geodata")
+  }
+  
+  dbExecute(con, "SET search_path TO grafer, public;") # denna är lite mystisk, men det funkar...
+  
+  # vägnätet skapat med skapa_vagnatverk_tatort() ligger i schema grafer
+  edges_table <- "nvdb_noded" 
+  vertices_table <- "grafer.nvdb_noded_vertices_pgr" 
+  
+  cost_col = "dist_cost" # kolumn i nvdb_noded med kostnad
+  reverse_cost_col = "dist_reverse_cost" # kolumn i nvdb_noded med omvänd kostnad
   
   pendlingsdata <- read_csv(datafile, locale = locale(encoding = "ISO-8859-1"))
   
@@ -752,9 +571,23 @@ pendling_natverk <- function(
   }
 }
 
-network <- pendling_natverk(write_to_gpkg = FALSE)
+# network <- pendling_natverk(write_to_gpkg = FALSE)
+# # 
+# # Load necessary library
+# library(mapview)
 # 
-mapview::mapview(network, zcol = "antal_pend", lwd = "antal_pend", alpha = 0.5)
+# # Define a custom color palette
+# custom_colors <- colorRampPalette(c("lightblue", "green", "yellow", "orange", "red"))
+# 
+# # Apply the mapview with custom colors
+# mapview::mapview(
+#   network,
+#   zcol = "antal_pend",           # Column to control the color gradient
+#   lwd = "antal_pend",            # Column to control line width
+#   alpha = 0.5,                   # Transparency
+#   color = custom_colors    # Apply the custom color palette
+# )
+
 
 
 # ------------------- funktion in och utpendling på ruta -------------------------
@@ -765,14 +598,17 @@ mapview::mapview(network, zcol = "antal_pend", lwd = "antal_pend", alpha = 0.5)
 
 # indata parameter ska läggas till
 
-pendling_ruta <- function(version = c("PostGIS", "R"),
-                          con = uppkoppling_db(service = "test_geodata", db_name = "test_geodata"),
+# testa med system.time() för att jämföra exekveringstid på r och pg
+
+pendling_ruta <- function(version = c("PostGIS", "R"), # Default to "R"
+                          con = NA,
                           tab,
                           grid,
-                          files_path = "G:/skript/gis/sweco_dec_2022/data/del3",
-                          output_folder = "G:/skript/gis/sweco_dec_2022/utdata",
+                          input_data = NA,
+                          output_folder = NA,
                           grid_epsg = 3006,
-                          write_to_gpkg = FALSE) {
+                          write_to_gpkg = FALSE,
+                          gpkg_name = NA) {
   library(stringr)
   library(dplyr)
   library(sf)
@@ -782,13 +618,31 @@ pendling_ruta <- function(version = c("PostGIS", "R"),
   source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R", encoding = "utf-8", echo = FALSE)
   
   # Validate version
+  version <- match.arg(version, choices = c("R", "PostGIS"))
+  print(glue::glue("Version selected: {version}"))
+  
+  # Handle default file paths and connection
+  if (is.na(input_data)) {
+    input_data <- "G:/skript/gis/sweco_dec_2022/data/del3"
+  }
+  if (is.na(output_folder)) {
+    output_folder <- "G:/skript/gis/sweco_dec_2022/utdata"
+  }
+  if (is.na(gpkg_name)) {
+    gpkg_name <- "pendling_natverk.gpkg"
+  }
+  if (is.na(con)) {
+    con <- uppkoppling_db(service = "rd_geodata")
+  }
+  
+  # Validate version
   version <- match.arg(version)
   
   # File paths
   tab <- "RutPendtab.TAB"
   grid <- "RutPendmap.TAB"
-  tabfile <- file.path(files_path, tab)
-  gridfile <- file.path(files_path, grid)
+  tabfile <- file.path(input_data, tab)
+  gridfile <- file.path(input_data, grid)
   
   # Read files
   data_tab <- st_read(tabfile) %>%
@@ -905,6 +759,8 @@ pendling_ruta <- function(version = c("PostGIS", "R"),
     
   }
 }
+
+r <- pendling_ruta()
 
 # # Example usage
 # r <- pendling_ruta(version = "PostGIS")
