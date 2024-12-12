@@ -601,23 +601,24 @@ pendling_natverk <- function(
 # testa med system.time() för att jämföra exekveringstid på r och pg
 
 
+# exempel polygoner
 
 # polygon <- hamta_karta(karttyp = "deso", regionkoder = 2085) %>%
 #   group_by(kommun) %>%
 #   summarise(geometry = st_union(geometry))
-# # mapview::mapview(polygon)
-# 
-# # hämta polygon från G:\skript\gis\sweco_dec_2022\godtycklig_polygon_test.gpkg
-# 
+
+
 # polygon <- st_read("G:/skript/gis/sweco_dec_2022/godtycklig_polygon_test.gpkg")
+
 # polygon <- st_read("G:/skript/gis/sweco_dec_2022/mora_lassarett_test.gpkg")
 
+# ändra så tt det blir absolut tydligt vad som är inpendling och utpendling och till vad
 
 pendling_ruta <- function(version = c("PostGIS", "R"), # Måste välja mellan PostGIS och R
                           con = NA, # Om PostGIS, krävs en connection
                           tabell_pend_relation, # Dataframe med relationer
                           rutor, # Grid
-                          polygon,  # New parameter to accept any polygon
+                          polygon,  # lägg till valfri polygon, ett sf_objekt
                           output_folder = NA, # Optional output folder
                           grid_epsg = 3006, # Optional EPSG code for the grid
                           write_to_gpkg = FALSE, # Optional flag to write to GeoPackage
@@ -803,3 +804,13 @@ pendling_ruta <- function(version = c("PostGIS", "R"), # Måste välja mellan Po
 #   mapview::mapview(result$in_pendling, zcol = "commute_from", lwd = 0)+
 #   mapview::mapview(result$ut_pendling, zcol = "commute_to", lwd = 0)
 # 
+
+# polygon <- hamta_karta(karttyp = "tatort", regionkoder = 2084) %>% 
+#   filter(tatort == "Avesta")
+# 
+# avesta <- pendling_ruta(polygon = polygon, version = "R", rutor = rutor, tabell_pend_relation = tabell_pend_relation)
+# 
+# mapview::mapview(avesta$selected)+
+#   mapview::mapview(avesta$in_pendling, zcol = "commute_from", lwd = 0)+
+#   mapview::mapview(avesta$ut_pendling, zcol = "commute_to", lwd = 0)+
+#   mapview::mapview(polygon)
