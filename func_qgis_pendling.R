@@ -600,75 +600,86 @@ pendling_natverk <- function(
 
 # testa med system.time() för att jämföra exekveringstid på r och pg
 
-pendling_ruta <- function(version = c("PostGIS", "R"), # Default to "R"
-                          con = NA,
-                          tab,
-                          grid,
-                          input_data = NA,
-                          output_folder = NA,
-                          grid_epsg = 3006,
-                          write_to_gpkg = FALSE,
-                          gpkg_name = NA) {
+
+
+# polygon <- hamta_karta(karttyp = "deso", regionkoder = 2085) %>%
+#   group_by(kommun) %>%
+#   summarise(geometry = st_union(geometry))
+# # mapview::mapview(polygon)
+# 
+# # hämta polygon från G:\skript\gis\sweco_dec_2022\godtycklig_polygon_test.gpkg
+# 
+# polygon <- st_read("G:/skript/gis/sweco_dec_2022/godtycklig_polygon_test.gpkg")
+# polygon <- st_read("G:/skript/gis/sweco_dec_2022/mora_lassarett_test.gpkg")
+
+
+pendling_ruta <- function(version = c("PostGIS", "R"), # Måste välja mellan PostGIS och R
+                          con = NA, # Om PostGIS, krävs en connection
+                          tabell_pend_relation, # Dataframe med relationer
+                          rutor, # Grid
+                          polygon,  # New parameter to accept any polygon
+                          output_folder = NA, # Optional output folder
+                          grid_epsg = 3006, # Optional EPSG code for the grid
+                          write_to_gpkg = FALSE, # Optional flag to write to GeoPackage
+                          gpkg_name = NA) # Optional name for GeoPackage file
+{
+  
+  # Load necessary libraries
   library(stringr)
   library(dplyr)
   library(sf)
   library(DBI)
   library(RPostgres)
   
-  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R", encoding = "utf-8", echo = FALSE)
+  # Validate arguments
+  version <- match.arg(version, choices = c("R", "PostGIS")) # verkar vara antingen eller!!
   
-  # Validate version
-  version <- match.arg(version, choices = c("R", "PostGIS"))
-  print(glue::glue("Version selected: {version}"))
-  
-  # Handle default file paths and connection
-  if (is.na(input_data)) {
-    input_data <- "G:/skript/gis/sweco_dec_2022/data/del3"
+  # Error handling: check required inputs
+  if (!inherits(rutor, "sf")) stop("`rutor` must be an sf object.") # rutor måste vara sf object
+  if (!inherits(polygon, "sf")) stop("`polygon` must be an sf object.") # polygon måste vara sf object
+  if (!all(c("boruta", "arbruta", "antalpend") %in% colnames(tabell_pend_relation))) { # tabell_pend_relation måste innehålla dessa kolumner
+    stop("`tabell_pend_relation` must contain the columns: 'boruta', 'arbruta', 'antalpend'.") # felmeddelande om inte dessa kolumner finns i tabell_pend_relation
   }
+  
+  if (is.na(con)) {
+    if (exists("uppkoppling_db")) {
+      con <- uppkoppling_db(service = "rd_geodata")
+    } else {
+      stop("No connection provided and `uppkoppling_db` is not available. Please specify a valid connection.")
+    }
+  }
+  
+  if (version == "PostGIS" && (is.null(con) || !inherits(con, "PqConnection"))) {
+    stop("For PostGIS version, a valid `con` database connection must be provided.")
+  }
+  
+  if (!dbIsValid(con)) {
+    stop("Database connection is not valid. Please check your connection settings.")
+  }
+  
+  
+  # Set default values for optional parameters
   if (is.na(output_folder)) {
     output_folder <- "G:/skript/gis/sweco_dec_2022/utdata"
   }
   if (is.na(gpkg_name)) {
-    gpkg_name <- "pendling_natverk.gpkg"
-  }
-  if (is.na(con)) {
-    con <- uppkoppling_db(service = "rd_geodata")
+    gpkg_name <- "pendling_ruta.gpkg"
   }
   
-  # Validate version
-  version <- match.arg(version)
+  # Ensure CRS consistency
+  if (st_crs(polygon) != st_crs(rutor)) {
+    polygon <- st_transform(polygon, st_crs(rutor))
+  }
   
-  # File paths
-  tab <- "RutPendtab.TAB"
-  grid <- "RutPendmap.TAB"
-  tabfile <- file.path(input_data, tab)
-  gridfile <- file.path(input_data, grid)
+  # Intersect the polygon with the grid to create the selected area
+  selected_polygon <- st_intersection(rutor, polygon)
   
-  # Read files
-  data_tab <- st_read(tabfile) %>%
-    rename(boruta = boruta, arbruta = arbruta, antalpend = antalpend)
+  if (nrow(selected_polygon) == 0) stop("No intersection between the provided polygon and the grid (rutor).")
   
-  grid <- st_read(gridfile) %>%
-    rename(rut_id = Rut_Id)
-  
-  st_crs(grid) <- grid_epsg
-  st_geometry(grid) <- "geom"
-  
-  # Select polygon
-  pol <- data.frame(id = 1) # hur välja polygon?
-  pol$geom <- ("POLYGON((1485116 6479039,
-                        1487385 6472727,
-                        1493118 6473596,
-                        1494589 6478925,
-                        1492357 6480547,
-                        1485116 6479039))")
-  selected_polygon <- st_as_sf(pol, wkt = "geom")
-  st_crs(selected_polygon) <- grid_epsg
-  
+  # Branch based on the selected version
   if (version == "PostGIS") {
-    
-    dbWriteTable(con, "ruta", grid, overwrite = TRUE, temporary = TRUE)
-    dbWriteTable(con, "rutpendling", data_tab, overwrite = TRUE, temporary = TRUE)
+    dbWriteTable(con, "ruta", rutor, overwrite = TRUE, temporary = TRUE)
+    dbWriteTable(con, "rutpendling", tabell_pend_relation, overwrite = TRUE, temporary = TRUE)
     
     selected <- st_read(con, layer = "ruta") %>% st_filter(selected_polygon)
     selected_ids <- paste(selected$rut_id, collapse = ", ")
@@ -712,8 +723,9 @@ pendling_ruta <- function(version = c("PostGIS", "R"), # Default to "R"
     return(list("selected" = selected, "in_pendling" = in_pendling, "ut_pendling" = ut_pendling))
     
   } else if (version == "R") {
-    selected <- st_filter(grid, selected_polygon)
+    selected <- st_filter(rutor, selected_polygon)
     
+    # Define helper functions
     get_commuters_from_grid <- function(commute_data) {
       commute_data %>%
         group_by(boruta) %>%
@@ -734,16 +746,16 @@ pendling_ruta <- function(version = c("PostGIS", "R"), # Default to "R"
       list("from_selected" = from_selected, "to_selected" = to_selected)
     }
     
-    data <- filter_with_selected(data_tab, selected)
+    data <- filter_with_selected(tabell_pend_relation, selected)
     from_c <- get_commuters_from_grid(data$to_selected)
     to_c <- get_commuters_to_grid(data$from_selected)
     
     full_table <- full_join(from_c, to_c, by = c("boruta" = "arbruta")) %>%
       rename("rut_id" = "boruta")
-    result <- merge(grid, full_table, by = "rut_id")
+    result <- merge(rutor, full_table, by = "rut_id")
     
-    in_pendling <- filter(result, !is.na(commute_from)) %>% select(-commute_to)
-    ut_pendling <- filter(result, !is.na(commute_to)) %>% select(-commute_from)
+    in_pendling <- filter(result, !is.na(commute_from)) %>% dplyr::select(-commute_to)
+    ut_pendling <- filter(result, !is.na(commute_to)) %>% dplyr::select(-commute_from)
     
     if (write_to_gpkg) {
       st_write(selected, file.path(output_folder, "rut_pendlingR.gpkg"), "område", delete_dsn = TRUE, append = FALSE)
@@ -756,15 +768,38 @@ pendling_ruta <- function(version = c("PostGIS", "R"), # Default to "R"
       "in_pendling" = if (exists("in_pendling") && nrow(in_pendling) > 0) in_pendling else NULL,
       "ut_pendling" = if (exists("ut_pendling") && nrow(ut_pendling) > 0) ut_pendling else NULL
     ))
-    
   }
 }
 
-r <- pendling_ruta()
 
-# # Example usage
-# r <- pendling_ruta(version = "PostGIS")
-# # s <- rut_pendling(version = "R")
-# #
-# mapview::mapview(r)
-# # 
+# # R Version
+# result <- pendling_ruta(
+#   polygon = polygon,
+#   version = "R",
+#   tabell_pend_relation = tabell_pend_relation,
+#   rutor = rutor
+# )
+# 
+# mapview::mapview(result$selected)+
+#   mapview::mapview(result$in_pendling, zcol = "commute_from", lwd = 0)+
+#   mapview::mapview(result$ut_pendling, zcol = "commute_to", lwd = 0)+
+#   mapview::mapview(polygon)
+# 
+# 
+# # PostGIS Version
+# result_pg <- pendling_ruta(
+#   polygon = polygon,
+#   version = "PostGIS",  # Add database connection details
+#   tabell_pend_relation = tabell_pend_relation,
+#   rutor = rutor
+# )
+# 
+# 
+# 
+# mapview::mapview(result_pg$selected)+
+#   mapview::mapview(result_pg$in_pendling, zcol = "total", lwd = 0)+
+#   mapview::mapview(result_pg$ut_pendling, zcol = "total", lwd = 0)+
+#   mapview::mapview(result$selected)+
+#   mapview::mapview(result$in_pendling, zcol = "commute_from", lwd = 0)+
+#   mapview::mapview(result$ut_pendling, zcol = "commute_to", lwd = 0)
+# 
