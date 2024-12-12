@@ -1540,79 +1540,89 @@ github_commit_push <- function(
     pull_forst = TRUE) {
   
   lokal_sokvag_repo <- paste0(sokvag_lokal_repo, repo)
-  
   push_repo <- git2r::init(lokal_sokvag_repo)
   repo_status <- git2r::status(push_repo)
   
-  if (length(repo_status$untracked) + length(repo_status$unstaged) > 0) {
-    if (!fran_rmarkdown){
-      # hämta ner en lista med filer som finns i remote repot
+  # Kategorisera filer
+  untracked_files <- repo_status$untracked
+  unstaged_modified <- repo_status$unstaged$modified
+  unstaged_deleted <- repo_status$unstaged$deleted
+  staged_added <- repo_status$staged$added
+  staged_modified <- repo_status$staged$modified
+  staged_deleted <- repo_status$staged$deleted
+  
+  if (length(untracked_files) + length(unstaged_modified) + length(unstaged_deleted) > 0) {
+    if (!fran_rmarkdown) {
+      # Hämta remote repository-filnamn
       github_fillista <- github_lista_repo_filer(owner = repo_org,
-                                                    repo = repo,
-                                                    url_vekt_enbart = FALSE,
-                                                    skriv_source_konsol = FALSE)$namn
+                                                 repo = repo,
+                                                 url_vekt_enbart = FALSE,
+                                                 skriv_source_konsol = FALSE)$namn
       
-      filer_uppdatering <- c(repo_status$untracked[repo_status$untracked %in% github_fillista],
-                             repo_status$unstaged[repo_status$unstaged %in% github_fillista])
+      # Filklassificering
+      filer_tillagda <- untracked_files[!untracked_files %in% github_fillista]
+      filer_andrade <- unstaged_modified
+      filer_borttagna <- unstaged_deleted
       
-      filer_nya <- c(repo_status$untracked[!repo_status$untracked %in% github_fillista],
-                     repo_status$unstaged[!repo_status$unstaged %in% github_fillista])
-      
-      uppdatering_txt <- case_when(length(filer_uppdatering) > 0 & length(filer_nya) > 0 ~ 
-                                     paste0(length(filer_nya), " ", ifelse(length(filer_nya) == 1, "fil", "filer"), " har lagts till och ", length(filer_uppdatering), 
-                                            " ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github"),
-                                   length(filer_uppdatering) > 0 & length(filer_nya) == 0 ~
-                                     paste0(length(filer_uppdatering), " ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github"),
-                                   length(filer_uppdatering) == 0 & length(filer_nya) > 0 ~
-                                     paste0(length(filer_nya), " ", ifelse(length(filer_nya) == 1, "fil", "filer"),  " har skickats upp till github."))
-      
-      filer_uppdatering_txt <- filer_uppdatering %>% paste0(collapse = "\n")
-      filer_nya_txt <- filer_nya %>% paste0(collapse = "\n")
-      
-      konsolmeddelande <- case_when(length(filer_uppdatering) > 0 & length(filer_nya) > 0 ~ 
-                                      paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har lagts till:\n", filer_nya_txt, 
-                                             "\n\n och följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github:\n", filer_uppdatering_txt),
-                                    length(filer_uppdatering) > 0 & length(filer_nya) == 0 ~
-                                      paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github:\n", filer_uppdatering_txt),
-                                    length(filer_uppdatering) == 0 & length(filer_nya) > 0 ~
-                                      paste0("Följande ", ifelse(length(filer_uppdatering) == 1, "fil", "filer"), " har skickats upp till github:\n", filer_nya_txt))
+      # Sammanställningsmeddelanden
+      konsolmeddelande <- paste0(
+        if (length(filer_tillagda) > 0) {
+          paste0("Tillagda filer:\n", paste(filer_tillagda, collapse = "\n"), "\n\n")
+        } else "",
+        if (length(filer_andrade) > 0) {
+          paste0("Ändrade filer:\n", paste(filer_andrade, collapse = "\n"), "\n\n")
+        } else "",
+        if (length(filer_borttagna) > 0) {
+          paste0("Borttagna filer:\n", paste(filer_borttagna, collapse = "\n"), "\n\n")
+        } else ""
+      )
       
       if (is.na(commit_txt)) {
-        commit_txt <- uppdatering_txt  
+        commit_txt <- str_replace_all(konsolmeddelande, "\n\n", "") %>% str_replace_all("\n", " ")
       }
-      
-    } else konsolmeddelande <- commit_txt # slut if-sats om det är fran_rmarkdown
-    # vi lägger till alla filer som är ändrade eller tillagda
-    git2r::add(push_repo, path = c(repo_status$untracked %>% as.character(),
-                                   repo_status$unstaged %>% as.character()))
+    } else {
+      konsolmeddelande <- commit_txt
+    }
     
-    git2r::commit(push_repo, commit_txt) 
+    # Pull innan push (om aktiverat)
+    if (pull_forst) {
+      git2r::pull(repo = push_repo,
+                  credentials = cred_user_pass(username = key_list(service = "github")$username,
+                                               password = key_get("github", key_list(service = "github")$username)))
+    }
     
-    # först en pull
-    if (pull_forst){
-      git2r::pull(repo = push_repo,                 
-                  credentials = cred_user_pass( username = key_list(service = "github")$username, 
-                                                password = key_get("github", key_list(service = "github")$username)))
-    } # slut if-sats där man kan stänga av att man kör en pull först (inte att rekommendera)
+    # Kolla om det ligger filer stage:ade sedan tidigare (oftast gör det inte det) - och i så fall skriver vi det i konsolen
+    if (length(c(staged_added, staged_modified, staged_deleted)) > 0) {
+      cat("Filer som redan är staged för commit:\n")
+      if (length(staged_added) > 0) cat("Tillagda:\n", paste(staged_added, collapse = "\n"), "\n")
+      if (length(staged_modified) > 0) cat("Ändrade:\n", paste(staged_modified, collapse = "\n"), "\n")
+      if (length(staged_deleted) > 0) cat("Borttagna:\n", paste(staged_deleted, collapse = "\n"), "\n")
+    }
     
-    # och sedan en push
-    # git2r::push(object = push_repo,               
-    #              credentials = cred_user_pass( username = key_list(service = "github_token")$username, 
-    #                                            password = key_get("github_token", key_list(service = "github_token")$username)))
+    # Lägg till och comitta alla ändrade filer
+    git2r::add(push_repo, path = c(filer_tillagda, filer_andrade, filer_borttagna) %>% as.character())
+    git2r::commit(push_repo, commit_txt)
     
-    # det har krånglat med att köra push() från git2r-paketet så denna sista del kör vi med system(), 
-    # dvs. att vi kör det med cmd. Funkar nog bara på windows så ingen robust lösning men det får gå för 
-    # nu
-    system(paste0('git -C ', lokal_sokvag_repo, ' push https://', key_list(service = "github_token")$username, ':', key_get("github_token", key_list(service = "github_token")$username), '@github.com/', repo_org, '/', repo, '.git'))
+    git2r::push(object = push_repo,
+                credentials = cred_user_pass( username = key_list(service = "github_token")$username,
+                                              password = key_get("github_token", key_list(service = "github_token")$username)))
     
+    # # Push med system-kommando (för att hantera token)
+    # system(paste0(
+    #   'git -C ', lokal_sokvag_repo, ' push https://', 
+    #   key_list(service = "github_token")$username, ':', 
+    #   key_get("github_token", key_list(service = "github_token")$username), 
+    #   '@github.com/', repo_org, '/', repo, '.git'
+    # ))
+    #   
     
     
     cat(paste0("Commit och push till ", repo, " på Github är klar.\n\n", konsolmeddelande))
     
   } else {
     print("Inga nya eller uppdaterade filer att ladda upp till Github.")
-  } # slut if-sats som testar om det finns filer att committa
-} # slut funktion
+  }
+}
 
 
 github_pull_lokalt_repo_fran_github <- function(
