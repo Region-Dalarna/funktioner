@@ -1489,8 +1489,6 @@ postgres_tabell_ta_bort <- function(con = "default",
   
   starttid <- Sys.time()  # Starta tidstagning
   
-  tabell <- tabell %>% 
-  
   # Kombinera schema och tabellnamn
   schema_tabell <- paste0(schema, ".", tabell)
   
