@@ -705,8 +705,8 @@ skapa_sf_fran_csv_eller_excel_supercross <- function(fil_med_sokvag,            
 # ============================== postgres-funktioner (för att hantera databaser) ============================================
 
 
-uppkoppling_adm <- function() {
-  uppkoppling_db(service_name = "rd_geodata")
+uppkoppling_adm <- function(databas = "geodata") {
+  uppkoppling_db(service_name = "rd_geodata", db_name = databas)
 }
 
 uppkoppling_db <- function(
@@ -1430,6 +1430,56 @@ postgres_tabell_till_df <- function(con = "default",
 }
 
 
+postgres_meta <- function(tabell = "aktuell_version",
+                          con = "default",
+                          schema = "metadata",
+                          query = NA,
+                          meddelande_info = FALSE,
+                          meddelande_tid = FALSE) {
+  
+  starttid <- Sys.time()  # Starta tidtagning
+  
+  # Skapa standarduppkoppling om con är "default"
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Funktion för standarduppkoppling till databasen
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
+  
+  # Konstruera SQL-frågan
+  if (is.na(query)) {
+    sql_query <- paste0("SELECT * FROM ", schema, ".", tabell)
+  } else {
+    sql_query <- query
+  }
+  
+  # Försök läsa in data från databasen
+  tryCatch({
+    retur_df <- dbGetQuery(con, sql_query)
+    if (meddelande_info) {
+      message(paste("Tabellen", tabell, "från schemat", schema, "har lästs in."))
+    }
+  }, error = function(e) {
+    message(paste("Kunde inte läsa tabellen", tabell, "från schemat", schema, ":", e$message))
+    retur_df <- NULL
+  })
+  
+  # Koppla ner om standardanslutningen användes
+  if (default_flagga) {
+    dbDisconnect(con)
+  }
+  
+  # Beräkna tid för processen och visa om begärt
+  berakningstid <- round(as.numeric(difftime(Sys.time(), starttid, units = "secs")), 1)
+  if (meddelande_tid) {
+    cat(glue::glue("Processen tog {berakningstid} sekunder att köra.\n"))
+  }
+  
+  return(retur_df)
+}
+
+
 # ny version gjord av Henrik Aldén den 2024-12-11, lagt till drop cascade som parameter.
 postgres_tabell_ta_bort <- function(con = "default", 
                                     schema, 
@@ -1438,6 +1488,8 @@ postgres_tabell_ta_bort <- function(con = "default",
                                     meddelande_tid = FALSE) {
   
   starttid <- Sys.time()  # Starta tidstagning
+  
+  tabell <- tabell %>% 
   
   # Kombinera schema och tabellnamn
   schema_tabell <- paste0(schema, ".", tabell)
@@ -1511,12 +1563,9 @@ postgres_schema_ta_bort <- function(con = "default",
   }
   
   # Kontrollera om schemat existerar
-  schema_finns <- dbGetQuery(con, paste0("
-    SELECT schema_name
-    FROM information_schema.schemata
-    WHERE schema_name = '", schema, "';"))
+  schema_finns <- postgres_schema_finns(con, schema)
   
-  if (nrow(schema_finns) == 0) {
+  if (schema_finns) {
     message("Schemat '", schema, "' existerar inte. Ingen åtgärd vidtogs.")
   } else {
     # Hämta alla tabeller i schemat
