@@ -1479,8 +1479,6 @@ postgres_meta <- function(tabell = "aktuell_version",
   return(retur_df)
 }
 
-
-# ny version gjord av Henrik Aldén den 2024-12-11, lagt till drop cascade som parameter.
 postgres_tabell_ta_bort <- function(con = "default", 
                                     schema, 
                                     tabell,
