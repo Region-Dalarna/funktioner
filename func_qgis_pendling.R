@@ -1,3 +1,5 @@
+# Translate everything to swedish
+# Översätt allt till svenska, variabler, argument och kommentarer
 
 
 # ------------------- Funktion skapa kraftfält -------------------------
@@ -47,17 +49,17 @@
 # tabell_pend_relation <- "G:/Samhällsanalys/GIS/grundkartor/mona/pendlingsrelationer_tatort_nattbef_filtrerad.csv"
 
 pendling_kraftfalt <- function(
-    tabell_pend_relation,
-    output_folder = NA, 
-    gpkg_name = NA,
-    enskilt_troskelvarde = 20,
-    totalt_troskelvarde = 35,
-    primary_la_zone_buffer_length = 2000,
-    secondary_la_zone_buffer_length = 1000,
-    common_la_zone_buffer_length = 5000,
-    con = NA,
+    tabell_pend_relation, # Dataframe med pendlingsrelationer hämtas förslagsvis på MONA
+    ut_mapp = NA, # data ut ur funktionen
+    gpkg_namn = NA, # namn på geopackage i utmappen
+    enskilt_troskelvarde = 20, # enskilt troskelvärde
+    totalt_troskelvarde = 35, # totalt troskelvärde
+    primar_la_buffer = 2000, # buffer för primärt LA
+    sekundar_la_buffer = 1000, # buffer för sekundärt LA
+    gemensam_la_buffer = 5000, # har ej sett denna i resultat! 
+    con = NA, # uppkoppling till PostGIS, krävs en connection, om inte anges finns et default värde till Region Dalarnas databas
     dist = 2000, # max avstånd till vägnätet
-    write_to_gpkg = FALSE # Flag to control whether to write to GPKG or return as list
+    skriv_till_gpkg = FALSE # TRUE om resultatet ska skrivas till geopackage, annars returneras som en lista
 ) { 
   library(readxl)
   library(stringr)
@@ -69,33 +71,33 @@ pendling_kraftfalt <- function(
   
   source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R", encoding = "utf-8", echo = FALSE)
   
-  # där du eventuellt sparar data lokalt
-  if (is.na(output_folder)) {
-    output_folder <- "G:/skript/gis/sweco_dec_2022/utdata"
+  # fyll i som ett argument till funktionen annars används default värden
+  if (is.na(ut_mapp)) {
+    ut_mapp <- "G:/skript/gis/sweco_dec_2022/utdata"
   }
-  # det namn du ger din geopackage
-  if (is.na(gpkg_name)) {
-    gpkg_name <- "kraftfält.gpkg"
+  # det namn du ger din geopackage annars används default värden
+  if (is.na(gpkg_namn)) {
+    gpkg_namn <- "kraftfält.gpkg"
   }
-  # uppkoppling till din Postgres databas
+  # uppkoppling till din Postgres databas annars används default värden till Region Dalarnas databas med keyring()
   if (is.na(con)) {
     con <- uppkoppling_db(service = "rd_geodata")
   }
   
   dbExecute(con, "SET search_path TO grafer, public;") # denna är lite mystisk, men det funkar...
   
-  # vägnätet skapat med skapat med skapa_vagnatverk_tatort() ligger i schemat grafer
-  edges_table <- "nvdb_noded" 
-  vertices_table <- "grafer.nvdb_noded_vertices_pgr" 
+  # nedan 4 objekt kommer från funktionen skapa_vagnatverk_tatort() och ligger i schemat grafer
+  kant_tabell <- "nvdb_noded" # en graf av vägnätet
+  nod_tabell <- "grafer.nvdb_noded_vertices_pgr"# en graf av vägnätet
   
-  cost_col = "dist_cost" # kolumn i nvdb_noded med kostnad
-  reverse_cost_col = "dist_reverse_cost" # kolumn i nvdb_noded med omvänd kostnad
+  kost_kol = "dist_cost" # kolumn i nvdb_noded med kostnad
+  omvand_kost_kol = "dist_reverse_cost" # kolumn i nvdb_noded med omvänd kostnad
   
-  # simpel funktion för att skriva postgis tabell till gpkg om write_to_gpkg=TRUE
-  write_pgtable2gpkg <- function(lyrname, output_folder, gpkg_name, append=FALSE, delete_dsn=FALSE) {
+  # simpel funktion för att skriva postgis tabell till gpkg om skriv_till_gpkg=TRUE
+  skriv_pg_tab_gpkg <- function(lyrname, ut_mapp, gpkg_namn, append=FALSE, delete_dsn=FALSE) {
     lyr <- st_read(con, lyrname)
     st_write(lyr, 
-             file.path(output_folder, gpkg_name),
+             file.path(ut_mapp, gpkg_namn),
              lyrname, 
              append=append,
              delete_dsn=delete_dsn
@@ -108,7 +110,7 @@ pendling_kraftfalt <- function(
       from_id = substr(from_id, 3, 11), # tar bort länskoden och tätortsnamnet från t.ex. 202084TC101 Avesta
       to_id = substr(to_id, 3, 11)      # tar bort länskoden och tätortsnamnet från t.ex. 202080TC108 Falun
     ) %>% 
-    select(from_id, to_id, n)
+    select(from_id, to_id, n) # väljer ut kolumner från_id, to_id och antal pendlare (n)
   
   if (!all(c("from_id", "to_id", "n") %in% colnames(tabell_pend_relation))) { # tabell_pend_relation_ruta måste innehålla dessa kolumner
     stop("`tabell_pend_relation` must contain the columns: 'from_id', 'to_id', 'n'.") # felmeddelande om inte dessa kolumner finns i tabell_pend_relation_ruta
@@ -124,7 +126,7 @@ pendling_kraftfalt <- function(
                       FROM tatort t
                       JOIN lateral(
                         SELECT id, e.geom <-> t.geom as dist
-                          FROM {vertices_table} e
+                          FROM {nod_tabell} e
                         ORDER BY t.geom <-> e.geom
                         LIMIT 1
                       ) AS e
@@ -134,7 +136,7 @@ pendling_kraftfalt <- function(
   dbExecute(con, query)
   
   query <- str_glue("CREATE TABLE commute_combinations AS
-                      with temp_commute_data as (
+                      with temp_pendlings_data as (
                       	SELECT
                       	      from_id,
                       	      to_id,
@@ -157,7 +159,7 @@ pendling_kraftfalt <- function(
                             	when from_id=to_id then 0 /* relationen from_id till from_id får ranking 0 */
                             	else count(*) FILTER (WHERE from_id <> to_id) OVER wd /* ranking av relationer från mest pendlare till minst */
                             end AS ranking 
-                      FROM temp_commute_data
+                      FROM temp_pendlings_data
                       WHERE to_id IN (SELECT tokod FROM tatort_vertex)
                       window wd AS (PARTITION BY from_id ORDER BY n DESC)
                       order by from_id, n desc;")
@@ -181,7 +183,7 @@ pendling_kraftfalt <- function(
   dbExecute(con, query)
   
   # skriv till geopackage
-  # write_pgtable2gpkg(str_glue("la"), output_folder, gpkg_name)
+  # skriv_pg_tab_gpkg(str_glue("la"), ut_mapp, gpkg_namn)
   
   # solitär
   query <- str_glue("CREATE TEMP TABLE solitary AS
@@ -198,7 +200,7 @@ pendling_kraftfalt <- function(
   dbExecute(con, "DROP TABLE IF EXISTS solitary;")
   dbExecute(con, query)
   # skriv till geopackage
-  # write_pgtable2gpkg(str_glue("solitary"), output_folder, gpkg_name)
+  # skriv_pg_tab_gpkg(str_glue("solitary"), ut_mapp, gpkg_namn)
   
   
   # common la
@@ -222,7 +224,7 @@ pendling_kraftfalt <- function(
   dbExecute(con, "DROP TABLE IF EXISTS common_la;")
   dbExecute(con, query)
   # skriv till geopackage
-  # write_pgtable2gpkg(str_glue("common_la"), output_folder, gpkg_name)
+  # skriv_pg_tab_gpkg(str_glue("common_la"), ut_mapp, gpkg_namn)
   
   # satelit
   query <- str_glue("CREATE TEMP TABLE satellites AS
@@ -259,7 +261,7 @@ pendling_kraftfalt <- function(
   dbExecute(con, query)
   
   # skriv till geopackage
-  # write_pgtable2gpkg(str_glue("satellites"), output_folder, gpkg_name)
+  # skriv_pg_tab_gpkg(str_glue("satellites"), ut_mapp, gpkg_namn)
   
   # ruttningsanalys
   
@@ -284,10 +286,10 @@ pendling_kraftfalt <- function(
                   WITH astar AS( 
                     SELECT * FROM pgr_aStar(
                       'SELECT id, source, target,
-                              {cost_col} AS cost,
-                              {reverse_cost_col} AS reverse_cost,
+                              {kost_kol} AS cost,
+                              {omvand_kost_kol} AS reverse_cost,
                               x1, y1, x2, y2
-                  	   FROM grafer.{edges_table}',
+                  	   FROM grafer.{kant_tabell}',
                       'SELECT 
                         start_vid AS source, 
                         end_vid AS target
@@ -300,7 +302,7 @@ pendling_kraftfalt <- function(
                       sum(a.cost) AS cost,
                       max(a.agg_cost) AS agg_cost,
                       st_LineMerge(st_union(r.geom)) AS geom
-                    FROM astar a JOIN grafer.{edges_table} r ON a.edge=r.id
+                    FROM astar a JOIN grafer.{kant_tabell} r ON a.edge=r.id
                     GROUP BY a.start_vid, a.end_vid
                   )
                   SELECT c.*, p.agg_cost, p.geom
@@ -309,46 +311,46 @@ pendling_kraftfalt <- function(
                     and c.end_vid=p.end_vid")
   dbExecute(con, "DROP TABLE IF EXISTS routes;")
   dbExecute(con, query)
-  # write_pgtable2gpkg(str_glue("routes"), output_folder, gpkg_name)
+  # skriv_pg_tab_gpkg(str_glue("routes"), ut_mapp, gpkg_namn)
   
   
   # rutter till secondary LA
   query <- str_glue("CREATE TEMP TABLE secla_areas AS
           select
             to_id, MAX(ranking) AS max_ranking,
-            st_buffer(st_collect(r.geom), {secondary_la_zone_buffer_length}) as geom
+            st_buffer(st_collect(r.geom), {sekundar_la_buffer}) as geom
           from satellites s
           join routes r on s.id=r.from_id and s.secondary_la=r.to_id
           group by to_id
           ;")
   dbExecute(con, "DROP TABLE IF EXISTS secla_areas;")
   dbExecute(con, query)
-  # write_pgtable2gpkg(str_glue("secla_areas"), output_folder, gpkg_name)
+  # skriv_pg_tab_gpkg(str_glue("secla_areas"), ut_mapp, gpkg_namn)
   
   # rutter till primary LA
   query <- str_glue("CREATE TEMP TABLE primla_areas AS
           select
             to_id, max(ranking),
-            st_buffer(st_collect(r.geom), {primary_la_zone_buffer_length}) as geom
+            st_buffer(st_collect(r.geom), {primar_la_buffer}) as geom
           from satellites s
           join routes r on s.id=r.from_id and s.primary_la=r.to_id
           group by to_id
           ;")
   dbExecute(con, "DROP TABLE IF EXISTS primla_areas;")
   dbExecute(con, query)
-  # write_pgtable2gpkg(str_glue("primla_areas"), output_folder, gpkg_name)
+  # skriv_pg_tab_gpkg(str_glue("primla_areas"), ut_mapp, gpkg_namn)
   
   # rutter mellan CommonLA
   query <- str_glue("CREATE TEMP TABLE commonla_areas AS
           select
             from_id, to_id, ranking,
-            st_buffer(r.geom, {common_la_zone_buffer_length}) as geom
+            st_buffer(r.geom, {gemensam_la_buffer}) as geom
           from common_la s
           join routes r on s.id=r.from_id and s.common_la=r.to_id
           ;")
   dbExecute(con, "DROP TABLE IF EXISTS commonla_areas;")
   dbExecute(con, query)
-  # write_pgtable2gpkg(str_glue("commonla_areas"), output_folder, gpkg_name)
+  # skriv_pg_tab_gpkg(str_glue("commonla_areas"), ut_mapp, gpkg_namn)
   
   # Define layers to process
   layers <- c(
@@ -363,7 +365,7 @@ pendling_kraftfalt <- function(
   )
   
   # Write layers to GeoPackage or return as a list
-  if (write_to_gpkg) {
+  if (skriv_till_gpkg) {
     # Write only non-empty layers to the GeoPackage
     purrr::walk(
       layers,
@@ -376,10 +378,10 @@ pendling_kraftfalt <- function(
           if (layer_exists) {
             lyr <- st_read(con, query = str_glue("SELECT * FROM {.x}"))
             if (nrow(lyr) > 0) { # Only write if the layer is non-empty
-              write_pgtable2gpkg(
+              skriv_pg_tab_gpkg(
                 lyrname = str_remove(.x, "grafer."), # Remove schema prefix for GPKG
-                output_folder = output_folder,
-                gpkg_name = gpkg_name,
+                ut_mapp = ut_mapp,
+                gpkg_namn = gpkg_namn,
                 append = TRUE # Append layers to the same GeoPackage
               )
             } else {
@@ -393,7 +395,7 @@ pendling_kraftfalt <- function(
         })
       }
     )
-    message(glue("Finished writing non-empty layers to {file.path(output_folder, gpkg_name)}"))
+    message(glue("Finished writing non-empty layers to {file.path(ut_mapp, gpkg_namn)}"))
   } else {
     # Create a named list with all layers, include NULL for missing or empty layers
     results <- purrr::map(
@@ -427,23 +429,23 @@ pendling_kraftfalt <- function(
   }
 }
 
-# # Exempel på hur funktionen kan användas
-# 
-kraftfalt_20_40 <- pendling_kraftfalt(tabell_pend_relation = tabell_pend_relation, enskilt_troskelvarde = 20, totalt_troskelvarde = 40)
-# 
-# # Define custom colors for better readability
-road_color <- "#4D4D4D" # Dark gray for roads
-area_color <- "green" # Green for areas
-point_color_primary <- "red" # Red for primary points
-point_color_secondary <- "orange" # Orange for secondary points
-# 
-# # Update mapview layers
-mapview::mapview(kraftfalt_20_40$la, col.regions = area_color, alpha.regions = 0.5, cex = 6) +
-  mapview::mapview(kraftfalt_20_40$solitary, col.regions = point_color_secondary, cex = 4) +
-  mapview::mapview(kraftfalt_20_40$routes, color = road_color, lwd = 2)  +
-  mapview::mapview(kraftfalt_20_40$satellites, col.regions = point_color_primary, cex = 3)+
-  mapview::mapview(kraftfalt_20_40$primla_areas, col.regions = "blue", alpha.regions = 0.3)+
-  mapview::mapview(kraftfalt_20_40$secla_areas, col.regions = "orange", alpha.regions = 0.4)
+# # # Exempel på hur funktionen kan användas
+# # 
+# kraftfalt_25_40 <- pendling_kraftfalt(tabell_pend_relation = tabell_pend_relation, enskilt_troskelvarde = 25, totalt_troskelvarde = 40)
+# # 
+# # # Define custom colors for better readability
+# road_color <- "#4D4D4D" # Dark gray for roads
+# area_color <- "green" # Green for areas
+# point_color_primary <- "red" # Red for primary points
+# point_color_secondary <- "orange" # Orange for secondary points
+# # 
+# # # Update mapview layers
+# mapview::mapview(kraftfalt_25_40$la, col.regions = area_color, alpha.regions = 0.5, cex = 6) +
+#   mapview::mapview(kraftfalt_25_40$solitary, col.regions = point_color_secondary, cex = 4) +
+#   mapview::mapview(kraftfalt_25_40$routes, color = road_color, lwd = 2)  +
+#   mapview::mapview(kraftfalt_25_40$satellites, col.regions = point_color_primary, cex = 3)+
+#   mapview::mapview(kraftfalt_25_40$primla_areas, col.regions = "blue", alpha.regions = 0.3)+
+#   mapview::mapview(kraftfalt_25_40$secla_areas, col.regions = "orange", alpha.regions = 0.4)
 
 # ------------------- funktion som skapar pendlingsnätverk -------------------------
 
@@ -462,9 +464,9 @@ pendling_natverk <- function(
     tabell_pend_relation, # Dataframe med pendlingsrelationer hämtas förslagsvis på MONA
     con = NA, # uppkopling till PostGIS, krävs en connection, om inte anges finns et default värde till Region Dalarnas databas
     dist = 2000, # max avstånd till vägnätet
-    write_to_gpkg = FALSE, # Flag to control output
-    output_folder = NA, # Output folder for geopackage
-    gpkg_name = NA # Name of the geopackage
+    skriv_till_gpkg = FALSE, # Flag to control output
+    ut_mapp = NA, # Output folder for geopackage
+    gpkg_namn = NA # Name of the geopackage
 ) { 
   
   library(readxl)
@@ -478,12 +480,12 @@ pendling_natverk <- function(
   
   # Hantera NA i parametrar
   # där du eventuellt sparar data lokalt
-  if (is.na(output_folder)) {
-    output_folder <- "G:/skript/gis/sweco_dec_2022/utdata"
+  if (is.na(ut_mapp)) {
+    ut_mapp <- "G:/skript/gis/sweco_dec_2022/utdata"
   }
   # det namn du ger din geopackage
-  if (is.na(gpkg_name)) {
-    gpkg_name <- "pendling_natverk.gpkg"
+  if (is.na(gpkg_namn)) {
+    gpkg_namn <- "pendling_natverk.gpkg"
   }
   # uppkoppling till din Postgres databas
   if (is.na(con)) {
@@ -493,11 +495,11 @@ pendling_natverk <- function(
   dbExecute(con, "SET search_path TO grafer, public;") # denna är lite mystisk, men det funkar...
   
   # vägnätet skapat med skapa_vagnatverk_tatort() ligger i schema grafer
-  edges_table <- "nvdb_noded" 
-  vertices_table <- "grafer.nvdb_noded_vertices_pgr" 
+  kant_tabell <- "nvdb_noded" 
+  nod_tabell <- "grafer.nvdb_noded_vertices_pgr" 
   
-  cost_col = "dist_cost" # kolumn i nvdb_noded med kostnad
-  reverse_cost_col = "dist_reverse_cost" # kolumn i nvdb_noded med omvänd kostnad
+  kost_kol = "dist_cost" # kolumn i nvdb_noded med kostnad
+  omvand_kost_kol = "dist_reverse_cost" # kolumn i nvdb_noded med omvänd kostnad
   
   # läs in pendlingsdata
   tabell_pend_relation <- read_csv(tabell_pend_relation, locale = locale(encoding = "ISO-8859-1"))%>%
@@ -521,7 +523,7 @@ pendling_natverk <- function(
                       FROM tatort t
                       JOIN lateral(
                         SELECT id, e.geom <-> t.geom as dist
-                          FROM {vertices_table} e
+                          FROM {nod_tabell} e
                         ORDER BY t.geom <-> e.geom
                         LIMIT 1
                       ) AS e
@@ -544,10 +546,10 @@ pendling_natverk <- function(
   query <- str_glue("WITH astar AS( 
                       SELECT * FROM pgr_aStar(
                         'SELECT id, source, target, 
-                                {cost_col} AS cost, 
-                                {reverse_cost_col} AS reverse_cost,
+                                {kost_kol} AS cost, 
+                                {omvand_kost_kol} AS reverse_cost,
                                 x1, y1, x2, y2
-                    	  FROM {edges_table}',
+                    	  FROM {kant_tabell}',
                         'SELECT 
                           start_vid AS source,
                           end_vid AS target
@@ -563,23 +565,23 @@ pendling_natverk <- function(
                     )
                     SELECT * 
                     FROM edges e
-                      JOIN {edges_table} r ON e.edge_id = r.id;")
+                      JOIN {kant_tabell} r ON e.edge_id = r.id;")
   
-  network <- st_read(con, query = query)
+  natverk <- st_read(con, query = query)
   
   # Check if output is to a geopackage or as R object
-  if (write_to_gpkg) {
+  if (skriv_till_gpkg) {
     # Write to geopackage
-    output_path <- file.path(output_folder, gpkg_name)
-    st_write(network, output_path, delete_dsn = TRUE)
+    output_path <- file.path(ut_mapp, gpkg_namn)
+    st_write(natverk, output_path, delete_dsn = TRUE)
     message(glue("Results written to {output_path}"))
   } else {
-    # Return the network as an R object
-    return(network)
+    # Return the natverk as an R object
+    return(natverk)
   }
 }
 
-# network <- pendling_natverk(tabell_pend_relation = tabell_pend_relation, write_to_gpkg = FALSE)
+# natverk <- pendling_natverk(tabell_pend_relation = tabell_pend_relation, skriv_till_gpkg = FALSE)
 # #
 # # Load necessary library
 # library(mapview)
@@ -589,7 +591,7 @@ pendling_natverk <- function(
 # 
 # # Apply the mapview with custom colors
 # mapview::mapview(
-#   network,
+#   natverk,
 #   zcol = "antal_pend",           # Column to control the color gradient
 #   lwd = "antal_pend",            # Column to control line width
 #   alpha = 0.5,                   # Transparency
@@ -604,26 +606,24 @@ pendling_natverk <- function(
 
 # två versioner av skriptet finns som argument. Postgis versionen är snabbare vid stora dataset
 
-# indata parameter ska läggas till
-
 # testa med system.time() för att jämföra exekveringstid på r och pg
 
+# skriptet funkar med vector-data, alltså punkter, linjer och (således inte endast med) polygoner
 
-# exempel polygoner
-
+# exempel på polygoner
 # polygon <- hamta_karta(karttyp = "deso", regionkoder = 2085) %>%
 #   group_by(kommun) %>%
 #   summarise(geometry = st_union(geometry))
 
 
-# polygon <- st_read("G:/skript/gis/sweco_dec_2022/godtycklig_polygon_test.gpkg")
-
+# # polygon <- st_read("G:/skript/gis/sweco_dec_2022/godtycklig_polygon_test.gpkg")
+# 
 # polygon <- st_read("G:/skript/gis/sweco_dec_2022/mora_lassarett_test.gpkg")
-
-# ändra så tt det blir absolut tydligt vad som är inpendling och utpendling och till vad
-
-
-# # Define the base directory
+# 
+# # ändra så tt det blir absolut tydligt vad som är inpendling och utpendling och till vad
+# 
+# 
+# # 1 km rutor
 # base_dir <- "G:/Samhällsanalys/GIS/grundkartor/mona/rutor"
 # 
 # # Define the file name
@@ -632,30 +632,32 @@ pendling_natverk <- function(
 # # Combine to create the full file path
 # file_path <- file.path(base_dir, file_name)
 # 
-# rutor <- st_read(file_path, crs = 3006)%>% 
-#   dplyr::select(rut_id = xy, geom)%>%
+# rutor <- st_read(file_path, crs = 3006)%>%
+#   dplyr::select(rut_id = xy, nattbef, dagbef, geom)%>%
 #   st_cast("MULTIPOLYGON")
 # 
 # tabell_pend_relation_ruta <- read.csv(
-#   "G:/Samhällsanalys/GIS/rutor/rutor1km_pendlingsrelationer_2022.csv", 
-#   header = FALSE, 
-#   sep = ";", 
+#   "G:/Samhällsanalys/GIS/rutor/rutor1km_pendlingsrelationer_2022.csv",
+#   header = FALSE,
+#   sep = ";",
 #   skip = 6,
 #   colClasses = c("character", "character", "integer")
 # )
-# 
-# # Rename the columns
-# colnames(tabell_pend_relation_ruta) <- c("boruta", "arbruta", "antalpend")
+
+# Rename the columns
+colnames(tabell_pend_relation_ruta) <- c("boruta", "arbruta", "antalpend")
+
+# ett förslag på förbättring, lägg till beefolkningen så att det går att se hur många som bor i utvalda_rutor, skapa centroider av rutor och kör cex = befolkningen (natt eller dag)
 
 pendling_ruta <- function(version = c("PostGIS", "R"), # Måste välja mellan PostGIS och R
                           con = NA, # Om PostGIS, krävs en connection
-                          tabell_pend_relation_ruta, # Dataframe med relationer
+                          tabell_pend_relation_ruta, # Dataframe med pendlingsrelationer
                           rutor, # Grid
-                          polygon,  # lägg till valfri polygon, ett sf_objekt
-                          output_folder = NA, # Optional output folder
+                          polygon,  # lägg till valfritt sf_objekt med geometri; punkt, linje eller polygon
+                          ut_mapp = NA, # Optional output folder
                           grid_epsg = 3006, # Optional EPSG code for the grid
-                          write_to_gpkg = FALSE, # Optional flag to write to GeoPackage
-                          gpkg_name = NA) # Optional name for GeoPackage file
+                          skriv_till_gpkg = FALSE, # Optional flag to write to GeoPackage
+                          gpkg_namn = NA) # Optional name for GeoPackage file
 {
   
   # Load necessary libraries
@@ -664,6 +666,8 @@ pendling_ruta <- function(version = c("PostGIS", "R"), # Måste välja mellan Po
   library(sf)
   library(DBI)
   library(RPostgres)
+  
+  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R", encoding = "utf-8", echo = FALSE)
   
   # Validate arguments
   version <- match.arg(version, choices = c("R", "PostGIS")) # verkar vara antingen eller!!
@@ -695,11 +699,11 @@ pendling_ruta <- function(version = c("PostGIS", "R"), # Måste välja mellan Po
   
   
   # Set default values for optional parameters
-  if (is.na(output_folder)) {
-    output_folder <- "G:/skript/gis/sweco_dec_2022/utdata"
+  if (is.na(ut_mapp)) {
+    ut_mapp <- "G:/skript/gis/sweco_dec_2022/utdata"
   }
-  if (is.na(gpkg_name)) {
-    gpkg_name <- "pendling_ruta.gpkg"
+  if (is.na(gpkg_namn)) {
+    gpkg_namn <- "pendling_ruta.gpkg"
   }
   
   # Ensure CRS consistency
@@ -707,18 +711,18 @@ pendling_ruta <- function(version = c("PostGIS", "R"), # Måste välja mellan Po
     polygon <- st_transform(polygon, st_crs(rutor))
   }
   
-  # Intersect the polygon with the grid to create the selected area
-  selected_polygon <- st_intersection(rutor, polygon)
+  # Intersect polygonen med rutor
+  vald_polygon <- st_intersection(rutor, polygon)
   
-  if (nrow(selected_polygon) == 0) stop("No intersection between the provided polygon and the grid (rutor).")
+  if (nrow(vald_polygon) == 0) stop("Ingen intersection mellan polygon och rutor.")
   
-  # Branch based on the selected version
+  # Branch based on the utvalda_rutor version
   if (version == "PostGIS") {
     dbWriteTable(con, "ruta", rutor, overwrite = TRUE, temporary = TRUE)
     dbWriteTable(con, "rutpendling", tabell_pend_relation_ruta, overwrite = TRUE, temporary = TRUE)
     
-    selected <- st_read(con, layer = "ruta") %>% st_filter(selected_polygon)
-    selected_ids <- paste(selected$rut_id, collapse = ", ")
+    utvalda_rutor <- st_read(con, layer = "ruta") %>% st_filter(vald_polygon)
+    utvalda_rutor_ids <- paste(utvalda_rutor$rut_id, collapse = ", ")
     
     # In-commuting
     query <- str_glue("WITH commuters_in AS (
@@ -726,8 +730,8 @@ pendling_ruta <- function(version = c("PostGIS", "R"), # Måste välja mellan Po
                         boruta, 
                         sum(antalpend) AS total
                       FROM rutpendling
-                      WHERE arbruta::BIGINT IN ({selected_ids}) 
-                        AND boruta::BIGINT NOT IN ({selected_ids}) 
+                      WHERE arbruta::BIGINT IN ({utvalda_rutor_ids}) 
+                        AND boruta::BIGINT NOT IN ({utvalda_rutor_ids}) 
                       GROUP BY boruta
                       ) 
                         SELECT c.*, r.geom 
@@ -741,8 +745,8 @@ pendling_ruta <- function(version = c("PostGIS", "R"), # Måste välja mellan Po
                         arbruta,
                         sum(antalpend) AS total
                       FROM rutpendling
-                      WHERE boruta::BIGINT IN ({selected_ids})
-                        AND arbruta::BIGINT NOT IN ({selected_ids}) 
+                      WHERE boruta::BIGINT IN ({utvalda_rutor_ids})
+                        AND arbruta::BIGINT NOT IN ({utvalda_rutor_ids}) 
                       GROUP BY arbruta
                       )
                       SELECT c.*, r.geom 
@@ -750,57 +754,57 @@ pendling_ruta <- function(version = c("PostGIS", "R"), # Måste välja mellan Po
                         JOIN ruta r ON c.arbruta = r.rut_id")
     ut_pendling <- st_read(con, query = query)
     
-    if (write_to_gpkg) {
-      st_write(selected, file.path(output_folder, "rut_pendling_pg.gpkg"), "område", delete_dsn = TRUE, append = FALSE)
-      st_write(in_pendling, file.path(output_folder, "rut_pendling_pg.gpkg"), "in_pend", append = FALSE)
-      st_write(ut_pendling, file.path(output_folder, "rut_pendling_pg.gpkg"), "ut_pend", append = FALSE)
+    if (skriv_till_gpkg) {
+      st_write(utvalda_rutor, file.path(ut_mapp, "rut_pendling_pg.gpkg"), "område", delete_dsn = TRUE, append = FALSE)
+      st_write(in_pendling, file.path(ut_mapp, "rut_pendling_pg.gpkg"), "in_pend", append = FALSE)
+      st_write(ut_pendling, file.path(ut_mapp, "rut_pendling_pg.gpkg"), "ut_pend", append = FALSE)
     }
     
-    return(list("selected" = selected, "in_pendling" = in_pendling, "ut_pendling" = ut_pendling))
+    return(list("utvalda_rutor" = utvalda_rutor, "in_pendling" = in_pendling, "ut_pendling" = ut_pendling))
     
   } else if (version == "R") {
-    selected <- st_filter(rutor, selected_polygon)
+    utvalda_rutor <- st_filter(rutor, vald_polygon)
     
     # Define helper functions
-    get_commuters_from_grid <- function(commute_data) {
-      commute_data %>%
+    pendlare_fran_utvalda_rutor <- function(pendlings_data) {
+      pendlings_data %>%
         group_by(boruta) %>%
-        summarise(commute_from = sum(antalpend))
+        summarise(pendlare_fran = sum(antalpend))
     }
-    get_commuters_to_grid <- function(commute_data) {
-      commute_data %>%
+    pendlare_till_utvalda_rutor <- function(pendlings_data) {
+      pendlings_data %>%
         group_by(arbruta) %>%
-        summarise(commute_to = sum(antalpend))
+        summarise(pendlare_till = sum(antalpend))
     }
-    filter_with_selected <- function(commute_data, selected) {
-      from_selected <- filter(commute_data,
-                              (boruta %in% selected$rut_id) &
-                                !(arbruta %in% selected$rut_id))
-      to_selected <- filter(commute_data,
-                            (arbruta %in% selected$rut_id) &
-                              !(boruta %in% selected$rut_id))
-      list("from_selected" = from_selected, "to_selected" = to_selected)
+    filter_med_utvalda_rutor <- function(pendlings_data, utvalda_rutor) {
+      fran_utvalda_rutor <- filter(pendlings_data,
+                              (boruta %in% utvalda_rutor$rut_id) &
+                                !(arbruta %in% utvalda_rutor$rut_id))
+      till_utvalda_rutor <- filter(pendlings_data,
+                            (arbruta %in% utvalda_rutor$rut_id) &
+                              !(boruta %in% utvalda_rutor$rut_id))
+      list("fran_utvalda_rutor" = fran_utvalda_rutor, "till_utvalda_rutor" = till_utvalda_rutor)
     }
     
-    data <- filter_with_selected(tabell_pend_relation_ruta, selected)
-    from_c <- get_commuters_from_grid(data$to_selected)
-    to_c <- get_commuters_to_grid(data$from_selected)
+    data <- filter_med_utvalda_rutor(tabell_pend_relation_ruta, utvalda_rutor)
+    from_c <- pendlare_fran_utvalda_rutor(data$till_utvalda_rutor)
+    to_c <- pendlare_till_utvalda_rutor(data$fran_utvalda_rutor)
     
     full_table <- full_join(from_c, to_c, by = c("boruta" = "arbruta")) %>%
       rename("rut_id" = "boruta")
     result <- merge(rutor, full_table, by = "rut_id")
     
-    in_pendling <- filter(result, !is.na(commute_from)) %>% dplyr::select(-commute_to)
-    ut_pendling <- filter(result, !is.na(commute_to)) %>% dplyr::select(-commute_from)
+    in_pendling <- filter(result, !is.na(pendlare_fran)) %>% dplyr::select(-pendlare_till)
+    ut_pendling <- filter(result, !is.na(pendlare_till)) %>% dplyr::select(-pendlare_fran)
     
-    if (write_to_gpkg) {
-      st_write(selected, file.path(output_folder, "rut_pendlingR.gpkg"), "område", delete_dsn = TRUE, append = FALSE)
-      st_write(in_pendling, file.path(output_folder, "rut_pendlingR.gpkg"), "in_pend", append = FALSE)
-      st_write(ut_pendling, file.path(output_folder, "rut_pendlingR.gpkg"), "ut_pend", append = FALSE)
+    if (skriv_till_gpkg) {
+      st_write(utvalda_rutor, file.path(ut_mapp, "rut_pendlingR.gpkg"), "område", delete_dsn = TRUE, append = FALSE)
+      st_write(in_pendling, file.path(ut_mapp, "rut_pendlingR.gpkg"), "in_pend", append = FALSE)
+      st_write(ut_pendling, file.path(ut_mapp, "rut_pendlingR.gpkg"), "ut_pend", append = FALSE)
     }
     
     return(list(
-      "selected" = if (exists("selected") && nrow(selected) > 0) selected else NULL,
+      "utvalda_rutor" = if (exists("utvalda_rutor") && nrow(utvalda_rutor) > 0) utvalda_rutor else NULL,
       "in_pendling" = if (exists("in_pendling") && nrow(in_pendling) > 0) in_pendling else NULL,
       "ut_pendling" = if (exists("ut_pendling") && nrow(ut_pendling) > 0) ut_pendling else NULL
     ))
@@ -816,9 +820,9 @@ pendling_ruta <- function(version = c("PostGIS", "R"), # Måste välja mellan Po
 #   rutor = rutor
 # )
 # 
-# mapview::mapview(result$selected)+
-#   mapview::mapview(result$in_pendling, zcol = "commute_from", lwd = 0)+
-#   mapview::mapview(result$ut_pendling, zcol = "commute_to", lwd = 0)+
+# mapview::mapview(result$utvalda_rutor)+
+#   mapview::mapview(result$in_pendling, zcol = "pendlare_fran", lwd = 0)+
+#   mapview::mapview(result$ut_pendling, zcol = "pendlare_till", lwd = 0)+
 #   mapview::mapview(polygon)
 # 
 # 
@@ -830,12 +834,12 @@ pendling_ruta <- function(version = c("PostGIS", "R"), # Måste välja mellan Po
 #   rutor = rutor
 # )
 # 
-# mapview::mapview(result_pg$selected)+
+# mapview::mapview(result_pg$utvalda_rutor)+
 #   mapview::mapview(result_pg$in_pendling, zcol = "total", lwd = 0)+
 #   mapview::mapview(result_pg$ut_pendling, zcol = "total", lwd = 0)+
-#   mapview::mapview(result$selected)+
-#   mapview::mapview(result$in_pendling, zcol = "commute_from", lwd = 0)+
-#   mapview::mapview(result$ut_pendling, zcol = "commute_to", lwd = 0)
+#   mapview::mapview(result$utvalda_rutor)+
+#   mapview::mapview(result$in_pendling, zcol = "pendlare_fran", lwd = 0)+
+#   mapview::mapview(result$ut_pendling, zcol = "pendlare_till", lwd = 0)
 # 
 
 # polygon <- hamta_karta(karttyp = "tatort", regionkoder = 2084) %>%
@@ -843,9 +847,9 @@ pendling_ruta <- function(version = c("PostGIS", "R"), # Måste välja mellan Po
 # 
 # avesta <- pendling_ruta(polygon = polygon, version = "R", rutor = rutor, tabell_pend_relation_ruta = tabell_pend_relation_ruta)
 # 
-# mapview::mapview(avesta$selected)+
-#   mapview::mapview(avesta$in_pendling, zcol = "commute_from", lwd = 0)+
-#   mapview::mapview(avesta$ut_pendling, zcol = "commute_to", lwd = 0)+
+# mapview::mapview(avesta$utvalda_rutor)+
+#   mapview::mapview(avesta$in_pendling, zcol = "pendlare_fran", lwd = 0)+
+#   mapview::mapview(avesta$ut_pendling, zcol = "pendlare_till", lwd = 0)+
 #   mapview::mapview(polygon)
 # 
 # 
@@ -866,7 +870,22 @@ pendling_ruta <- function(version = c("PostGIS", "R"), # Måste välja mellan Po
 # polygon <- vagfil_66
 # vag_66 <- pendling_ruta(polygon = polygon, version = "R", rutor = rutor, tabell_pend_relation_ruta = tabell_pend_relation_ruta)
 # 
-# mapview::mapview(vag_66$selected)+
-#   mapview::mapview(vag_66$in_pendling, zcol = "commute_from", lwd = 0)+
-#   mapview::mapview(vag_66$ut_pendling, zcol = "commute_to", lwd = 0)+
+# mapview::mapview(vag_66$utvalda_rutor)+
+#   mapview::mapview(vag_66$in_pendling, zcol = "pendlare_fran", lwd = 0)+
+#   mapview::mapview(vag_66$ut_pendling, zcol = "pendlare_till", lwd = 0)+
+#   mapview::mapview(polygon)
+
+
+# tatortspunkt_falun <- hamta_karta(karttyp = "tatortspunkter", regionkoder = 2080)%>%
+#   filter(tatort == "Svärdsjö")
+# 
+# mapview::mapview(tatortspunkt_falun)
+# 
+# polygon <- tatortspunkt_falun
+# 
+# falun <- pendling_ruta(polygon = polygon, version = "R", rutor = rutor, tabell_pend_relation_ruta = tabell_pend_relation_ruta)
+# 
+# mapview::mapview(falun$utvalda_rutor)+
+#   mapview::mapview(falun$in_pendling, zcol = "pendlare_fran", lwd = 0)+
+#   mapview::mapview(falun$ut_pendling, zcol = "pendlare_till", lwd = 0)+
 #   mapview::mapview(polygon)
