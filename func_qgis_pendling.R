@@ -42,12 +42,14 @@
 #   3. köra ruttning mellan satelliter och LA (kör även ruttning mellan satelliter och solitärer och andra satelliter)
 #   4. skapa kraftfältspolygoner genom buffer av resväg mellan satelliter för LA tätorter.
 # 
-# kommentera parametrar
 
-# gå igenom och svenskifiera
-
-# tabell_pend_relation <- "G:/Samhällsanalys/GIS/grundkartor/mona/pendlingsrelationer_tatort_nattbef_filtrerad.csv"
-
+# tabell med pendlingsrelationer
+# tabell_pend_relation <- postgis_postgistabell_till_sf(
+#   schema = "rutor",
+#   tabell = "pend_relation_tatorter",
+#   con = uppkoppling_db(service = "rd_geodata", db_name = "sekretess")
+# )
+  
 pendling_kraftfalt <- function(
     tabell_pend_relation, # Dataframe med pendlingsrelationer hämtas förslagsvis på MONA
     ut_mapp = NA, # data ut ur funktionen
@@ -104,14 +106,14 @@ pendling_kraftfalt <- function(
     )  
   }  
   
-  # läs in pendlingsdata
-  tabell_pend_relation <- read_csv(tabell_pend_relation, locale = locale(encoding = "ISO-8859-1"))%>%
-    mutate(
-      from_id = substr(from_id, 3, 11), # tar bort länskoden och tätortsnamnet från t.ex. 202084TC101 Avesta
-      to_id = substr(to_id, 3, 11)      # tar bort länskoden och tätortsnamnet från t.ex. 202080TC108 Falun
-    ) %>% 
-    select(from_id, to_id, n) # väljer ut kolumner från_id, to_id och antal pendlare (n)
-  
+  # # läs in pendlingsdata
+  # tabell_pend_relation <- read_csv(tabell_pend_relation, locale = locale(encoding = "ISO-8859-1"))%>%
+  #   mutate(
+  #     from_id = substr(from_id, 3, 11), # tar bort länskoden och tätortsnamnet från t.ex. 202084TC101 Avesta
+  #     to_id = substr(to_id, 3, 11)      # tar bort länskoden och tätortsnamnet från t.ex. 202080TC108 Falun
+  #   ) %>% 
+  #   select(from_id, to_id, n) # väljer ut kolumner från_id, to_id och antal pendlare (n)
+  # 
   if (!all(c("from_id", "to_id", "n") %in% colnames(tabell_pend_relation))) { # tabell_pend_relation_ruta måste innehålla dessa kolumner
     stop("`tabell_pend_relation` must contain the columns: 'from_id', 'to_id', 'n'.") # felmeddelande om inte dessa kolumner finns i tabell_pend_relation_ruta
   }
@@ -429,23 +431,25 @@ pendling_kraftfalt <- function(
   }
 }
 
-# # # Exempel på hur funktionen kan användas
-# # 
-# kraftfalt_25_40 <- pendling_kraftfalt(tabell_pend_relation = tabell_pend_relation, enskilt_troskelvarde = 25, totalt_troskelvarde = 40)
-# # 
+# # # # Exempel på hur funktionen kan användas
+# # # 
+# kraftfalt_15_35 <- pendling_kraftfalt(tabell_pend_relation = tabell_pend_relation, 
+#                                       enskilt_troskelvarde = 15, 
+#                                       totalt_troskelvarde = 35)
+# #
 # # # Define custom colors for better readability
 # road_color <- "#4D4D4D" # Dark gray for roads
 # area_color <- "green" # Green for areas
 # point_color_primary <- "red" # Red for primary points
 # point_color_secondary <- "orange" # Orange for secondary points
-# # 
+# #
 # # # Update mapview layers
-# mapview::mapview(kraftfalt_25_40$la, col.regions = area_color, alpha.regions = 0.5, cex = 6) +
-#   mapview::mapview(kraftfalt_25_40$solitary, col.regions = point_color_secondary, cex = 4) +
-#   mapview::mapview(kraftfalt_25_40$routes, color = road_color, lwd = 2)  +
-#   mapview::mapview(kraftfalt_25_40$satellites, col.regions = point_color_primary, cex = 3)+
-#   mapview::mapview(kraftfalt_25_40$primla_areas, col.regions = "blue", alpha.regions = 0.3)+
-#   mapview::mapview(kraftfalt_25_40$secla_areas, col.regions = "orange", alpha.regions = 0.4)
+# mapview::mapview(kraftfalt_15_35$la, col.regions = area_color, alpha.regions = 0.5, cex = 6) +
+#   mapview::mapview(kraftfalt_15_35$solitary, col.regions = point_color_secondary, cex = 4) +
+#   mapview::mapview(kraftfalt_15_35$routes, color = road_color, lwd = 2)  +
+#   mapview::mapview(kraftfalt_15_35$satellites, col.regions = point_color_primary, cex = 3)+
+#   mapview::mapview(kraftfalt_15_35$primla_areas, col.regions = "blue", alpha.regions = 0.3)+
+#   mapview::mapview(kraftfalt_15_35$secla_areas, col.regions = "orange", alpha.regions = 0.4)
 
 # ------------------- funktion som skapar pendlingsnätverk -------------------------
 
@@ -458,15 +462,20 @@ pendling_kraftfalt <- function(
 # source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R", encoding = "utf-8", echo = FALSE)
 # skapa_vagnatverk_tatort()
 
-tabell_pend_relation <- "G:/Samhällsanalys/GIS/grundkartor/mona/pendlingsrelationer_tatort_nattbef_filtrerad.csv"
+# tabell med pendlingsrelationer
+# tabell_pend_relation <- postgis_postgistabell_till_sf(
+#   schema = "rutor",
+#   tabell = "pend_relation_tatorter",
+#   con = uppkoppling_db(service = "rd_geodata", db_name = "sekretess")
+# )
 
 pendling_natverk <- function(
     tabell_pend_relation, # Dataframe med pendlingsrelationer hämtas förslagsvis på MONA
-    con = NA, # uppkopling till PostGIS, krävs en connection, om inte anges finns et default värde till Region Dalarnas databas
+    con = NA, # uppkoppling till PostGIS, krävs en connection, om inte anges finns et default värde till Region Dalarnas databas
     dist = 2000, # max avstånd till vägnätet
-    skriv_till_gpkg = FALSE, # Flag to control output
-    ut_mapp = NA, # Output folder for geopackage
-    gpkg_namn = NA # Name of the geopackage
+    skriv_till_gpkg = FALSE, # flagga för att skriva till geopackage
+    ut_mapp = NA, # mapp att skriva till
+    gpkg_namn = NA # namn på geopackage
 ) { 
   
   library(readxl)
@@ -501,20 +510,20 @@ pendling_natverk <- function(
   kost_kol = "dist_cost" # kolumn i nvdb_noded med kostnad
   omvand_kost_kol = "dist_reverse_cost" # kolumn i nvdb_noded med omvänd kostnad
   
-  # läs in pendlingsdata
-  tabell_pend_relation <- read_csv(tabell_pend_relation, locale = locale(encoding = "ISO-8859-1"))%>%
-    mutate(
-      from_id = substr(from_id, 3, 11), # tar bort länskoden och tätortsnamnet från t.ex. 202084TC101 Avesta
-      to_id = substr(to_id, 3, 11)      # tar bort länskoden och tätortsnamnet från t.ex. 202080TC108 Falun
-    ) %>% 
-    select(from_id, to_id, n)
-  
+  # # läs in pendlingsdata
+  # tabell_pend_relation <- read_csv(tabell_pend_relation, locale = locale(encoding = "ISO-8859-1"))%>%
+  #   mutate(
+  #     from_id = substr(from_id, 3, 11), # tar bort länskoden och tätortsnamnet från t.ex. 202084TC101 Avesta
+  #     to_id = substr(to_id, 3, 11)      # tar bort länskoden och tätortsnamnet från t.ex. 202080TC108 Falun
+  #   ) %>% 
+  #   select(from_id, to_id, n)
+  # 
   if (!all(c("from_id", "to_id", "n") %in% colnames(tabell_pend_relation))) { # tabell_pend_relation_ruta måste innehålla dessa kolumner
     stop("`tabell_pend_relation` must contain the columns: 'from_id', 'to_id', 'n'.") # felmeddelande om inte dessa kolumner finns i tabell_pend_relation_ruta
   }
   
   # dbWriteTable(con, 'grafer.data', data, overwrite=TRUE, temporary=FALSE) # denna skriv till grafer.grafer.data !!
-  dbWriteTable(con, 'data', tabell_pend_relation, overwrite=TRUE, temporary=FALSE) # skriver till grafer.data således schema grafer
+  dbWriteTable(con, 'data', tabell_pend_relation, overwrite=TRUE, temporary=FALSE) # skriver till grafer.data således schema grafer ändra till TEMP
   
   
   # hitta närmaste vertex i vägnätet till varje tätort
@@ -583,8 +592,8 @@ pendling_natverk <- function(
 
 # natverk <- pendling_natverk(tabell_pend_relation = tabell_pend_relation, skriv_till_gpkg = FALSE)
 # #
-# # Load necessary library
-# library(mapview)
+# # # Load necessary library
+# # library(mapview)
 # 
 # # Define a custom color palette
 # custom_colors <- colorRampPalette(c("lightblue", "blue", "lightgreen", "green", "yellow", "orange", "red", "darkred"))
@@ -620,32 +629,19 @@ pendling_natverk <- function(
 # 
 # polygon <- st_read("G:/skript/gis/sweco_dec_2022/mora_lassarett_test.gpkg")
 # 
-# # ändra så tt det blir absolut tydligt vad som är inpendling och utpendling och till vad
-# 
-# 
-# # 1 km rutor
-# base_dir <- "G:/Samhällsanalys/GIS/grundkartor/mona/rutor"
-# 
-# # Define the file name
-# file_name <- "dag_natt_bef_ruta1km.gpkg"
-# 
-# # Combine to create the full file path
-# file_path <- file.path(base_dir, file_name)
-# 
-# rutor <- st_read(file_path, crs = 3006)%>%
-#   dplyr::select(rut_id = xy, nattbef, dagbef, geom)%>%
-#   st_cast("MULTIPOLYGON")
-# 
-# tabell_pend_relation_ruta <- read.csv(
-#   "G:/Samhällsanalys/GIS/rutor/rutor1km_pendlingsrelationer_2022.csv",
-#   header = FALSE,
-#   sep = ";",
-#   skip = 6,
-#   colClasses = c("character", "character", "integer")
-# )
 
-# Rename the columns
-colnames(tabell_pend_relation_ruta) <- c("boruta", "arbruta", "antalpend")
+
+# tabell_pend_relation_ruta <- postgis_postgistabell_till_sf(
+#   schema = "rutor",
+#   tabell = "pend_relation_rutor_1000m",
+#   con = uppkoppling_db(service = "rd_geodata", db_name = "sekretess")
+# )
+# 
+# rutor <- postgis_postgistabell_till_sf(
+#   schema = "rutor",
+#   tabell = "dag_natt_bef_rutor_1000m",
+#   con = uppkoppling_db(service = "rd_geodata", db_name = "sekretess")
+# )
 
 # ett förslag på förbättring, lägg till beefolkningen så att det går att se hur många som bor i utvalda_rutor, skapa centroider av rutor och kör cex = befolkningen (natt eller dag)
 
@@ -847,10 +843,15 @@ pendling_ruta <- function(version = c("PostGIS", "R"), # Måste välja mellan Po
 # 
 # avesta <- pendling_ruta(polygon = polygon, version = "R", rutor = rutor, tabell_pend_relation_ruta = tabell_pend_relation_ruta)
 # 
+# avesta$centroider <- st_centroid(avesta$utvalda_rutor)
+# 
 # mapview::mapview(avesta$utvalda_rutor)+
 #   mapview::mapview(avesta$in_pendling, zcol = "pendlare_fran", lwd = 0)+
 #   mapview::mapview(avesta$ut_pendling, zcol = "pendlare_till", lwd = 0)+
-#   mapview::mapview(polygon)
+#   mapview::mapview(polygon)+
+#   mapview::mapview(avesta$centroider, cex = "nattbef", col.regions = "red", hide = TRUE, alpha.regions = 0.3, layer.name = "Nattbefolkning", legend = FALSE)+
+#   mapview::mapview(avesta$centroider, cex = "dagbef", col.regions = "blue", hide = TRUE, alpha.regions = 0.3, layer.name = "Dagbefolkning", legend = FALSE)
+
 # 
 # 
 # vagfil_66<- postgis_postgistabell_till_sf(
