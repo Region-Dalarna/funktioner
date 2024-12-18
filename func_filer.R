@@ -24,7 +24,7 @@ sparafil_unik <- function(full_path, fraga = FALSE, skrivover = FALSE){
 }
 
 skapa_mapp_om_den_inte_finns <- function(sokvag){
-  if (!dir.exists(sokvag)) dir.create(sokvag)
+  if (!dir.exists(sokvag)) dir.create(sokvag, recursive = TRUE)
   return(sokvag)
 }
 
