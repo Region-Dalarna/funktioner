@@ -311,7 +311,7 @@ SkapaStapelDiagram <- function(skickad_df,
     }  
   }
   
-    if (!is.na(farg_variabler)) {
+    if (!all(is.na(farg_variabler))) {
       ny_variabel <- names(farg_variabler)
       plot_df <- plot_df %>% 
         mutate(
