@@ -1,6 +1,5 @@
 
 
-
 skapa_tabeller <- function(con, schema = schema_namn) {
   tryCatch({
     
@@ -731,6 +730,7 @@ skapa_vyer_linjer <- function(con, schema = schema_namn) {
 
 skapa_vyer_historisk_hallplats <- function(con, schema = schema_namn) {
   tryCatch({
+    schema <- glue::glue("{schema}_historisk")
     # Drop the materialized views if they exist
     dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_historisk_hallplatslage_avgangar CASCADE;"))
     dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_historisk_hallplats_avgangar CASCADE;"))
@@ -882,6 +882,7 @@ skapa_vyer_historisk_hallplats <- function(con, schema = schema_namn) {
 
 skapa_vyer_historisk_linjer <- function(con, schema = schema_namn) {
   tryCatch({
+    schema <- glue::glue("{schema}_historisk")
     # Drop the materialized views if they exist
     dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_historisk_linjer_avgangar_alla CASCADE;"))
     dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_historisk_linjer_avgangar_vanligaste CASCADE;"))
