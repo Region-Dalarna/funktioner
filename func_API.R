@@ -16,16 +16,16 @@ p_load(pxweb,
 # ================================================= pxweb-funktioner ========================================================
 
 hamtaregtab <- function(){
- 
-# Hämta tabell med regioner
-url_adress <- "https://api.scb.se/OV0104/v1/doris/sv/ssd/BE/BE0101/BE0101A/BefolkningNy"
-
-hamtad_regionkod <- hamta_giltiga_varden_fran_tabell(url_adress, "region")
-hamtad_region <- hamta_giltiga_varden_fran_tabell(url_adress, "region", klartext = TRUE)
-
-regdf <- data.frame(regionkod = hamtad_regionkod, region = hamtad_region)
-
-return(regdf)
+  
+  # Hämta tabell med regioner
+  url_adress <- "https://api.scb.se/OV0104/v1/doris/sv/ssd/BE/BE0101/BE0101A/BefolkningNy"
+  
+  hamtad_regionkod <- hamta_giltiga_varden_fran_tabell(url_adress, "region")
+  hamtad_region <- hamta_giltiga_varden_fran_tabell(url_adress, "region", klartext = TRUE)
+  
+  regdf <- data.frame(regionkod = hamtad_regionkod, region = hamtad_region)
+  
+  return(regdf)
 }
 
 hamtakommuner <- function(lan = "20", tamedlan = TRUE, tamedriket = TRUE, allakommuner = FALSE){
@@ -50,14 +50,14 @@ hamtakommuner <- function(lan = "20", tamedlan = TRUE, tamedriket = TRUE, allako
 }
 
 hamtaAllaLan <- function(tamedriket = TRUE){
-
+  
   # Url till befolkningstabellen
   url_adress <- "https://api.scb.se/OV0104/v1/doris/sv/ssd/BE/BE0101/BE0101A/BefolkningNy"
   
   hamtad_regionkod <- hamta_giltiga_varden_fran_tabell(url_adress, "region")    # hämta alla regionkoder
   retur_vektor <- hamtad_regionkod[nchar(hamtad_regionkod) == 2]               # filtrera ut län och riket
   if (!tamedriket) retur_vektor <- retur_vektor[retur_vektor != "00"]          # filtrera ut riket om vi valt bort det
-
+  
   return(retur_vektor)
 }
 
@@ -126,7 +126,7 @@ hamta_giltig_tid_tabell <- function(skickad_url, tidkol = "år", tabort_var = NA
   if (is.null(query_list)) query_list <- list(Region = region_varde, ContentsCode = "*", Tid = "*")
   # om tabellen inte innehåller en variabel, ta bort den variabeln ur query_list
   if (!is.na(tabort_var)) query_list <- query_list[names(query_list) %in% tabort_var]
-
+  
   px_small <- pxweb_get(url = skickad_url, query = query_list) 
   px_df_small <- as.data.frame(px_small, column.name.type = "text", variable.value.type = "text")
   senaste_tid <- as.numeric(max(px_df_small[[tidkol]]))     # startår är alltid ett år innan första året i prognosen
@@ -137,7 +137,7 @@ hamta_giltig_tid_tabell <- function(skickad_url, tidkol = "år", tabort_var = NA
 }
 
 pxvarlist <- function(api_url){
-
+  
   # om vi skickar med en metadata-lista (som vi får genom att köra "px_meta <- pxweb_get(api_url)") så använder vi den direkt
   # om det är en url så hämtar vi data med den
   metadata <- if(is.list(api_url)) api_url else pxweb_get(api_url)
@@ -160,7 +160,7 @@ pxvardelist <- function(api_url, variabel, skriv_vektlista_till_clipboard = FALS
   
   return(retur_varden)
 }
-  
+
 hamta_giltiga_varden_fran_tabell <- function(api_url, variabel, klartext = FALSE, kod_OCH_klartext = FALSE){
   
   # om vi skickar med en metadata-lista (som vi får genom att köra "px_meta <- pxweb_get(api_url)") så använder vi den direkt
@@ -171,9 +171,9 @@ hamta_giltiga_varden_fran_tabell <- function(api_url, variabel, klartext = FALSE
   if (length(ind) < 1) ind <- which(tolower(sapply(metadata$variables, "[[", 2)) == tolower(variabel)) # om inte variabeln finns som kod så kollar vi om den finns som text
   
   if (length(ind) > 0){
-  # välj om vi ska hämta koder eller klartext
-  if (klartext) retur_varden <- metadata$variables[[ind]]$valueTexts else retur_varden <- metadata$variables[[ind]]$values
-  if (kod_OCH_klartext) retur_varden <- data.frame(kod = metadata$variables[[ind]]$values, klartext = metadata$variables[[ind]]$valueTexts)
+    # välj om vi ska hämta koder eller klartext
+    if (klartext) retur_varden <- metadata$variables[[ind]]$valueTexts else retur_varden <- metadata$variables[[ind]]$values
+    if (kod_OCH_klartext) retur_varden <- data.frame(kod = metadata$variables[[ind]]$values, klartext = metadata$variables[[ind]]$valueTexts)
   } else {
     warning("Variabeln ", variabel, " hittades inte i tabellen med url: ", api_url, ". Kontrollera stavningen eller att variabeln finns i aktuell tabell.")
     retur_varden <- NULL
@@ -191,9 +191,9 @@ hamta_kod_med_klartext <- function(api_url, klartext_varde, skickad_fran_variabe
 
 hamta_klartext_med_kod <- function(api_url, kod_varde, skickad_fran_variabel = NA){
   retur_klartext <- sla_upp_varde_klartext_kod(api_url = api_url, 
-                                          fran_varde = kod_varde, 
-                                          klartext = FALSE,
-                                          fran_variabel = skickad_fran_variabel)
+                                               fran_varde = kod_varde, 
+                                               klartext = FALSE,
+                                               fran_variabel = skickad_fran_variabel)
   return(retur_klartext)
 }
 
@@ -203,13 +203,13 @@ sla_upp_varde_klartext_kod <- function(api_url, fran_varde, klartext = TRUE, fra
     if (is.na(fran_variabel)) stop("fran_variabel måste anges när klartext eller kod ska hämtas i en lista.")
     
     varde <- hamta_kod_eller_klartext_fran_lista(lista = api_url, 
-                                                      klartext_eller_kod_varde = fran_varde,
-                                                      skickad_fran_variabel = fran_variabel,
-                                                      hamta_kod = klartext)
+                                                 klartext_eller_kod_varde = fran_varde,
+                                                 skickad_fran_variabel = fran_variabel,
+                                                 hamta_kod = klartext)
     return(varde)
-  
+    
   } else {                                 # om värde ska hämtas via API från SCB-pxweb, dvs. en url
-  
+    
     metadata <- pxweb_get(api_url)          # hämta metadata för aktuell tabell
     
     if (klartext) {                        # tilldela variabler fran_kol och till_kol beroende
@@ -310,7 +310,7 @@ sla_upp_varde_klartext_kod <- function(api_url, fran_varde, klartext = TRUE, fra
         
       } # slut for-loop för att gå igenom alla medskickad koder eller klartext-värden
     } # slut if-sats för att avgöra om man skickat med vilken variabel det gäller, eller inte (fran_variabel)
-  
+    
     return(varde)       # returnera koder eller klartext-värden
   } # slut if-sats där det testas om vi skickat en lista eller en url i en vektor
 } # slut funktion
@@ -359,13 +359,13 @@ konvertera_till_long_for_contentscode_variabler <- function(skickad_df,
                                                             content_var = "variabel", 
                                                             varde_var = "varde",           # kolumnen
                                                             content_kolumner = NA          # används om man har varit tvungen att döpa om innehållsvariablerna och vill skicka med dem som text istället för att de hämtas ur meta (ibland fallet med bas men oftast inte)
-                                                            ) {
+) {
   pivot_kol <- if (all(is.na(content_kolumner))) {
     hamta_giltiga_varden_fran_tabell(api_url, "contentscode", klartext = TRUE)
   } else {
     content_kolumner
   }
-    
+  
   if (content_var %in% names(skickad_df)) content_var == "vardekategori"               # om det redan finns en kolumn som heter "variabel" (det förekommer i vissa tabeller på SCB)
   if (varde_var %in% names(skickad_df)) varde_var == "vardevariabel"                   # om det redan finns en kolumn som heter "varde" 
   
@@ -378,9 +378,9 @@ konvertera_till_long_for_contentscode_variabler <- function(skickad_df,
 }
 
 kontrollera_pxweb_variabelvarden <- function(api_url,                                  # url till aktuell tabell - alternativt en metadata-lista
-                                            var_lista,                                # skicka med lista med variabelnamn och värden som ska göras uttag för (query_list)
-                                            visa_alla_ogiltiga_varden = TRUE,        # visa alla ogilitiga värden även om det finns giltiga värden för variabeln
-                                            stoppa_om_ogiltiga_varden_finns = FALSE) { # TRUE om körningen ska stoppas om det är någon variabel som saknar giltiga värden
+                                             var_lista,                                # skicka med lista med variabelnamn och värden som ska göras uttag för (query_list)
+                                             visa_alla_ogiltiga_varden = TRUE,        # visa alla ogilitiga värden även om det finns giltiga värden för variabeln
+                                             stoppa_om_ogiltiga_varden_finns = FALSE) { # TRUE om körningen ska stoppas om det är någon variabel som saknar giltiga värden
   
   alla_giltiga <- map2(var_lista, names(var_lista), ~ hamta_giltiga_varden_fran_tabell(api_url, .y))    # alla giltiga värden för aktuell tabell hämtas
   retur_list <- map2(var_lista, alla_giltiga, ~ .x[.x %in% .y])           # skapa lista med alla giltiga värden som skickats med i var_lista, denna returneras
@@ -433,7 +433,7 @@ svenska_tecken_byt_ut <- function(textstrang){
 
 hamta_regionkod_med_knas_regionkod <- function(api_url, skickade_regionkoder, skickad_fran_variabel, dubbelkolumn = "klartext", 
                                                returnera_nyckeltabell = FALSE                  # om man vill returnera både felaktiga och korrekta koder
-                                               ){
+){
   # används för de myndigheter som hittar på egna läns- och kommunkoder
   # men lägger de riktiga tillsammans med klartext i klartextkolumnen
   # det funkar att skicka en api-url men också en lista med pxmeta-data
@@ -452,7 +452,7 @@ hamta_regionkod_med_knas_regionkod <- function(api_url, skickade_regionkoder, sk
   
   if (!returnera_nyckeltabell) { 
     retur_regionkoder <- retur_regionkoder %>% 
-    dplyr::pull(kod)
+      dplyr::pull(kod)
   } else {
     retur_regionkoder <- retur_regionkoder %>% 
       rename(felaktig_kod = kod)
@@ -473,7 +473,7 @@ regsokoder_bearbeta <- function(api_url, regsokoder, var_namn = "region", behall
   # till TRUE så behåller man bara regsokoderna för dessa kommuner men inte kommunkoden för hela kommunen
   
   regsokoder_retur <- tatortskoder_bearbeta(api_url, regsokoder, var_namn)
-
+  
   if (behall_bara_regsokoder) {
     regsokoder_retur <- regsokoder_retur[str_length(regsokoder_retur) > 4]
   }
@@ -491,9 +491,9 @@ desokoder_bearbeta <- function(api_url, desokoder, var_namn = "region", behall_b
   # i vissa tabeller kan man ta ut både desokoder och kommuner, om behall_bara_desokoder sätts
   # till TRUE så behåller man bara desokoderna för dessa kommuner men inte kommunkoden för hela kommunen
   
- desokoder_retur <-  tatortskoder_bearbeta(api_url, desokoder, var_namn)
-   
- if (behall_bara_desokoder) {
+  desokoder_retur <-  tatortskoder_bearbeta(api_url, desokoder, var_namn)
+  
+  if (behall_bara_desokoder) {
     desokoder_retur <- desokoder_retur[str_length(desokoder_retur) > 4]
   }
   
@@ -597,7 +597,7 @@ hamta_kolada_df <- function(kpi_id, valda_kommuner, valda_ar = NA, konsuppdelat 
       mutate(gender = case_when(gender == "T" ~ "Båda könen",
                                 gender == "K" ~ "Kvinnor",
                                 gender == "M" ~ "Män"))
-  
+    
   } # slut if-sats om kön finns med som variabel
   
   # gör om år till character
@@ -714,7 +714,7 @@ ar_alla_kommuner_i_ett_lan <- function(reg_koder, tillat_lanskod = TRUE, tillat_
 ar_alla_lan_i_sverige <- function(reg_koder, tillat_rikskod = TRUE, returnera_text = FALSE, returtext = NA) {
   
   # kontrollerar om reg_koder innehåller alla län i Sverige
- 
+  
   retur_varde <- TRUE                      # vi sätter värdet till TRUE från början, testar nedan och ändrar till FALSE om inte alla kriterier nedan uppfylls
   returtext_na <- if (all(is.na(returtext))) TRUE else FALSE                 # om man skickat med returtext så returneras den om inte regionkoderna är alla län i Sverige , annars om man inte skickat med någon returtext  returneras FALSE
   
@@ -735,7 +735,7 @@ ar_alla_lan_i_sverige <- function(reg_koder, tillat_rikskod = TRUE, returnera_te
   } else {                     # om användaren INTE valt att returnera text returneras TRUE/FALSE
     return(retur_varde)  
   } 
-   
+  
 }
 
 skapa_aldersgrupper <- function(alder, aldergrupp_vekt, konv_fran_txt = TRUE) {
@@ -896,7 +896,7 @@ webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel
   
   sokord_url <- paste0("https://arbetsformedlingen.se", af_urler)
   
-    return(sokord_url)
+  return(sokord_url)
 } 
 
 konvertera_dataset_filformat <- function(sokvag_fil,
@@ -951,7 +951,7 @@ funktion_upprepa_forsok_om_fel <- function(funktion,
                                            vanta_sekunder = 1, 
                                            meddelanden = FALSE,
                                            hoppa_over = FALSE
-                                           ) {
+) {
   
   if (!hoppa_over) {
     funktionsnamn <- deparse(substitute(funktion))  # Hämta namnet på funktionen som skickades in
@@ -1059,9 +1059,9 @@ skapa_intervaller <- function(skickad_kolumn, antal_intervaller = 5){
   intervaller_obearbetad <- seq(min_rundat, max_rundat, length.out = antal_intervaller)
   
   retur_intervaller <- avrundning_dynamisk(intervaller_obearbetad)
-
+  
   return(retur_intervaller)
-
+  
 }
 
 
@@ -1212,7 +1212,7 @@ json_extrahera_subdimensions <- function(meta_dim) {
 
 json_extrahera_values <- function(meta_dim) {
   # Funktion för att extrahera nyckel/etikett från values - json-data från Försäkringskassan
-
+  
   map_dfr(seq_along(meta_dim$values), ~ {
     value <- meta_dim$values[[.x]]
     if (is.data.frame(value)) {
@@ -1335,7 +1335,7 @@ hamta_excel_dataset_med_url <- function(url_excel,
     retur_df <- read_xlsx(excel_fil, sheet = .x, skip = skippa_rader)
     if (!is.na(mutate_flik)) retur_df <- retur_df %>% mutate(!!mutate_flik := .x)
     return(retur_df)
-    })
+  })
   names(dataset_lista) <- flikar
   
   if (rbind_dataset) dataset_lista <- dataset_lista %>% list_rbind()                      # bind ihop alla dataset till en datafram om rbind_dataset är TRUE
@@ -1376,14 +1376,14 @@ github_lista_repos <- function(owner = "Region-Dalarna", skriv_ut_reponamn_i_kon
 }
 
 github_lista_repo_filer <- function(owner = "Region-Dalarna",                     # användaren vars repos vi ska lista
-                                       repo = "hamta_data",                          # repot vars filer vi ska lista
-                                       url_vekt_enbart = TRUE,                       # om TRUE returneras en vektor med url:er, annars en dataframe med både filnamn och url
-                                       skriv_source_konsol = TRUE,                   # om TRUE returneras färdiga source-satser som man kan klistra in i sin kod
-                                       till_urklipp = TRUE,                          # om TRUE skrivs source-satserna till urklipp om skriv_source_konsol är TRUE
-                                       filtrera = NA,                                # om man vill filtrera filer på specifika sökord så gör man det här, kan vara ett eller en vektor med flera (som körs med OR och inte AND)
-                                       keyring_github_token = "github_token",         # om man har sparat en github-token i keyring-paketet så anges service_name här (OBS! Det får bara finnas en användare för denna service i keyring om detta ska fungera)
-                                       icke_source_repo = FALSE,                      # om TRUE så returneras bara filnamn och url och inte source-satser
-                                       path = "") {                                  # path används för att hantera mappar
+                                    repo = "hamta_data",                          # repot vars filer vi ska lista
+                                    url_vekt_enbart = TRUE,                       # om TRUE returneras en vektor med url:er, annars en dataframe med både filnamn och url
+                                    skriv_source_konsol = TRUE,                   # om TRUE returneras färdiga source-satser som man kan klistra in i sin kod
+                                    till_urklipp = TRUE,                          # om TRUE skrivs source-satserna till urklipp om skriv_source_konsol är TRUE
+                                    filtrera = NA,                                # om man vill filtrera filer på specifika sökord så gör man det här, kan vara ett eller en vektor med flera (som körs med OR och inte AND)
+                                    keyring_github_token = "github_token",         # om man har sparat en github-token i keyring-paketet så anges service_name här (OBS! Det får bara finnas en användare för denna service i keyring om detta ska fungera)
+                                    icke_source_repo = FALSE,                      # om TRUE så returneras bara filnamn och url och inte source-satser
+                                    path = "") {                                  # path används för att hantera mappar
   # En funktion för att lista filer i ett repository som finns hos en github-användare
   
   url <- paste0("https://api.github.com/repos/", owner, "/", repo, "/contents/", path)
