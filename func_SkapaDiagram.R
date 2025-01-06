@@ -454,7 +454,7 @@ SkapaStapelDiagram <- function(skickad_df,
                                  nrow = legend_rader,
                                  byrow = legend_byrow)) +
     { if (!all(is.na(skickad_namngiven_fargvektor)) & !all(is.na(farg_variabler))){
-      scale_fill_manual(values = farg_karta,
+      scale_fill_manual(values = skickad_namngiven_fargvektor,
                         labels = legend_kategorier
                           # names(farg_karta) %>% 
                           # str_replace_all("\\.", " ") %>%           #unique(plot_df[[x_grupp]])
