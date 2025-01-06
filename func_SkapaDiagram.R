@@ -5,6 +5,7 @@ p_load(tidyverse,
        scales,        # för att använda format_format-funktionen och fixa till format på etiketter
        httr,
        openxlsx,
+       ggtext,
        tidytext)     # för att sortera facet-diagram med funktionen reorder_within() och scale_x_reordered()
 #library(png)
 options(dplyr.summarise.inform = FALSE)
@@ -418,7 +419,12 @@ SkapaStapelDiagram <- function(skickad_df,
           legend.margin = margin(0,0,0,0),
           legend.title = element_text(),
           legend.text = element_text(size = 12),
-          plot.title = element_text(hjust = 0.5, size = 20),
+          #plot.title = element_text(hjust = 0.5, size = 20),
+          plot.title = element_textbox_simple(
+            size = 20,
+            width = unit(0.9, "npc"),  # Bredd som proportion av plottens område
+            halign = 0.5,  # Centrera texten
+            margin = margin(7, 0, 7, 0)),
           plot.title.position = "plot",
           plot.subtitle = element_text(hjust = undertitel_hjust, size = undertitel_storlek),
           plot.caption = element_text(face = "italic",
