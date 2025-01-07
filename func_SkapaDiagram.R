@@ -5,6 +5,7 @@ p_load(tidyverse,
        scales,        # för att använda format_format-funktionen och fixa till format på etiketter
        httr,
        openxlsx,
+       ggtext,
        tidytext)     # för att sortera facet-diagram med funktionen reorder_within() och scale_x_reordered()
 #library(png)
 options(dplyr.summarise.inform = FALSE)
@@ -82,6 +83,9 @@ SkapaStapelDiagram <- function(skickad_df,
                                dataetiketter_farg = "#464d48",    # möjlighet att byta färg på dataetiketterna
                                fokusera_varden = NA,              # för att rita ut ex. en rektangel som fokuserar på vissa specifika värden. fokusera_varden måste vara en lista som innehåller följande form = "rect", xmin, xmax, ymin, ymax, alpha samt fill. Form är alltså formen på fokusområdet, alpha är genomskinlighet (värde mellan 0 helt genomskinligt och 1 inte alls genomskinligt) och fill är färgen på området som ska fokuseras. Ex: fokusera_varden = list(list(geom = "rect", ymin=40, ymax=60, xmin=0, xmax=Inf, alpha=0.2, fill="grey20"))
                                stodlinjer_avrunda_fem = FALSE,     # för att alltid ha y-axlar som blir jämna tal, FALSE under testperioden, TRUE när vi vet att det funkar
+                               skickad_namngiven_fargvektor = NA,  # om man vill sätta färger kopplat till kategorinamn så används denna
+                               farg_variabler = NA,                # används tillsammans med skickad_namngiven_fargvektor, de två variabler som används för att bestämma färger
+                               legend_kategorier_tabort_xgrupp = FALSE,   # om man vill tabort x-gruppen ur kategorierna som de skrivs ut i legenden
                                skriv_till_diagramfil = TRUE,      # om TRUE så skrivs diagrammet till en fil                                                                                                                                                                                                                                                                                                                                                               list(list(geom = "text", x = 0.3, y = 50, size = 2.5, fontface = "bold", angle = 0,label = "Jämställda branscher", color ="grey60"))
                                skriv_till_excelfil = FALSE,       # om TRUE så skrivs df:n ut till en excelfil som heter samma som diagrammet men med .xlsx istället för .png på slutet
                                diagramfil_hojd = 7,               # om ett diagram skrivs till fil kan proportionerna ändras här i filens upplösning, OBS! påverkar även textstorlekar etc.                                                                                                                                                                                                                                                                                                                   fontface finns "plain", "bold", "italic", "bold.italic"
@@ -308,6 +312,29 @@ SkapaStapelDiagram <- function(skickad_df,
     }  
   }
   
+    if (!all(is.na(farg_variabler))) {
+      ny_variabel <- names(farg_variabler)
+      plot_df <- plot_df %>% 
+        mutate(
+          !!ny_variabel := map_chr(as.character(plot_df[[x_var]]), ~ {
+            # Iterera över alla värden i farg_variabler[[1]] och kontrollera matchning
+            match <- farg_variabler[[1]][str_detect(.x, regex(farg_variabler[[1]], ignore_case = TRUE))]
+            if (length(match) > 0) {
+              match[1]  # Returnera första matchande värdet
+            } else {
+              NA_character_  # Om inget matchar
+            }
+          }),
+          !!ny_variabel := factor(!!sym(ny_variabel), levels = farg_variabler[[1]])
+        )
+      legend_kategorier <- levels(interaction(plot_df[[names(farg_variabler)]], plot_df[[x_grupp]])) %>% str_replace_all("\\.", " ")
+      if (legend_kategorier_tabort_xgrupp) {
+        legend_kategorier <- legend_kategorier %>% 
+          str_remove(str_c("\\b", unique(plot_df[[names(farg_variabler)]]), "\\b", collapse = "|")) %>% 
+          str_squish()
+      } 
+    }
+  
   # Här börjar vi rita ut diagrammet
   if (!is.na(x_var_fokus)) {
     plot_df[x_var_fokus] <- factor(plot_df[[x_var_fokus]])
@@ -316,6 +343,13 @@ SkapaStapelDiagram <- function(skickad_df,
     p <- plot_df %>% 
       ggplot(aes(x=!!x_var, y=total)) + 
       geom_bar(position = geom_bar_position, stat="identity", aes(fill = !!x_var_fokus_asname))
+  # om vi skickat med en namngiven färgvektor 
+  } else if (!all(is.na(skickad_namngiven_fargvektor)) & !all(is.na(farg_variabler))) {
+    p <- plot_df %>% 
+      ggplot(aes(x=!!x_var, y=total, fill = interaction(!!sym(names(farg_variabler)), !!x_grupp)))
+    if (!diagram_facet | facet_legend_bottom) legend_pos <- "bottom" else legend_pos <- "none"        # lite oklart här om det ska vara or eller and i första if-satsen
+    if (legend_tabort) legend_pos <- "none"
+    
   } else if (is.na(skickad_x_grupp)) {
     p <- plot_df %>% 
       ggplot(aes(x=!!x_var, y=total, fill = chart_col))
@@ -385,7 +419,12 @@ SkapaStapelDiagram <- function(skickad_df,
           legend.margin = margin(0,0,0,0),
           legend.title = element_text(),
           legend.text = element_text(size = 12),
-          plot.title = element_text(hjust = 0.5, size = 20),
+          #plot.title = element_text(hjust = 0.5, size = 20),
+          plot.title = element_textbox_simple(
+            size = 20,
+            width = unit(0.9, "npc"),  # Bredd som proportion av plottens område
+            halign = 0.5,  # Centrera texten
+            margin = margin(7, 0, 7, 0)),
           plot.title.position = "plot",
           plot.subtitle = element_text(hjust = undertitel_hjust, size = undertitel_storlek),
           plot.caption = element_text(face = "italic",
@@ -420,7 +459,13 @@ SkapaStapelDiagram <- function(skickad_df,
                                  ncol = legend_kolumner,
                                  nrow = legend_rader,
                                  byrow = legend_byrow)) +
-    scale_fill_manual(values = chart_col) +
+    { if (!all(is.na(skickad_namngiven_fargvektor)) & !all(is.na(farg_variabler))){
+      scale_fill_manual(values = skickad_namngiven_fargvektor,
+                        labels = legend_kategorier
+      )
+    } else {
+      scale_fill_manual(values = chart_col)  
+    }} +
     #scale_fill_manual(values = c("red", "blue")) +  
     { if (AF_special) {  
       scale_x_continuous(expand = c(0,.3), breaks = seq(1,max(plot_df[x_var]), by = 1))
@@ -429,7 +474,6 @@ SkapaStapelDiagram <- function(skickad_df,
     { if (!is.na(x_axis_visa_var_xe_etikett)) {  
       scale_x_discrete(expand = c(0,0), breaks = every_nth(n = x_axis_visa_var_xe_etikett, sista_vardet = inkludera_sista_vardet_var_xe_etikett, ta_bort_nast_sista = x_axis_var_xe_etikett_ta_bort_nast_sista_vardet))
     }} +
-    
     
     # en lösning för att ta bort fasta stödlinjer om man kör facets med facet scales = "free"
     {if (!diagram_facet | (facet_scale == "fixed" & diagram_facet)){
