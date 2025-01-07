@@ -462,10 +462,6 @@ SkapaStapelDiagram <- function(skickad_df,
     { if (!all(is.na(skickad_namngiven_fargvektor)) & !all(is.na(farg_variabler))){
       scale_fill_manual(values = skickad_namngiven_fargvektor,
                         labels = legend_kategorier
-                          # names(farg_karta) %>% 
-                          # str_replace_all("\\.", " ") %>%           #unique(plot_df[[x_grupp]])
-                          # factor(levels = levels(interaction(plot_df$Kön, plot_df$År)) %>% str_replace_all("\\.", " "))
-                        
       )
     } else {
       scale_fill_manual(values = chart_col)  
