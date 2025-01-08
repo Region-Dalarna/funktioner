@@ -259,6 +259,11 @@ SkapaStapelDiagram <- function(skickad_df,
   if (diagram_facet & facet_sort) {
     plot_df[facet_grp] <- factor(plot_df[[facet_grp]])
     plot_df[x_var] <- reorder_within(plot_df[[x_var]], plot_df$total, plot_df[[facet_grp]])
+    
+    # test med att sätta färg med skickad_namngiven_fargvektor i facetdiagram
+  } else if (diagram_facet & !all(is.na(skickad_namngiven_fargvektor))) {
+    plot_df[facet_grp] <- factor(plot_df[[facet_grp]])
+    plot_df[x_var] <- reorder_within(plot_df[[x_var]], plot_df[[x_var]], plot_df[[facet_grp]])
   }
   
   # vill vi sortera x-axeln utifrån värdet på y 
@@ -476,7 +481,8 @@ SkapaStapelDiagram <- function(skickad_df,
     }} +
     
     # en lösning för att ta bort fasta stödlinjer om man kör facets med facet scales = "free"
-    {if (!diagram_facet | (facet_scale == "fixed" & diagram_facet)){
+    #{if (!diagram_facet | (facet_scale == "fixed" & diagram_facet)){
+    {if (!diagram_facet | (facet_scale == "fixed" & diagram_facet) | (!all(is.na(skickad_namngiven_fargvektor)) & procent_0_100_10intervaller == TRUE & diagram_facet)) {
       scale_y_continuous(breaks = seq(min_yvar, max_yvar, 
                                       by = maj_by_yvar),
                          minor_breaks = seq(min_yvar, max_yvar, by = min_by_yvar),
@@ -491,7 +497,7 @@ SkapaStapelDiagram <- function(skickad_df,
     {if (diagram_facet) facet_wrap(as.formula(paste("~",facet_grp)), scales = facet_scale,
                                    ncol = facet_kolumner,
                                    nrow = facet_rader) } +
-    {if (diagram_facet & facet_sort) scale_x_reordered()} +                 # sorterar varje facetgrupp för sig om man kör facet_sort
+    {if (diagram_facet & (facet_sort | !all(is.na(skickad_namngiven_fargvektor)))) scale_x_reordered()} +                 # sorterar varje facetgrupp för sig om man kör facet_sort
     {if(diagram_facet){
       theme(strip.text = element_text(color = "black", size = facet_rubrik_storlek),
             strip.background = element_blank(),
