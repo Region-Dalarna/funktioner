@@ -152,5 +152,33 @@ procent_till_text <- function(procent) {
   )
 }
 
+forandring_till_text <- function(varde1, varde2) {
+  procent_skillnad <- ((varde2 - varde1) / abs(varde1)) * 100
+  
+  case_when(
+    abs(procent_skillnad) <= 1 ~ "varit oförändrad",
+    procent_skillnad > 1 & procent_skillnad <= 5 ~ "ökat något",
+    procent_skillnad < -1 & procent_skillnad >= -5 ~ "minskat något",
+    procent_skillnad > 5 & procent_skillnad <= 10 ~ "ökat",
+    procent_skillnad < -5 & procent_skillnad >= -10 ~ "minskat",
+    procent_skillnad > 10 & procent_skillnad <= 20 ~ "ökat väsentligt",
+    procent_skillnad < -10 & procent_skillnad >= -20 ~ "minskat väsentligt",
+    procent_skillnad > 20 & procent_skillnad <= 90 ~ "ökat mycket",
+    procent_skillnad < -20 & procent_skillnad >= -90 ~ "minskat mycket",
+    procent_skillnad > 90 & procent_skillnad <= 110 ~ "fördubblats",
+    procent_skillnad < -90 & procent_skillnad >= -110 ~ "halverats",
+    procent_skillnad > 110 & procent_skillnad <= 190 ~ "mer än fördubblats",
+    procent_skillnad < -110 & procent_skillnad >= -190 ~ "minskat med mer än hälften",
+    procent_skillnad > 190 & procent_skillnad <= 210 ~ "tredubblats",
+    procent_skillnad < -190 & procent_skillnad >= -210 ~ "minskat till en tredjedel",
+    procent_skillnad > 210 & procent_skillnad <= 990 ~ paste0("ökat ", round(procent_skillnad / 100, 1), " gånger"),
+    procent_skillnad < -210 & procent_skillnad >= -990 ~ paste0("minskat till ", round(100 / abs(procent_skillnad), 1), " procent"),
+    procent_skillnad >= 990 ~ "ökat mycket kraftigt",
+    procent_skillnad <= -990 ~ "minskat mycket kraftigt",
+    TRUE ~ "okänd förändring"
+  )
+}
+
+
 
 
