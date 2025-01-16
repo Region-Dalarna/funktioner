@@ -1083,6 +1083,13 @@ avrundning_dynamisk <- function(x, gräns_stora = 10, gräns_medel = 1, dec_stor
 }
 
 
+vektor_till_text <- function(skickad_vektor){
+  
+  retur_text <- paste0('"', skickad_vektor, '"', collapse = ", ")
+  cat(retur_text)
+  invisible(retur_text)
+}
+
 # avrundning_dynamisk <- function(x, gräns_stora = 10, gräns_medel = 1, dec_stora = 0, dec_medel = 1, dec_små = 2) {
 #   avrunda <- function(v) {
 #     if (abs(v) >= gräns_stora) {
