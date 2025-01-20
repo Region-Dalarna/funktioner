@@ -1090,6 +1090,30 @@ vektor_till_text <- function(skickad_vektor){
   invisible(retur_text)
 }
 
+
+hamta_anv_fornamn_efternamn <- function(){
+  anvandares_namn <- system("powershell -Command \"(Get-WmiObject -Class Win32_UserAccount -Filter \\\"Name='$env:USERNAME'\\\").FullName\"", intern = TRUE)
+  
+  # Skapa en lista med felaktiga och korrekta tecken
+  replacement_list <- tibble(
+    felaktig = c("\x94", "\x93", "\x96", "\x95", "\xA4", "\xA5"),  # Felaktiga tecken
+    korrekt = c("ö", "Ö", "å", "Å", "ä", "Ä")  # Korrekta tecken
+  )
+  
+  
+  anvandares_namn_korrigerad <- reduce(seq_along(replacement_list$felaktig), function(text, i) {
+    str_replace_all(text, replacement_list$felaktig[i], replacement_list$korrekt[i])
+  }, .init = anvandares_namn)
+  
+  anvandare_namn <- anvandares_namn_korrigerad %>% 
+    str_remove("[^a-zA-ZåäöÅÄÖ ].*") %>% 
+    str_remove(" b ") %>% 
+    str_squish() %>%
+    str_replace("^(\\S+)\\s+(.*)$", "\\2 \\1")
+  return(anvandare_namn)
+}
+
+
 # avrundning_dynamisk <- function(x, gräns_stora = 10, gräns_medel = 1, dec_stora = 0, dec_medel = 1, dec_små = 2) {
 #   avrunda <- function(v) {
 #     if (abs(v) >= gräns_stora) {
@@ -1104,7 +1128,6 @@ vektor_till_text <- function(skickad_vektor){
 #   retur_vekt <- map_dbl(x, avrunda)
 #   return(retur_vekt)
 # }
-
 
 # ================================================= Ladda ner data utan API ==============================================
 
