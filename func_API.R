@@ -1091,7 +1091,7 @@ vektor_till_text <- function(skickad_vektor){
 }
 
 
-hamta_anv_fornamn_efternamn <- function(){
+anv_fornamn_efternamn_hamta <- function(){
   anvandares_namn <- system("powershell -Command \"(Get-WmiObject -Class Win32_UserAccount -Filter \\\"Name='$env:USERNAME'\\\").FullName\"", intern = TRUE)
   
   # Skapa en lista med felaktiga och korrekta tecken
