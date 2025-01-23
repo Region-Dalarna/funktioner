@@ -1122,7 +1122,16 @@ excelfil_spara_snyggt <- function(excelflikar,
                                   skriv_over_fil = TRUE             # TRUE = skriver över tidigare version om det finns någon (den kan dock inte vara öppen i Excel, då får man felmeddelande)
                                   ) {
   library(openxlsx, quietly = TRUE)
-  # Skapa en ny workbook
+  
+  # om det är en dataframe så konverteras den till en lista
+  if (all(class(excelflikar) != "list")) {
+    excelflikar <- list(excelflikar)
+    names(excelflikar) <- c("dataset")
+  } else {   # om det är en lista så sätts namn på listan om det inte finns för alla element
+    if (any(is.null(names(excelflikar)))) names(excelflikar) <- paste0("dataset_", 1:length(excelflikar))
+  }
+
+    # Skapa en ny workbook
   wb <- createWorkbook()
   
   # Iterera över listan och lägg till data i separata blad
@@ -1137,7 +1146,7 @@ excelfil_spara_snyggt <- function(excelflikar,
   })
   
   # Spara workbooken
-  saveWorkbook(wb, paste0(utdatamapp, utdata_filnamn), overwrite = TRUE)
+  saveWorkbook(wb, paste0(utdatamapp, utdata_filnamn), overwrite = skriv_over_fil)
 }
 
 # avrundning_dynamisk <- function(x, gräns_stora = 10, gräns_medel = 1, dec_stora = 0, dec_medel = 1, dec_små = 2) {
