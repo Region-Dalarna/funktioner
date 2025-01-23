@@ -1113,6 +1113,32 @@ anv_fornamn_efternamn_hamta <- function(){
   return(anvandare_namn)
 }
 
+excelfil_spara_snyggt <- function(excelflikar, 
+                                  utdatamapp, 
+                                  utdata_filnamn,
+                                  auto_kolumnbredd = TRUE,          # anpassar bredden på kolumnerna till hur mycket text det är i dem
+                                  fetstil_rader = 1,                # vilka rader som ska vara i fetstil, NA = inga rader får fetstil
+                                  fetstil_kolumner = NA,            # vilka kolumner som ska vara i fetstil, NA = inga kolumner får fetstil
+                                  skriv_over_fil = TRUE             # TRUE = skriver över tidigare version om det finns någon (den kan dock inte vara öppen i Excel, då får man felmeddelande)
+                                  ) {
+  library(openxlsx, quietly = TRUE)
+  # Skapa en ny workbook
+  wb <- createWorkbook()
+  
+  # Iterera över listan och lägg till data i separata blad
+  walk2(excelflikar, names(excelflikar), ~ {
+    addWorksheet(wb, .y)                     # lägg till flik
+    writeData(wb, sheet = .y, x = .x)        # lägg till data på fliken
+    if (auto_kolumnbredd) setColWidths(wb, sheet = .y, cols = 1:ncol(.x), widths = "auto")        # sätt kolumnbredd till autosize, dvs. så bred som texten i kolumnen är
+    if (!is.na(fetstil_rader)) walk(fetstil_rader, function(rad) addStyle(wb, sheet = .y, rows = rad, cols = 1:ncol(.x),                    # gör fetstil på de rader som användare angett, eller NA för inga rader med fetstil
+                                                              style = createStyle(textDecoration = "bold"), gridExpand = TRUE))
+    if (!is.na(fetstil_kolumner)) walk(fetstil_kolumner, function(kolumn) addStyle(wb, sheet = .y, rows = 1:nrow(.x), cols = kolumn,              # gör fetstil på de kolumner som användare angett, eller NA för inga kolumner med fetstil
+                                                                    style = createStyle(textDecoration = "bold"), gridExpand = TRUE))
+  })
+  
+  # Spara workbooken
+  saveWorkbook(wb, paste0(utdatamapp, utdata_filnamn), overwrite = TRUE)
+}
 
 # avrundning_dynamisk <- function(x, gräns_stora = 10, gräns_medel = 1, dec_stora = 0, dec_medel = 1, dec_små = 2) {
 #   avrunda <- function(v) {
