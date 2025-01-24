@@ -1113,6 +1113,26 @@ anv_fornamn_efternamn_hamta <- function(){
   return(anvandare_namn)
 }
 
+anv_epostadress_hamta <- function(){
+  if (!require("pacman")) install.packages("pacman")
+  p_load(gh)
+  
+  tryCatch({
+    epostlista <- gh::gh("GET /user/emails", .token = key_get("github_token", key_list(service = "github_token")$username))
+    retur_epost <- map_chr(epostlista, "email") %>% 
+      .[str_detect(., "regiondalarna.se")] %>% 
+      .[1]
+    return(retur_epost)
+  }, error = function(e) {
+    # Returnera NULL vid fel
+    message("Fel inträffade: ", e$message)
+    return(NULL)
+  })
+  
+}
+
+
+
 excelfil_spara_snyggt <- function(excelflikar, 
                                   utdatamapp, 
                                   utdata_filnamn,
