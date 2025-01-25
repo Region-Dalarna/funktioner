@@ -1131,7 +1131,32 @@ anv_epostadress_hamta <- function(){
   
 }
 
+anv_hamta_namn_epost_fran_lista <- function(skickat_namn = NULL){
+  
+  if (is.null(skickat_namn)) {
+    # om skickat_namn är NULL så hämtas för- och efternamn samt epost från 
+    # den användare som är inloggad
+    retur_lista <- list(namn = anv_fornamn_efternamn_hamta(),
+                        epost = anv_epostadress_hamta())
+    
+  } else {
+  
+  # om det finns uppgifter  
+  retur_lista <- if (tolower(skickat_namn) == "peter") { 
+    list(namn = "Peter Möller",
+         epost = "peter.moller@regiondalarna.se")
+    } else if (tolower(skickat_namn) == "mats") {
+      list(namn = "Mats Andersson",
+           epost = "mats.b.andersson@regiondalarna.se")
+    } else if (tolower(skickat_namn) == "jon") {
+      list(namn = "Jon Frank",
+           epost = "jon.frank@regiondalarna.se")
+    } else NULL
+  }  # slut if-sats för att testa om skickat_namn är NULL
+  
+  return(retur_lista)
 
+} # slut funktion
 
 excelfil_spara_snyggt <- function(excelflikar, 
                                   utdatamapp, 
