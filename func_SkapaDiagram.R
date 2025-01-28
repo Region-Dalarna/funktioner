@@ -645,7 +645,7 @@ SkapaLinjeDiagram <- function(skickad_df,
                               
                               lagg_pa_logga = TRUE,
                               procent_0_100_10intervaller = FALSE,
-                              linjetyp_kolumn = "solid",                # solid för hela (eller andra typer av streckade) linjer, om kolumn så läggs värdet i en sym(), annars funkar det inte
+                              linjetyp_kolumn = NA,                # solid för hela (eller andra typer av streckade) linjer, om kolumn så läggs värdet i en sym(), annars funkar det inte
                               linjetyp_typvektor = NA,                  # om man vill skicka med andra typer av linjer, dessa finns: c("solid", "dashed", "dotted", "dotdash", "longdash", "twodash"), funkar som färgvektorn ihop med linjetyp_kolumn
                               logga_path = NA,
                               logga_scaling = 15,
@@ -668,12 +668,13 @@ SkapaLinjeDiagram <- function(skickad_df,
   }
   
   # om man skickat med en variabel som ska styra 
-  if (!linjetyp_kolumn %in% c("solid", "dashed", "dotted", "dotdash", "longdash", "twodash")) {
+  #if (!linjetyp_kolumn %in% c("solid", "dashed", "dotted", "dotdash", "longdash", "twodash")) {
+  if (!is.na(linjetyp_kolumn)) {
     linjetyp_kolumn <- sym(linjetyp_kolumn)
     linjetyp_gruppvar <- TRUE 
   } else linjetyp_gruppvar <- FALSE
 
-  if (linjetyp_gruppvar) grupp_var <- as.character(c(grupp_var, linjetyp_kolumn))
+  if (linjetyp_gruppvar) grupp_var <- as.character(c(grupp_var, linjetyp_kolumn)) %>% unique()
   
   y_var <- as.name(skickad_y_var)
   filter_or <- skickad_filter_OR_vect
@@ -791,6 +792,14 @@ SkapaLinjeDiagram <- function(skickad_df,
   
   # =================================================================================================
   
+  # avgör linjetyp utifrån om det finns grupper, annars blir den solid. Om ingen specifik linjetyps-
+  # vektor har skickats med
+  if (all(is.na(linjetyp_typvektor))) {
+    # skapa en vektor med lika många "solid" som det finns grupper, om det inte finns grupper 
+    # så blir det bara 1
+    antal_grupper <- if (!is.na(skickad_x_grupp)) length(unique(plot_df[[x_grupp]])) else 1
+    linjetyp_typvektor <- rep("solid", antal_grupper)
+  }
   
   # om vi vill visa var x:e x-axeletikett
   #if (visa_var_x_xlabel > 0) rep_vec <- c(T, rep(F, visa_var_x_xlabel-1))
@@ -833,11 +842,11 @@ SkapaLinjeDiagram <- function(skickad_df,
   # Här börjar vi göra diagrammet ======================================================
   # om x_grupp är tom ta bort den raden, annars kör med den  
   if (is.na(skickad_x_grupp)) {
-    p <-plot_df %>% ggplot(aes(x=!!x_var, y=total, linetype = !!linjetyp_kolumn)) +
+    p <-plot_df %>% ggplot(aes(x=!!x_var, y=total, linetype = !!x_grupp)) +
       {if (berakna_index) geom_hline(yintercept = 100, color = "grey32", linewidth = 1.2)} +
       geom_line(aes(color = chart_col), linewidth = 1.5)
   } else {
-    p<-plot_df %>% ggplot(aes(x=!!x_var, y=total, group = !!x_grupp, linetype = !!linjetyp_kolumn)) +
+    p<-plot_df %>% ggplot(aes(x=!!x_var, y=total, group = !!x_grupp, linetype = !!x_grupp)) +
       {if (berakna_index) geom_hline(yintercept = 100, color = "grey32", linewidth = 1.2)} +
       geom_line(aes(color = !!x_grupp), linewidth = 1.5)
     if (!diagram_facet | facet_legend_bottom) legend_pos <- "bottom"
