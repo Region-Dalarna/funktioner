@@ -842,9 +842,14 @@ SkapaLinjeDiagram <- function(skickad_df,
   # Här börjar vi göra diagrammet ======================================================
   # om x_grupp är tom ta bort den raden, annars kör med den  
   if (is.na(skickad_x_grupp)) {
-    p <-plot_df %>% ggplot(aes(x=!!x_var, y=total, linetype = !!x_grupp)) +
-      {if (berakna_index) geom_hline(yintercept = 100, color = "grey32", linewidth = 1.2)} +
-      geom_line(aes(color = chart_col), linewidth = 1.5)
+    chart_col <- chart_col[1]
+    p <-plot_df %>% ggplot(aes(x = !!x_var, y = total, group = chart_col)) +
+      list(
+        if (berakna_index) geom_hline(yintercept = 100, color = "grey32", linewidth = 1.2),
+        geom_line(aes(color = chart_col), linewidth = 1.5)
+      )
+      # {if (berakna_index) geom_hline(yintercept = 100, color = "grey32", linewidth = 1.2)} +
+      # geom_line(aes(color = chart_col), linewidth = 1.5)
   } else {
     p<-plot_df %>% ggplot(aes(x=!!x_var, y=total, group = !!x_grupp, linetype = !!x_grupp)) +
       {if (berakna_index) geom_hline(yintercept = 100, color = "grey32", linewidth = 1.2)} +
