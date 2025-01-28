@@ -645,6 +645,8 @@ SkapaLinjeDiagram <- function(skickad_df,
                               
                               lagg_pa_logga = TRUE,
                               procent_0_100_10intervaller = FALSE,
+                              linjetyp_kolumn = "solid",                # solid för hela (eller andra typer av streckade) linjer, om kolumn så läggs värdet i en sym(), annars funkar det inte
+                              linjetyp_typvektor = NA,                  # om man vill skicka med andra typer av linjer, dessa finns: c("solid", "dashed", "dotted", "dotdash", "longdash", "twodash"), funkar som färgvektorn ihop med linjetyp_kolumn
                               logga_path = NA,
                               logga_scaling = 15,
                               skriv_till_diagramfil = TRUE,
@@ -664,6 +666,15 @@ SkapaLinjeDiagram <- function(skickad_df,
     facet_grp <- as.name(facet_grp)
     grupp_var <- as.character(c(grupp_var, facet_grp))
   }
+  
+  # om man skickat med en variabel som ska styra 
+  if (!linjetyp_kolumn %in% c("solid", "dashed", "dotted", "dotdash", "longdash", "twodash")) {
+    linjetyp_kolumn <- sym(linjetyp_kolumn)
+    linjetyp_gruppvar <- TRUE 
+  } else linjetyp_gruppvar <- FALSE
+
+  if (linjetyp_gruppvar) grupp_var <- as.character(c(grupp_var, linjetyp_kolumn))
+  
   y_var <- as.name(skickad_y_var)
   filter_or <- skickad_filter_OR_vect
   filter_or_var <- skickad_filter_OR_var
@@ -752,13 +763,24 @@ SkapaLinjeDiagram <- function(skickad_df,
   if (y_axis_100proc) max_varde_plot_df <- 100 else max_varde_plot_df <- max(plot_df["total"])    # om vi skickat med att vi vill ha låsa y-axelns maxvärde till 100 så fixar vi det här - slice(1) utfall att det finns flera grupper som uppnår maxvärde (då tar vi bara en av dem)
   if (diagram_facet) {
     variabel_vekt <- c(as.character(skickad_x_var), as.character(facet_grp), as.character(skickad_x_grupp)) %>% .[!is.na(.)]
-    
+
     max_varde_plot_df <- plot_df %>% group_by(across(any_of(variabel_vekt))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == max(summ)) %>% slice(1) %>% dplyr::pull()
     min_varde_plot_df <- plot_df %>% group_by(across(any_of(variabel_vekt))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == min(summ)) %>% slice(1) %>% dplyr::pull()
-    
-  } else { 
+
+  } else {
     min_varde_plot_df <- min(plot_df["total"])
   }
+  if (min_varde_plot_df < 0 & max_varde_plot_df < 0) min_och_max_negativa <- TRUE else min_och_max_negativa <- FALSE
+  stodlinjer_list <- Berakna_varden_stodlinjer(min_varde =  min_varde_plot_df, max_varde = max_varde_plot_df, y_borjar_pa_noll = y_axis_borjar_pa_noll, procent_0_100_10intervaller = procent_0_100_10intervaller, avrunda_fem = stodlinjer_avrunda_fem, minus_plus_samma = y_axis_minus_plus_samma_axel)
+
+  min_yvar <- stodlinjer_list$min_yvar
+  max_yvar <- stodlinjer_list$max_yvar
+  min_by_yvar <- stodlinjer_list$min_by_yvar
+  maj_by_yvar <- stodlinjer_list$maj_by_yvar
+  
+  # =========================================== skapa stödlinje-variabler =============================================
+  
+  
   if (min_varde_plot_df < 0 & max_varde_plot_df < 0) min_och_max_negativa <- TRUE else min_och_max_negativa <- FALSE
   stodlinjer_list <- Berakna_varden_stodlinjer(min_varde =  min_varde_plot_df, max_varde = max_varde_plot_df, y_borjar_pa_noll = y_axis_borjar_pa_noll, procent_0_100_10intervaller = procent_0_100_10intervaller, avrunda_fem = stodlinjer_avrunda_fem, minus_plus_samma = y_axis_minus_plus_samma_axel)
   
@@ -767,7 +789,7 @@ SkapaLinjeDiagram <- function(skickad_df,
   min_by_yvar <- stodlinjer_list$min_by_yvar
   maj_by_yvar <- stodlinjer_list$maj_by_yvar
   
-  
+  # =================================================================================================
   
   
   # om vi vill visa var x:e x-axeletikett
@@ -811,11 +833,11 @@ SkapaLinjeDiagram <- function(skickad_df,
   # Här börjar vi göra diagrammet ======================================================
   # om x_grupp är tom ta bort den raden, annars kör med den  
   if (is.na(skickad_x_grupp)) {
-    p <-plot_df %>% ggplot(aes(x=!!x_var, y=total)) +
+    p <-plot_df %>% ggplot(aes(x=!!x_var, y=total, linetype = !!linjetyp_kolumn)) +
       {if (berakna_index) geom_hline(yintercept = 100, color = "grey32", linewidth = 1.2)} +
       geom_line(aes(color = chart_col), linewidth = 1.5)
   } else {
-    p<-plot_df %>% ggplot(aes(x=!!x_var, y=total, group = !!x_grupp)) +
+    p<-plot_df %>% ggplot(aes(x=!!x_var, y=total, group = !!x_grupp, linetype = !!linjetyp_kolumn)) +
       {if (berakna_index) geom_hline(yintercept = 100, color = "grey32", linewidth = 1.2)} +
       geom_line(aes(color = !!x_grupp), linewidth = 1.5)
     if (!diagram_facet | facet_legend_bottom) legend_pos <- "bottom"
@@ -853,7 +875,8 @@ SkapaLinjeDiagram <- function(skickad_df,
          x = manual_x_axis_title,
          caption = diagram_capt,
          y = y_titel,
-         color=legend_titel) +
+         color = legend_titel,
+         linetype = NULL) +
     guides(color = guide_legend(title.position = "top",
                                title.hjust = 0.5, 
                                reverse = legend_vand_ordning,
@@ -866,6 +889,11 @@ SkapaLinjeDiagram <- function(skickad_df,
     }} +
     { if (!is.na(x_axis_visa_var_xe_etikett)) {  
       scale_x_discrete(expand = c(0,0), breaks = every_nth(n = x_axis_visa_var_xe_etikett, sista_vardet = inkludera_sista_vardet_var_xe_etikett, ta_bort_nast_sista = x_axis_var_xe_etikett_ta_bort_nast_sista_vardet))
+    }} +
+    # om det finns en linjetyp_vektor
+    #{ if (!all(is.na(linjetyp_typvektor)) & (linjetyp_kolumn != skickad_x_grupp)) {  
+    { if (!all(is.na(linjetyp_typvektor))) {  
+      scale_linetype_manual(values = linjetyp_typvektor)
     }} +
     
     # scale_y_continuous(breaks = seq(min_yvar, max_yvar, 
