@@ -950,11 +950,20 @@ funktion_upprepa_forsok_om_fel <- function(funktion,
                                            max_forsok = 10, 
                                            vanta_sekunder = 1, 
                                            meddelanden = FALSE,
-                                           hoppa_over = FALSE
-) {
+                                           hoppa_over = FALSE,
+                                           loggfil = NULL,         # sökväg + filnamn (.txt) om man vill spara felmeddelanden i en fil
+                                           returnera_vid_fel = NULL            # valfritt vad som returneras vid fel, kan vara tex NULL, NA eller invisible()
+                                           ) {
   
   if (!hoppa_over) {
-    funktionsnamn <- deparse(substitute(funktion))  # Hämta namnet på funktionen som skickades in
+    funktionsnamn <- deparse(substitute(funktion)) %>%   # Hämta namnet på funktionen som skickades in
+      str_remove("function\\(\\)") %>% 
+      str_extract("^[^(]+") %>%
+      .[1] %>%
+      paste0(., "()") %>% 
+      str_trim()
+    
+    unika_fel <- character(0)            # vektor för att spara alla unika fel
     
     for (forsok in 1:max_forsok) {
       # Försök att köra funktionen
@@ -963,13 +972,34 @@ funktion_upprepa_forsok_om_fel <- function(funktion,
       # Kontrollera om funktionen lyckades (ingen fel uppstod)
       if (!inherits(resultat, "try-error")) {
         return(resultat)
-      } else {
-        if (meddelanden) message("Försök ", forsok, " med funktionen ", funktionsnamn, " misslyckades med fel: ", resultat)
+        
+      } else {    # om det blir fel
+        
+        # Spara unika felmeddelanden
+        felmeddelande <- as.character(resultat)
+        if (!felmeddelande %in% unika_fel) {
+          unika_fel <- c(unika_fel, felmeddelande)
+        }
+        
+        if (meddelanden) cat("Försök ", forsok, " med funktionen ", funktionsnamn, " misslyckades med fel: ", resultat)
         
         # Om max antal försök har nåtts, ge upp
         if (forsok == max_forsok) {
-          message("Max antal försök nått. Funktionen ", funktionsnamn, " stoppas.")
-          return(invisible())
+          cat("Max antal försök nått. Funktionen", funktionsnamn, "stoppas.\n\n")
+          
+          # skriv loggfil om sökväg + filnamn skickats med
+          if (!is.null(loggfil)) {
+            # Skapa loggtext med tidsstämpel
+            loggtext <- paste0(Sys.time(), " | Funktion: ", funktionsnamn, "\nFelmeddelanden:\n", 
+                               paste(unique(unika_fel), collapse = "\n"), "\n\n")
+            
+            # Skriv till loggfil
+            write(loggtext, file = loggfil, append = TRUE)
+            cat(paste0(unika_fel, "\n"))                   
+            #message(paste0(funktionsnamn, "\n"))          # för test
+          }
+          
+          return(returnera_vid_fel)
         }
         
         # Vänta det angivna antalet sekunder innan nästa försök
@@ -1090,6 +1120,9 @@ vektor_till_text <- function(skickad_vektor){
   invisible(retur_text)
 }
 
+anv_anvandarkonto_hamta <- function(){
+  Sys.info()["user"] %>% as.character()
+}
 
 anv_fornamn_efternamn_hamta <- function(){
   anvandares_namn <- system("powershell -Command \"(Get-WmiObject -Class Win32_UserAccount -Filter \\\"Name='$env:USERNAME'\\\").FullName\"", intern = TRUE)
