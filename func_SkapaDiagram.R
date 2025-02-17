@@ -627,6 +627,7 @@ SkapaLinjeDiagram <- function(skickad_df,
                               stodlinjer_avrunda_fem = FALSE,     # för att alltid ha y-axlar som blir jämna tal, FALSE under testperioden, TRUE när vi vet att det funkar
                               manual_y_axis_title = NA,
                               manual_x_axis_title = NA,
+                              marginal_y_axis = c(0,0), # Ändrar marginalen på y-axeln, då linjerna ibland kan hamna utanför diagrammet 
                               x_axis_lutning = 45,
                               x_axis_storlek = 10.5,
                               y_axis_minus_plus_samma_axel = FALSE, # om man vill ha lika stort avstånd från 0 till min och maxvärde på y-axeln - gäller endast när man har min-värde < 0 och max-värde > 0
@@ -914,16 +915,18 @@ SkapaLinjeDiagram <- function(skickad_df,
     #                                 by = round(max_yvar / 6, (nchar(trunc(max_yvar/6))-1)*-1)),
     #                    minor_breaks = seq(min_yvar, max_yvar, by = min_by_yvar),
     
+    # Ändrat nedan så att man kan bestämma värdet på marginalen för y-axeln
+    
     {if (!diagram_facet | (facet_scale == "fixed" & diagram_facet)){
       scale_y_continuous(breaks = seq(min_yvar, max_yvar, 
                                       by = maj_by_yvar),
                          minor_breaks = seq(min_yvar, max_yvar, by = min_by_yvar),
                          labels = etikett_format,
                          limits = c(min_yvar, max_yvar),
-                         expand = c(0,0)) 
+                         expand = marginal_y_axis) 
     } else {                        # om det fuckar med facet-diagram, ta bort denna else-sats då. Den gör att procentformatet funkar även på free-scale facetdiagram men jag är inte säker att det funkar för övriga diagram
       scale_y_continuous(labels = etikett_format,
-                         expand = c(0,0))
+                         expand = marginal_y_axis)
     }} +
     
     
