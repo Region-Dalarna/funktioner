@@ -36,21 +36,50 @@ gtfs_operatorer_sverige_nyckeltabell_hamta <- function(tabort_na = TRUE){
   retur_df <- page %>%
     html_node("table") %>%  # Välj första tabellen
     html_table() %>% 
-    select(operator = Operator, operatorkod = Abbreviation) %>% 
-    mutate(region = str_extract(operator, "\\(([^)]+)\\)"),  # Extrahera regionen
-           operator = str_remove(operator, "\\s*\\([^)]*\\)"),
-           region = str_replace_all(region, "[()]", ""),
-           region = ifelse(is.na(region) & str_detect(operator, "Länstrafiken "), operator %>% str_remove("Länstrafiken "), region),
-           region = region %>% skapa_kortnamn_lan() %>% str_to_title()) %>% 
-    filter(!is.na(region),
-           operatorkod != "sjostadstrafiken")
+    select(operator = Operator, operatorkod = Abbreviation) %>%
+    mutate(regionkod = case_when(
+      operatorkod == "sl" ~ "01",
+      operatorkod == "ul" ~ "03",
+      operatorkod == "sormland" ~ "04",
+      operatorkod == "otraf" ~ "05",
+      operatorkod == "jlt" ~ "06",
+      operatorkod == "krono" ~ "07",
+      operatorkod == "klt" ~ "08",
+      operatorkod == "gotland" ~ "09",
+      operatorkod == "blekinge" ~ "10",
+      operatorkod == "skane" ~ "12",
+      operatorkod == "halland" ~ "13",
+      operatorkod == "vt" ~ "14",
+      operatorkod == "varm" ~ "17",
+      operatorkod == "orebro" ~ "18",
+      operatorkod == "vastmanland" ~ "19",
+      operatorkod == "dt" ~ "20",
+      operatorkod == "xt" ~ "21",
+      operatorkod == "dintur" ~ "22",
+      operatorkod == "jamtland" ~ "23",
+      operatorkod == "vasterbotten" ~ "24",
+      operatorkod == "norrbotten" ~ "25",
+      TRUE ~ NA_character_
+    )) %>% 
+    filter(!is.na(regionkod))
+  
+  # gammal som vi tagit bort för att Trafiklab ändrat tabellen och länsnamnen inte är med i tabellen längre. Vi måste därför koppla på 
+  # länskoder manuellt  
+  # %>% 
+  #   mutate(region = str_extract(operator, "\\(([^)]+)\\)"),  # Extrahera regionen
+  #          operator = str_remove(operator, "\\s*\\([^)]*\\)"),
+  #          region = str_replace_all(region, "[()]", ""),
+  #          region = ifelse(is.na(region) & str_detect(operator, "Länstrafiken "), operator %>% str_remove("Länstrafiken "), region),
+  #          region = region %>% skapa_kortnamn_lan() %>% str_to_title()) %>% 
+  #   filter(!is.na(region),
+  #          operatorkod != "sjostadstrafiken")
   
   regionnyckel <- hamtaregtab() %>%
     filter(nchar(regionkod) == 2 & regionkod != "00") %>% 
     mutate(region = region %>% skapa_kortnamn_lan())
   
   retur_df <- retur_df %>% 
-    left_join(regionnyckel, by = "region")
+    left_join(regionnyckel, by = "regionkod")
   
   if (tabort_na) retur_df <- retur_df %>% filter(!is.na(regionkod))
   
