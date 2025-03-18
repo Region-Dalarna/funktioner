@@ -188,8 +188,8 @@ sf_skapa_fran_df_med_rutkolumner <- function(skickad_df, x_kol, y_kol, rutstorle
   
   # skapa en punktgeometri av x- och y-kolumnerna där koordinaten är nedre vänstra hörnet
   retur_sf <- skickad_df %>% 
-    mutate(x_ny = !!sym(x_kol)+(rutstorlek/2),
-           y_ny = !!sym(y_kol)+(rutstorlek/2)) %>%
+    mutate(x_ny = as.numeric(!!sym(x_kol))+(as.numeric(rutstorlek)/2),
+           y_ny = as.numeric(!!sym(y_kol))+(as.numeric(rutstorlek)/2)) %>%
     st_as_sf(coords = c("x_ny", "y_ny"), crs = vald_crs) %>% 
     st_cast("POINT")
   
@@ -201,7 +201,7 @@ sf_skapa_fran_df_med_rutkolumner <- function(skickad_df, x_kol, y_kol, rutstorle
 rutstorlek_estimera <- function(x, y) {
   
   # Kombinera x- och y-koordinaterna till en enda vektor
-  coords <- c(x ,y)
+  coords <- c(x ,y) %>% as.numeric()
   
   # Kontrollera om det finns något värde som slutar på 100, 200, 300 eller 400
   if (any(coords %% 1000 %in% c(100, 200, 300, 400))) {
