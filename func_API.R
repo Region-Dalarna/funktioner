@@ -1518,6 +1518,11 @@ github_lista_repos <- function(owner = "Region-Dalarna", skriv_ut_reponamn_i_kon
   
 }
 
+gh_dia <- function(f = NA) {
+  github_lista_repo_filer(filtrera = f,
+                          repo = "diagram")
+}
+
 github_lista_repo_filer <- function(owner = "Region-Dalarna",                     # användaren vars repos vi ska lista
                                     repo = "hamta_data",                          # repot vars filer vi ska lista
                                     url_vekt_enbart = TRUE,                       # om TRUE returneras en vektor med url:er, annars en dataframe med både filnamn och url
