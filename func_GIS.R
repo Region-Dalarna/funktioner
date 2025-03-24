@@ -171,6 +171,8 @@ sf_fran_df_med_x_y_kol <- function(skickad_df,
   
   if(is.na(rutstorlek)) rutstorlek = rutstorlek_estimera(skickad_df[[x_kol]], skickad_df[[y_kol]])
   
+  
+  
   retur_sf <- sf_skapa_fran_df_med_rutkolumner(skickad_df = skickad_df, x_kol = x_kol, 
                                                y_kol = y_kol, rutstorlek = rutstorlek, vald_crs = vald_crs)
   
