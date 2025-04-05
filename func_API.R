@@ -1940,7 +1940,9 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   if (org_kortnamn %in% region_special_org & any(c("region", "lan", "län", "kommun") %in% tolower(varlist_koder))) {
     region_koder_bearbetad <- hamta_regionkod_med_knas_regionkod(px_meta, "*", regionvariabel_db, returnera_nyckeltabell = TRUE)$regionkod
   } else {
+    if (length(regionvariabel_db) > 0) {
     region_koder_bearbetad <- varlist_giltiga_varden_koder[[tolower(regionvariabel_db)]]
+    }
   }
   
   
