@@ -14,6 +14,8 @@ p_load(sf,
 source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R", encoding = "utf-8")
 source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_text.R", encoding = "utf-8")
 
+options(scipen = 999)
+
 # ===================================== hantera GIS i R ===============================================
 
 kartifiera <- function(skickad_df, 
@@ -173,7 +175,7 @@ sf_fran_df_med_x_y_kol <- function(skickad_df,
   
   
   
-  retur_sf <- sf_skapa_fran_df_med_rutkolumner(skickad_df = skickad_df, x_kol = x_kol, 
+  retur_sf <- intern_funktion_sf_skapa_fran_df_med_rutkolumner(skickad_df = skickad_df, x_kol = x_kol, 
                                                y_kol = y_kol, rutstorlek = rutstorlek, vald_crs = vald_crs)
   
   if (polygonlager) retur_sf <- st_buffer(retur_sf,(rutstorlek/2), endCapStyle = "SQUARE")
@@ -184,14 +186,18 @@ sf_fran_df_med_x_y_kol <- function(skickad_df,
 
 
 
-sf_skapa_fran_df_med_rutkolumner <- function(skickad_df, x_kol, y_kol, rutstorlek = NA, vald_crs = 3006){
+intern_funktion_sf_skapa_fran_df_med_rutkolumner <- function(skickad_df, x_kol, y_kol, rutstorlek = NA, vald_crs = 3006){
   
   if (is.na(rutstorlek)) rutstorlek <- rutstorlek_estimera(skickad_df[[x_kol]], skickad_df[[y_kol]])
   
   # skapa en punktgeometri av x- och y-kolumnerna där koordinaten är nedre vänstra hörnet
   retur_sf <- skickad_df %>% 
-    mutate(x_ny = as.numeric(!!sym(x_kol))+(as.numeric(rutstorlek)/2),
-           y_ny = as.numeric(!!sym(y_kol))+(as.numeric(rutstorlek)/2)) %>%
+    mutate(
+      across(all_of(c(x_kol, y_kol)), as.character),
+      x_temp = if_else(nchar(!!sym(x_kol)) == 7 & nchar(!!sym(y_kol)) == 6, !!sym(y_kol), !!sym(x_kol)),
+      y_temp = if_else(nchar(!!sym(x_kol)) == 7 & nchar(!!sym(y_kol)) == 6, !!sym(x_kol), !!sym(y_kol)),
+      x_ny = as.numeric(x_temp) + as.numeric(rutstorlek)/2,
+      y_ny = as.numeric(y_temp) + as.numeric(rutstorlek)/2) %>%
     st_as_sf(coords = c("x_ny", "y_ny"), crs = vald_crs) %>% 
     st_cast("POINT")
   
