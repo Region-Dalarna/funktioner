@@ -630,6 +630,7 @@ SkapaLinjeDiagram <- function(skickad_df,
                               marginal_y_axis = c(0,0), # Ändrar marginalen på y-axeln, då linjerna ibland kan hamna utanför diagrammet 
                               x_axis_lutning = 45,
                               x_axis_storlek = 10.5,
+                              y_axis_storlek = 12, 
                               y_axis_minus_plus_samma_axel = FALSE, # om man vill ha lika stort avstånd från 0 till min och maxvärde på y-axeln - gäller endast när man har min-värde < 0 och max-värde > 0
                               facet_legend_bottom = FALSE,
                               x_axis_visa_var_xe_etikett = NA,
@@ -866,7 +867,7 @@ SkapaLinjeDiagram <- function(skickad_df,
   
   p <- p +
     theme(axis.text.x = element_text(size = x_axis_storlek, angle = x_axis_lutning, hjust = 1),
-          axis.text.y = element_text(size = 12),
+          axis.text.y = element_text(size = y_axis_storlek),
           axis.ticks = element_blank(),
           legend.position = legend_pos,
           legend.key = element_rect(fill = "white"),
