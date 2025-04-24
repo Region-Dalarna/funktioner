@@ -949,6 +949,38 @@ postgres_lista_behorighet_till_scheman <- function(con = "default",
   
 }
 
+postgres_lista_kolumnnamn_i_schema <- function(con = "default",
+                                               schema = NA,
+                                               meddelande_tid = FALSE
+) {
+  
+  if (is.na(schema)) stop("Schema måste anges")
+  starttid <- Sys.time()                                        # Starta tidstagning
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if(is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga = TRUE
+  } else  default_flagga = FALSE
+  
+  kol_namn <- dbGetQuery(con, glue("
+  SELECT 
+    table_name,
+    column_name,
+    data_type
+  FROM information_schema.columns
+  WHERE table_schema = '{schema}'
+  ORDER BY table_name, ordinal_position;
+"))
+  
+  if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
+  if (meddelande_tid) cat(glue("Processen tog {berakningstid} sekunder att köra"))
+  
+  return(kol_namn)
+  
+}
+
 postgres_test <- function(con = "default", 
                           meddelande_tid = FALSE) {
   
