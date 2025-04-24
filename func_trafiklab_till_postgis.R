@@ -14,7 +14,6 @@ skapa_tabeller <- function(con, schema = schema_namn) {
                       agency_url VARCHAR NOT NULL,
                       agency_timezone VARCHAR NOT NULL,
                       agency_lang VARCHAR,
-                      agency_phone VARCHAR,
                       agency_fare_url VARCHAR
                   );"))
     
@@ -25,10 +24,7 @@ skapa_tabeller <- function(con, schema = schema_namn) {
                       route_short_name VARCHAR NOT NULL,
                       route_long_name VARCHAR NOT NULL,
                       route_desc VARCHAR,
-                      route_type INTEGER NOT NULL,
-                      route_url VARCHAR,
-                      route_color VARCHAR,
-                      route_text_color VARCHAR
+                      route_type INTEGER NOT NULL
                   );"))
     # routes - index
     dbExecute(con, glue::glue("CREATE INDEX IF NOT EXISTS idx_routes_route_short_name ON {schema}.routes (route_short_name);"))
@@ -91,6 +87,8 @@ skapa_tabeller <- function(con, schema = schema_namn) {
                       stop_headsign VARCHAR,
                       pickup_type INTEGER,
                       drop_off_type INTEGER,
+                      pickup_booking_rule_id VARCHAR,
+                      drop_off_booking_rule_id VARCHAR,
                       shape_dist_traveled FLOAT,
                       timepoint INTEGER,
                       PRIMARY KEY (trip_id, stop_id, stop_sequence),
@@ -114,7 +112,6 @@ skapa_tabeller <- function(con, schema = schema_namn) {
                           agency_url VARCHAR NOT NULL,
                           agency_timezone VARCHAR NOT NULL,
                           agency_lang VARCHAR,
-                          agency_phone VARCHAR,
                           agency_fare_url VARCHAR,
                           version INTEGER,
                           PRIMARY KEY (agency_id, version)
@@ -128,9 +125,6 @@ skapa_tabeller <- function(con, schema = schema_namn) {
                           route_long_name VARCHAR NOT NULL,
                           route_desc VARCHAR,
                           route_type INTEGER NOT NULL,
-                          route_url VARCHAR,
-                          route_color VARCHAR,
-                          route_text_color VARCHAR,
                           version INTEGER,
                           PRIMARY KEY (route_id, version),
                           FOREIGN KEY (agency_id, version) REFERENCES {schema_namn}_historisk.agency(agency_id, version)
@@ -202,6 +196,8 @@ skapa_tabeller <- function(con, schema = schema_namn) {
                           pickup_type INTEGER,
                           drop_off_type INTEGER,
                           shape_dist_traveled FLOAT,
+                          pickup_booking_rule_id VARCHAR,
+                          drop_off_booking_rule_id VARCHAR,
                           timepoint INTEGER,
                           version INTEGER,
                           PRIMARY KEY (trip_id, version, stop_sequence),
@@ -281,16 +277,36 @@ versionshantering <- function(con, gtfs_data, schema = schema_namn) {
       if (!is.na(senaste_version)) {
         dbExecute(con, glue::glue("UPDATE {schema}_historisk.versions SET end_date = '{sista_datum_db}' WHERE version = {senaste_version};"))
         
-        # Transfer data from schema schema to schema_historisk with version number
-        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.agency SELECT agency_id, agency_name, agency_url, agency_timezone, agency_lang, agency_phone, agency_fare_url, {senaste_version} FROM {schema}.agency;"))
-        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.routes SELECT route_id, agency_id, route_short_name, route_long_name, route_desc, route_type, route_url, route_color, route_text_color, {senaste_version} FROM {schema}.routes;"))
-        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.calendar_dates SELECT service_id, date, exception_type, {senaste_version} FROM {schema}.calendar_dates;"))
-        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.shapes_line SELECT shape_id, geometry, antal_punkter, max_dist, {senaste_version} FROM {schema}.shapes_line;"))
-        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.stops SELECT stop_id, hpl_id, stop_name, stop_lat, stop_lon, location_type, parent_station, platform_code, geometry, {senaste_version} FROM {schema}.stops;"))
-        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.trips SELECT trip_id, route_id, service_id, trip_headsign, direction_id, shape_id, {senaste_version} FROM {schema}.trips;"))
-        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.stop_times SELECT trip_id, arrival_time, departure_time, stop_id, stop_sequence, stop_headsign, pickup_type, drop_off_type, shape_dist_traveled, timepoint, {senaste_version} FROM {schema}.stop_times;"))
-        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.linjeklassificering SELECT route_short_name, klassificering, {senaste_version} FROM {schema}.linjeklassificering;"))
+        kolumn_namn <- postgres_lista_kolumnnamn_i_schema(schema = "dalatrafik")
         
+        agency_kolumner <- kolumn_namn %>% filter(table_name == "agency") %>% dplyr::pull(column_name) %>% paste0(collapse = ", ")
+        routes_kolumner <- kolumn_namn %>% filter(table_name == "routes") %>% dplyr::pull(column_name) %>% paste0(collapse = ", ")
+        calendar_dates_kolumner <- kolumn_namn %>% filter(table_name == "calendar_dates") %>% dplyr::pull(column_name) %>% paste0(collapse = ", ")
+        shapes_line_kolumner <- kolumn_namn %>% filter(table_name == "shapes_line") %>% dplyr::pull(column_name) %>% paste0(collapse = ", ")
+        stops_kolumner <- kolumn_namn %>% filter(table_name == "stops") %>% dplyr::pull(column_name) %>% paste0(collapse = ", ")
+        trips_kolumner <- kolumn_namn %>% filter(table_name == "trips") %>% dplyr::pull(column_name) %>% paste0(collapse = ", ")
+        stop_times_kolumner <- kolumn_namn %>% filter(table_name == "stop_times") %>% dplyr::pull(column_name) %>% paste0(collapse = ", ")
+        linjeklassificering_kolumner <- kolumn_namn %>% filter(table_name == "linjeklassificering") %>% dplyr::pull(column_name) %>% paste0(collapse = ", ")
+        
+        # Transfer data from schema schema to schema_historisk with version number
+        # dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.agency SELECT agency_id, agency_name, agency_url, agency_timezone, agency_lang, agency_phone, agency_fare_url, {senaste_version} FROM {schema}.agency;"))
+        # dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.routes SELECT route_id, agency_id, route_short_name, route_long_name, route_desc, route_type, route_url, route_color, route_text_color, {senaste_version} FROM {schema}.routes;"))
+        # dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.calendar_dates SELECT service_id, date, exception_type, {senaste_version} FROM {schema}.calendar_dates;"))
+        # dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.shapes_line SELECT shape_id, geometry, antal_punkter, max_dist, {senaste_version} FROM {schema}.shapes_line;"))
+        # dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.stops SELECT stop_id, hpl_id, stop_name, stop_lat, stop_lon, location_type, parent_station, platform_code, geometry, {senaste_version} FROM {schema}.stops;"))
+        # dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.trips SELECT trip_id, route_id, service_id, trip_headsign, direction_id, shape_id, {senaste_version} FROM {schema}.trips;"))
+        # dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.stop_times SELECT trip_id, arrival_time, departure_time, stop_id, stop_sequence, stop_headsign, pickup_type, drop_off_type, shape_dist_traveled, timepoint, {senaste_version} FROM {schema}.stop_times;"))
+        # dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.linjeklassificering SELECT route_short_name, klassificering, {senaste_version} FROM {schema}.linjeklassificering;"))
+        
+        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.agency SELECT {agency_kolumner}, {senaste_version} FROM {schema}.agency;"))
+        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.routes SELECT {routes_kolumner}, {senaste_version} FROM {schema}.routes;"))
+        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.calendar_dates SELECT {calendar_dates_kolumner}, {senaste_version} FROM {schema}.calendar_dates;"))
+        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.shapes_line SELECT {shapes_line_kolumner}, {senaste_version} FROM {schema}.shapes_line;"))
+        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.stops SELECT {stops_kolumner}, {senaste_version} FROM {schema}.stops;"))
+        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.trips SELECT {trips_kolumner}, {senaste_version} FROM {schema}.trips;"))
+        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.stop_times SELECT {stop_times_kolumner}, {senaste_version} FROM {schema}.stop_times;"))
+        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.linjeklassificering SELECT {linjeklassificering_kolumner}, {senaste_version} FROM {schema}.linjeklassificering;"))
+
         # Create views for historical data - called in versionshantering()
         skapa_vyer_historisk_hallplats(con, schema = schema_namn)
         skapa_vyer_historisk_linjer(con, schema = schema_namn)
