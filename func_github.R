@@ -2,6 +2,7 @@
 if (!require("pacman")) install.packages("pacman")
 p_load(tidyverse,
        git2r,
+       gert,
        keyring,
        usethis,
        glue)
@@ -9,98 +10,102 @@ p_load(tidyverse,
 source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_filer.R", encoding = "utf-8")
 source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_text.R")
 
-skicka_filer_till_github <- function(lokalt_repo_sokvag,        # sökväg till en mapp som utgör ett lokalt Github-repository
-                                     filnamn_gh_push,           # filnamn utan sökväg, utöver undermappar i den lokala repository-mappen
-                                     commit_message = NA,       # commit-meddelande, NA om man  vill köra det automatiska "Uppdaterat av r-skript automatiskt: <datum> <tid>
-                                     pull_forst = TRUE) {       # gör en pull() innan man gör en push() till github
-
-  # =======================================================================================================================
-  #
-  # Funktioner för att skripta mot Github. Ett sätt att slippa göra commits, pull och push etc. manuellt med klick i 
-  # R-studio. Använder man credentials, vilket vi gör nedan, kan man köra dessa skript utan R-studio och därmed schema-
-  # lägga dessa skript om man vill. 
-  #
-  # För att detta ska fungera behöver man använda följande keyring-konton:
-  #         1. Service: "git2r", anv: <github användarnamn>, pwd: <mailadress kopplat till github-kontot>
-  #         2. Service: "github", anv: <github användarnamn>, pwd: <lösenord på github>
-  #         3. Service: "github_token", anv: <github användarnamn>, pwd: <personal access token som man skapar på github>
-  # 
-  # Man skapar ett personal access token på sin Github-användare på github.com genom att välja:
-  #                                            Settings - Developer settings - Personal access tokens - Tokens (classic)
-  # och där skapar man ett personal token som lägger in i sin keyring enligt ovan.
-  #
-  # =======================================================================================================================
-  
-  
-  # filerna ska redan vara skrivna till mappen som tillhör repositoriet för att detta ska fungera
-  if (in_repository(lokalt_repo_sokvag)) {
-    
-    repo_lokalt <- repository(lokalt_repo_sokvag)                          # initiera repositoriet
-    
-    git2r::config(repo_lokalt, user.name = key_list(service = "git2r")$username, user.email = key_get("git2r", key_list(service = "git2r")$username))
-    
-    git2r::add( repo = repo_lokalt,            # först gör vi en stage av filen/filerna
-         path = filnamn_gh_push)
-    
-    if (is.na(commit_message)) commit_message <- paste0("Updaterat av r-skript automatiskt: ", Sys.time())
-    
-    git2r::commit( repo = repo_lokalt,
-            message = commit_message)    # sen gör vi en commit på de filer som har stage:ats
-    
-    # först en pull
-    if (pull_forst){
-      git2r::pull( repo = repo_lokalt,                 
-            credentials = cred_user_pass( username = key_list(service = "github")$username, 
-                                          password = key_get("github", key_list(service = "github")$username)))
-    } # slut if-sats där man kan stänga av att man kör en pull först (inte att rekommendera)
-    
-    # och sedan en push
-    git2r::push( object = repo_lokalt,               
-          credentials = cred_user_pass( username = key_list(service = "github_token")$username, 
-                                        password = key_get("github_token", key_list(service = "github_token")$username)))
-    
-  } else warning(paste0("Sökvägen '", lokalt_repo_sokvag, "' finns inte som lokalt Github-repository, kontrollera sökvägen och försök igen."))
-  
-} # slut funktion
+# skicka_filer_till_github <- function(lokalt_repo_sokvag,        # sökväg till en mapp som utgör ett lokalt Github-repository
+#                                      filnamn_gh_push,           # filnamn utan sökväg, utöver undermappar i den lokala repository-mappen
+#                                      commit_message = NA,       # commit-meddelande, NA om man  vill köra det automatiska "Uppdaterat av r-skript automatiskt: <datum> <tid>
+#                                      pull_forst = TRUE) {       # gör en pull() innan man gör en push() till github
+# 
+#   # =======================================================================================================================
+#   #
+#   # Funktioner för att skripta mot Github. Ett sätt att slippa göra commits, pull och push etc. manuellt med klick i 
+#   # R-studio. Använder man credentials, vilket vi gör nedan, kan man köra dessa skript utan R-studio och därmed schema-
+#   # lägga dessa skript om man vill. 
+#   #
+#   # För att detta ska fungera behöver man använda följande keyring-konton:
+#   #         1. Service: "git2r", anv: <github användarnamn>, pwd: <mailadress kopplat till github-kontot>
+#   #         2. Service: "github", anv: <github användarnamn>, pwd: <lösenord på github>
+#   #         3. Service: "github_token", anv: <github användarnamn>, pwd: <personal access token som man skapar på github>
+#   # 
+#   # Man skapar ett personal access token på sin Github-användare på github.com genom att välja:
+#   #                                            Settings - Developer settings - Personal access tokens - Tokens (classic)
+#   # och där skapar man ett personal token som lägger in i sin keyring enligt ovan.
+#   #
+#   # =======================================================================================================================
+#   
+#   
+#   # filerna ska redan vara skrivna till mappen som tillhör repositoriet för att detta ska fungera
+#   if (in_repository(lokalt_repo_sokvag)) {
+#     
+#     repo_lokalt <- repository(lokalt_repo_sokvag)                          # initiera repositoriet
+#     
+#     git2r::config(repo_lokalt, user.name = key_list(service = "git2r")$username, user.email = key_get("git2r", key_list(service = "git2r")$username))
+#     
+#     git2r::add( repo = repo_lokalt,            # först gör vi en stage av filen/filerna
+#          path = filnamn_gh_push)
+#     
+#     if (is.na(commit_message)) commit_message <- paste0("Updaterat av r-skript automatiskt: ", Sys.time())
+#     
+#     git2r::commit( repo = repo_lokalt,
+#             message = commit_message)    # sen gör vi en commit på de filer som har stage:ats
+#     
+#     # först en pull
+#     if (pull_forst){
+#       git2r::pull( repo = repo_lokalt,                 
+#             credentials = cred_user_pass( username = key_list(service = "github")$username, 
+#                                           password = key_get("github", key_list(service = "github")$username)))
+#     } # slut if-sats där man kan stänga av att man kör en pull först (inte att rekommendera)
+#     
+#     # och sedan en push
+#     git2r::push( object = repo_lokalt,               
+#           credentials = cred_user_pass( username = key_list(service = "github_token")$username, 
+#                                         password = key_get("github_token", key_list(service = "github_token")$username)))
+#     
+#   } else warning(paste0("Sökvägen '", lokalt_repo_sokvag, "' finns inte som lokalt Github-repository, kontrollera sökvägen och försök igen."))
+#   
+# } # slut funktion
 
 
 skapa_webbrapport_github <- function(githubmapp_lokalt,                 # sökväg till den mapp där du har alla github-repos (ska INTE innehålla själva repositoryt), tex c:/github_repos/
                                      github_repo,                       # namn på själva github-repot, döper mappen och github-repot. Mappen skapas om den inte finns
-                                     github_org = "Region-Dalarna",     # ändra till sin användare om man vill lägga repo:t i sin privata github
+                                     github_org = "Region-Dalarna",     # ändra till NULL om man vill lägga repo:t i sin privata github
                                      rapport_titel,                     # titel på rapporten i RMarkdown
                                      rapport_undertitel = NA) {         # om man vill ha en undertitel så lägger man in den här
   
   githubmapp_lokalt <- githubmapp_lokalt %>% str_replace_all(fixed("\\"), "/")
-  if (str_sub(1, nchar(githubmapp_lokalt)) != "/") githubmapp_lokalt <- paste0(githubmapp_lokalt, "/")
+  if (str_sub(githubmapp_lokalt, nchar(githubmapp_lokalt), nchar(githubmapp_lokalt)) != "/") githubmapp_lokalt <- paste0(githubmapp_lokalt, "/")
   
   
   sokvag_proj <- paste0(githubmapp_lokalt, github_repo)
-  if (str_sub(1, nchar(sokvag_proj)) != "/") sokvag_proj <- paste0(sokvag_proj, "/")
+  if (str_sub(sokvag_proj, nchar(sokvag_proj), nchar(sokvag_proj)) != "/") sokvag_proj <- paste0(sokvag_proj, "/")
   
   skapa_mapp_om_den_inte_finns(sokvag_proj)
 
-  # Här skriver vi själva .Rproj-filen
-  str_proj_fil <- paste0(
-    "Version: 1.0\n\n",
+  # # Här skriver vi själva .Rproj-filen
+  # str_proj_fil <- paste0(
+  #   "Version: 1.0\n\n",
+  # 
+  #   "RestoreWorkspace: Default\n",
+  #   "SaveWorkspace: Default\n",
+  #   "AlwaysSaveHistory: Default\n\n",
+  # 
+  #   "EnableCodeIndexing: Yes\n",
+  #   "UseSpacesForTab: Yes\n",
+  #   "NumSpacesForTab: 2\n",
+  #   "Encoding: UTF-8\n\n",
+  # 
+  #   "RnwWeave: Sweave\n",
+  #   "LaTeX: pdfLaTeX")
 
-    "RestoreWorkspace: Default\n",
-    "SaveWorkspace: Default\n",
-    "AlwaysSaveHistory: Default\n\n",
-
-    "EnableCodeIndexing: Yes\n",
-    "UseSpacesForTab: Yes\n",
-    "NumSpacesForTab: 2\n",
-    "Encoding: UTF-8\n\n",
-
-    "RnwWeave: Sweave\n",
-    "LaTeX: pdfLaTeX")
-
-  # skriv .Rproj-fil till hårddisken
-  writeLines(str_proj_fil, paste0(sokvag_proj, github_repo, ".Rproj"))
+  # # skriv .Rproj-fil till hårddisken
+  # writeLines(str_proj_fil, paste0(sokvag_proj, github_repo, ".Rproj"))
   
   # # skapa r-projekt
   # create_project(sokvag_proj, rstudio = rstudioapi::isAvailable(), open = rlang::is_interactive())
-  # 
+  
+  gitprojekt_sokvag <- if (str_sub(sokvag_proj, -1, -1) == "/")  str_sub(sokvag_proj, 1, -2)
+  
+  usethis::create_project(gitprojekt_sokvag, open = FALSE)
+  
   
   # skapa övriga mappar vi brukar ha
   skapa_mapp_om_den_inte_finns(glue("{sokvag_proj}Diagram"))
@@ -391,34 +396,36 @@ hela_rmd_filen <- paste0(rmd_header, "\n\n",
 # Vi skriver filen till mappen
 writeLines(hela_rmd_filen, paste0(sokvag_proj, github_repo, ".Rmd"))
   
+#setwd(sokvag_proj)
 
+#usethis::create_project("c:/gh_falupeppe/Test-repo")
 
+# Byt arbetskatalog till det nya projektet
 
-# ================================================== skicka upp till github =================================================  
-
-
-skapa_git_och_github_repo_med_pages <- glue('
-if (!require("pacman")) install.packages("pacman")
-p_load(usethis)
-
+#setwd(sokvag_proj)
 # skapa git först
-use_git(message = "Skapa repository")
+
+gert::git_init()
+gert::git_add(".")
+gert::git_commit("Initiera Git")
 
 # därefter github
-
-use_github(
-  organisation = {github_org},
-  private = FALSE,
-  visibility = "public"
+if (is.null(github_org)) {
+  use_github(
+    private = FALSE,
+    protocol = "https"
 )
+} else {
+  use_github(
+    organisation = github_org,
+    private = FALSE,
+    visibility = "public",
+    protocol = "https"
+  ) 
+}
 
 use_github_pages(branch = git_default_branch(), path = "/docs", cname = NA)
-')
 
-# Vi skriver filen till mappen
-writeLines(skapa_git_och_github_repo_med_pages, paste0(sokvag_proj, "skapa_github_repo.R"))
-
-message("Ett nytt R-projekt har skapats och öppnats i en ny session i R-studio. I det nya projektet ligger skriptet 'skapa_github_repo.R'. Kör det skriptet för att skapa ett Github-repository och aktivera Github Pages för det repositoryt.")
 
   
 } # slut funktion
