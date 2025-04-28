@@ -1227,6 +1227,12 @@ excelfil_spara_snyggt <- function(excelflikar,
   saveWorkbook(wb, paste0(utdatamapp, utdata_filnamn), overwrite = skriv_over_fil)
 }
 
+slash_lagg_till <- function(x) {
+  if (!str_ends(x, "/")) x <- paste0(x, "/")
+  return(x)
+}
+
+
 # avrundning_dynamisk <- function(x, gräns_stora = 10, gräns_medel = 1, dec_stora = 0, dec_medel = 1, dec_små = 2) {
 #   avrunda <- function(v) {
 #     if (abs(v) >= gräns_stora) {
