@@ -181,12 +181,17 @@ hamta_giltiga_varden_fran_tabell <- function(api_url, variabel, klartext = FALSE
   return(retur_varden)
 }
 
-hamta_kod_med_klartext <- function(api_url, klartext_varde, skickad_fran_variabel = NA){
-  retur_kod <- sla_upp_varde_klartext_kod(api_url = api_url, 
-                                          fran_varde = klartext_varde, 
-                                          klartext = TRUE,
-                                          fran_variabel = skickad_fran_variabel)
-  return(retur_kod)
+hamta_kod_med_klartext <- function(api_url, klartext_varde, skickad_fran_variabel = NA, returnera_alltid_snoflinga = TRUE){
+  
+  if (returnera_alltid_snoflinga & all(klartext_varde == "*")) {
+    return("*")
+  } else {
+    retur_kod <- sla_upp_varde_klartext_kod(api_url = api_url, 
+                                            fran_varde = klartext_varde, 
+                                            klartext = TRUE,
+                                            fran_variabel = skickad_fran_variabel)
+    return(retur_kod)
+  }
 }
 
 hamta_klartext_med_kod <- function(api_url, kod_varde, skickad_fran_variabel = NA){
