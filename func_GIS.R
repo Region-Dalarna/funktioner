@@ -712,9 +712,13 @@ skapa_sf_fran_csv_eller_excel_supercross <- function(fil_med_sokvag,            
 
 # ============================== postgres-funktioner (för att hantera databaser) ============================================
 
+uppkoppling_praktik_adm <- function(databas = "praktik") {
+  uppkoppling_db(service_name = "rd_geodata", db_name = databas)
+}
 
 uppkoppling_adm <- function(databas = "geodata") {
   uppkoppling_db(service_name = "rd_geodata", db_name = databas)
+  
 }
 
 uppkoppling_db <- function(
