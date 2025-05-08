@@ -618,6 +618,68 @@ hamta_kolada_df <- function(kpi_id, valda_kommuner, valda_ar = NA, konsuppdelat 
   return(retur_df)
 }
 
+# =========================================== Skolvkerket-funktioner =========================================================
+
+skolverket_generera_kolumnnamn <- function(df, namnrad, separator = " ", konv_kolnamn_gemener = TRUE) {
+  namnmatris <- df[1:namnrad, ] %>%
+    set_names(~ paste0("X", seq_along(.))) %>% 
+    mutate(across(everything(), as.character)) %>%
+    as.matrix()
+  
+  basnamn <- namnmatris[namnrad, ]
+  dubbletter <- duplicated(basnamn) | duplicated(basnamn, fromLast = TRUE)
+  
+  hitta_första_icke_tomma_vänster <- function(rad, kolindex) {
+    while (kolindex > 0) {
+      värde <- namnmatris[rad, kolindex]
+      if (!is.na(värde) && värde != "") return(värde)
+      kolindex <- kolindex - 1
+    }
+    return("")  # Om inget hittas
+  }
+  
+  skapa_namn <- function(kolindex) {
+    namn <- character()
+    for (rad in seq(namnrad, 1)) {
+      värde <- namnmatris[rad, kolindex]
+      
+      # Om tomt, sök åt vänster
+      if (is.na(värde) || värde == "") {
+        värde <- hitta_första_icke_tomma_vänster(rad, kolindex - 1)
+      }
+      
+      if (is.na(värde) || värde == "") break
+      namn <- c(if (rad == namnrad && konv_kolnamn_gemener) tolower(värde) else värde, namn)
+    }
+    
+    fullständigt_namn <- paste(namn, collapse = separator)
+  }
+  
+  nya_namn <- seq_along(basnamn) %>%
+    map_chr(~ if (dubbletter[.x]) skapa_namn(.x) else {
+      namn <- basnamn[.x]
+    })
+  
+  return(nya_namn)
+}
+
+skolverket_hitta_startrad <- function(df, kolumn = 1, min_längd = 5) {
+  # Extrahera vektorn och konvertera till character
+  vektor <- as.character(df[[kolumn]])
+  
+  # Skapa logisk vektor: TRUE där det finns värde, FALSE annars
+  har_värde <- !is.na(vektor) & vektor != ""
+  
+  # Leta efter första position där minst `min_längd` TRUE i rad
+  for (i in seq_len(length(har_värde) - min_längd + 1)) {
+    if (all(har_värde[i:(i + min_längd - 1)])) {
+      return(i)
+    }
+  }
+  
+  return(NA_integer_)  # Om ingen sådan rad hittas
+}
+
 # =========================================== Bra generella funktioner =========================================================
 
 ladda_funk_parametrar <- function(funktion, meddelanden = FALSE) {
