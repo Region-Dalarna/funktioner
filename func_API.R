@@ -622,7 +622,8 @@ hamta_kolada_df <- function(kpi_id, valda_kommuner, valda_ar = NA, konsuppdelat 
 
 skolverket_generera_kolumnnamn <- function(df, namnrad, separator = " ", konv_kolnamn_gemener = TRUE) {
   namnmatris <- df[1:namnrad, ] %>%
-    set_names(~ paste0("X", seq_along(.))) %>% 
+    #set_names(~ paste0("X", seq_along(.))) %>% 
+    setNames(paste0("X", seq_len(ncol(.)))) %>%
     mutate(across(everything(), as.character)) %>%
     as.matrix()
   
