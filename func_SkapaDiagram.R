@@ -22,9 +22,11 @@ SkapaStapelDiagram <- function(skickad_df,
                                skickad_filter_OR_vect = NA, 
                                skickad_filter_OR_var = NA,
                                diagram_titel = NULL,          # textsträng, blir diagramtitel, om NULL så skrivs diagrammet utan titel
+                               diagram_titel_storlek = 20,    # storlek på huvudtitel för diagrammet
                                diagram_undertitel = NULL,     # textsträng, blir undertitel, om NULL så skrivs diagrammet utan undertitel
                                undertitel_hjust = 0.5,        # styr vart undertiteln hamnar, 0 = vänster, 0.5 = mitten, 1 = höger
                                undertitel_storlek = 11,       # styr storleken på undertiteln
+                               diagram_caption_storlek = 11,  # storlek på caption i diagrammet
                                output_mapp,                   # textsträng, en giltig sökväg till den mapp som diagrammet ska sparas i 
                                diagram_capt = NULL,           # skicka med en textsträng som hamnar i nedre vänstra hörnet på diagram, som kan beskriva källa, vem som gjort diagrammet etc.
                                #diagram_capt_size, 
@@ -426,14 +428,14 @@ SkapaStapelDiagram <- function(skickad_df,
           legend.text = element_text(size = 12),
           #plot.title = element_text(hjust = 0.5, size = 20),
           plot.title = element_textbox_simple(
-            size = 20,
+            size = diagram_titel_storlek,
             width = unit(0.9, "npc"),  # Bredd som proportion av plottens område
             halign = 0.5,  # Centrera texten
             margin = margin(7, 0, 7, 0)),
           plot.title.position = "plot",
           plot.subtitle = element_text(hjust = undertitel_hjust, size = undertitel_storlek),
           plot.caption = element_text(face = "italic",
-                                      hjust = 0, vjust = 0),
+                                      hjust = 0, vjust = 0, size = diagram_caption_storlek),
           plot.caption.position = "plot",
           panel.background = element_rect(fill = "white"),
           panel.grid.major.y = element_line(linewidth=0.8, colour = "lightgrey"),
@@ -602,9 +604,11 @@ SkapaLinjeDiagram <- function(skickad_df,
                               skickad_filter_OR_vect = NA, 
                               skickad_filter_OR_var = NA,
                               diagram_titel = NULL, 
+                              diagram_titel_storlek = 20,    # storlek på diagramtiteln
                               diagram_undertitel = NULL, 
                               undertitel_hjust = 0.5,        # styr vart undertiteln hamnar, 0 = vänster, 0.5 = mitten, 1 = höger
                               undertitel_storlek = 11,       # styr storleken på undertiteln
+                              diagram_caption_storlek = 11,  # storlek på caption i diagrammet
                               output_mapp, 
                               diagram_capt = NULL,             # skicka med en textsträng som hamnar i nedre vänstra hörnet på diagram, som kan beskriva källa, vem som gjort diagrammet etc.
                               diagramfil_hojd = 7,               # om ett diagram skrivs till fil kan proportionerna ändras här i filens upplösning, OBS! påverkar även textstorlekar etc.                                                                                                                                                                                                                                                                                                                   fontface finns "plain", "bold", "italic", "bold.italic"
@@ -874,10 +878,16 @@ SkapaLinjeDiagram <- function(skickad_df,
           legend.margin = margin(0,0,0,0),
           legend.title = element_blank(),
           legend.text = element_text(size = 12),
-          plot.title = element_text(hjust = 0.5, size = 20),
+          plot.title = element_textbox_simple(
+            size = diagram_titel_storlek,
+            width = unit(0.9, "npc"),  # Bredd som proportion av plottens område
+            halign = 0.5,  # Centrera texten
+            margin = margin(7, 0, 7, 0)),
+          plot.title.position = "plot",
+          #plot.title = element_text(hjust = 0.5, size = 20),
           plot.subtitle = element_text(hjust = undertitel_hjust, size = undertitel_storlek),
           plot.caption = element_text(face = "italic",
-                                      hjust = 0, vjust = 0),
+                                      hjust = 0, vjust = 0, size = diagram_caption_storlek),
           plot.caption.position = "plot",
           panel.spacing.x = unit(facet_space_diag_horisont, "mm"),
           panel.background = element_rect(fill = "white"),
