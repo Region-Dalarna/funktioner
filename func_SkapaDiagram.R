@@ -66,6 +66,7 @@ SkapaStapelDiagram <- function(skickad_df,
                                x_axis_var_xe_etikett_ta_bort_nast_sista_vardet = FALSE, # tar bort näst sista värdet i visa_var_xe_etikett
                                procent_0_100_10intervaller = FALSE,  # om TRUE, så går y-axeln mellan 0 och 100, med tjocka stödlinjer med 10 enheters mellanrum, passar bra med procent 
                                legend_titel = NA,                 # om man vill ha en titel på teckenförklaringen kan man skicka med det som text här
+                               legend_storlek = 12,               # storlekt på text i legend
                                legend_tabort = FALSE,             # om man vill tvinga bort legenden så kan man göra det här med TRUE
                                legend_vand_ordning = FALSE,       # om man vill vända ordningen på kategorierna i legenden (men inte i själva diagrammet)
                                legend_rader = NULL,               # ange hur många rader man vill ha i legenden
@@ -425,7 +426,7 @@ SkapaStapelDiagram <- function(skickad_df,
           legend.position = legend_pos,
           legend.margin = margin(0,0,0,0),
           legend.title = element_text(),
-          legend.text = element_text(size = 12),
+          legend.text = element_text(size = legend_storlek),
           #plot.title = element_text(hjust = 0.5, size = 20),
           plot.title = element_textbox_simple(
             size = diagram_titel_storlek,
@@ -643,6 +644,7 @@ SkapaLinjeDiagram <- function(skickad_df,
                               AF_special = FALSE,
                               
                               legend_titel = NA,                 # om man vill ha en titel på teckenförklaringen kan man skicka med det som text här
+                              legend_storlek = 12,               # storlekt på text i legend
                               legend_tabort = FALSE,             # om man vill tvinga bort legenden så kan man göra det här med TRUE
                               legend_vand_ordning = FALSE,       # om man vill vända ordningen på kategorierna i legenden (men inte i själva diagrammet)
                               legend_rader = NULL,               # ange hur många rader man vill ha i legenden
@@ -877,7 +879,7 @@ SkapaLinjeDiagram <- function(skickad_df,
           legend.key = element_rect(fill = "white"),
           legend.margin = margin(0,0,0,0),
           legend.title = element_blank(),
-          legend.text = element_text(size = 12),
+          legend.text = element_text(size = legend_storlek),
           plot.title = element_textbox_simple(
             size = diagram_titel_storlek,
             width = unit(0.9, "npc"),  # Bredd som proportion av plottens område
