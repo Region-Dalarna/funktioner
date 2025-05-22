@@ -1181,10 +1181,15 @@ avrundning_dynamisk <- function(x, gräns_stora = 10, gräns_medel = 1, dec_stor
 }
 
 
-vektor_till_text <- function(skickad_vektor){
+vektor_till_text <- function(skickad_vektor, 
+                             till_urklipp = TRUE                          # om TRUE skrivs source-satserna till urklipp om skriv_source_konsol är TRUE
+                             ){
   
   retur_text <- paste0('"', skickad_vektor, '"', collapse = ", ")
   cat(retur_text)
+  if (till_urklipp) {
+    writeLines(text = retur_text, con = "clipboard", sep = "")
+  }
   invisible(retur_text)
 }
 
