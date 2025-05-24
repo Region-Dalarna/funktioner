@@ -1786,7 +1786,15 @@ github_commit_push <- function(
     pull_forst = TRUE) {
   
   lokal_sokvag_repo <- paste0(sokvag_lokal_repo, repo)
-  push_repo <- git2r::init(lokal_sokvag_repo)
+  
+  # Skydd mot parallell körning (låser processen)
+  lockfil <- file.path(tempdir(), paste0("github_push_lock_", repo, ".lock"))
+  if (file.exists(lockfil)) stop("🛑 En annan push-process verkar redan köra.")
+  writeLines(as.character(Sys.time()), lockfil)
+  on.exit(unlink(lockfil), add = TRUE)
+  
+  
+  push_repo <- git2r::repository(lokal_sokvag_repo)
   repo_status <- git2r::status(push_repo)
   
   # Kategorisera filer
@@ -1832,9 +1840,15 @@ github_commit_push <- function(
     
     # Pull innan push (om aktiverat)
     if (pull_forst) {
-      git2r::pull(repo = push_repo,
-                  credentials = cred_user_pass(username = key_list(service = "github")$username,
-                                               password = key_get("github", key_list(service = "github")$username)))
+      # Kontrollera att current branch har en tracking branch innan pull
+      head_branch <- git2r::repository_head(push_repo)
+      if (!is.null(git2r::branch_target(head_branch))) {
+        git2r::pull(repo = push_repo,
+                    credentials = cred_user_pass(username = key_list(service = "github")$username,
+                                                 password = key_get("github", key_list(service = "github")$username)))
+      } else {
+        message("⚠️ Ingen upstream-branch är satt – skippar git pull.")
+      }
     }
     
     # Kolla om det ligger filer stage:ade sedan tidigare (oftast gör det inte det) - och i så fall skriver vi det i konsolen
