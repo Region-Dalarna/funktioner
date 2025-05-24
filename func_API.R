@@ -1902,7 +1902,7 @@ github_pull_lokalt_repo_fran_github <- function(
       
     lokal_sokvag_repo <- paste0(sokvag_lokal_repo, .x)
     
-    push_repo <- git2r::init(lokal_sokvag_repo)
+    push_repo <- git2r::repository(lokal_sokvag_repo)
     #repo_status <- git2r::status(push_repo)
     
     # Om repo-initialiseringen misslyckas, hoppa över med ett meddelande
@@ -1914,6 +1914,12 @@ github_pull_lokalt_repo_fran_github <- function(
     
     resultat <- tryCatch(
       {
+        head_branch <- git2r::repository_head(push_repo)
+        
+        if (is.null(git2r::branch_target(head_branch))) {
+          return("Ingen tracking-branch kopplad – skippar pull.")
+        }
+        
         git2r::pull(
           repo = push_repo,
           credentials = cred_user_pass(
@@ -1923,11 +1929,10 @@ github_pull_lokalt_repo_fran_github <- function(
         )
       },
       error = function(e) {
-        #cat("Fel vid försök att dra från repositoryt", .x, ":", e$message, "\n")
-        #flush.console()
-        return("Hittar inte repositoryt på github.com.")
+        return(paste("Fel vid git pull:", e$message))
       }
     )
+    
     
     # resultat <- git2r::pull( repo = push_repo,                 
     #               credentials = cred_user_pass( username = key_list(service = "github")$username, 
