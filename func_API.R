@@ -1850,7 +1850,7 @@ github_commit_push <- function(
       git2r::add(push_repo, path = c(filer_tillagda, filer_andrade, filer_borttagna) %>% as.character())
     } else {
       git2r::add(push_repo, path = ".")
-    }
+    } 
     
     git2r::commit(push_repo, commit_txt)
     
@@ -1929,19 +1929,17 @@ github_pull_lokalt_repo_fran_github <- function(
   }) # slut walk-funktion
   } # slut funktion
 
-github_lagg_till_repo_fran_github <- function(github_url,
+github_lagg_till_repo_fran_github <- function(repo_namn,   # bara själva namnet, inte url:en, tex. "hamta_data" eller "kartor"
+                                              repo_org = "Region-Dalarna",
                                               repo_lokalt_mapp = "c:/gh/",
                                               rprojekt_oppna = FALSE) {
 
-  # Extrahera repo-namn
-  repo_namn <- basename(gsub("\\.git$", "", github_url))
-  
   # Full sökväg lokalt
-  local_path <- paste0(repo_lokalt_mapp, repo_namn)
+  lokal_sokvag <- paste0(repo_lokalt_mapp, repo_namn)
   
   # Stoppa om mappen redan finns
-  if (dir.exists(local_path)) {
-    stop("Katalogen finns redan: ", local_path)
+  if (dir.exists(lokal_sokvag)) {
+    stop("Katalogen finns redan: ", lokal_sokvag)
   }
   
   # Skapa lokal rotmapp om den inte finns
@@ -1949,24 +1947,26 @@ github_lagg_till_repo_fran_github <- function(github_url,
     dir.create(repo_lokalt_mapp, recursive = TRUE)
   }
   
+  github_url <- glue("https://github.com/{repo_org}/{repo_namn}.git")
+  
   # Klona från GitHub
-  system(paste("git clone", github_url, shQuote(local_path)), intern = TRUE)
+  system(paste("git clone", github_url, shQuote(lokal_sokvag)), intern = TRUE)
   
   # Skapa .Rproj-fil om den saknas
-  rproj_file <- file.path(local_path, paste0(repo_namn, ".Rproj"))
+  rproj_file <- file.path(lokal_sokvag, paste0(repo_namn, ".Rproj"))
   if (!file.exists(rproj_file)) {
-    usethis::create_project(local_path, open = FALSE, rstudio = TRUE)
+    usethis::create_project(lokal_sokvag, open = FALSE, rstudio = TRUE)
   }
   
   # Öppna projektet i RStudio endast om önskat
   if (rprojekt_oppna) {
-    usethis::proj_activate(local_path)
-    message("✅ Projekt öppnat i RStudio: ", local_path)
+    usethis::proj_activate(lokal_sokvag)
+    message("✅ Projekt öppnat i RStudio: ", lokal_sokvag)
   } else {
-    message("✅ Projekt klonat: ", local_path)
+    message("✅ Projekt klonat: ", lokal_sokvag)
   }
   
-  return(invisible(local_path))
+  return(invisible(lokal_sokvag))
 }
 
 
