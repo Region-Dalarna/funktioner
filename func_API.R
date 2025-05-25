@@ -1953,6 +1953,12 @@ github_lagg_till_repo_fran_github <- function(repo_namn,   # bara själva namnet
                                               repo_lokalt_mapp = "c:/gh/",
                                               rprojekt_oppna = FALSE) {
 
+  # kontrollera att git är installerat och finns i PATH  
+  if (Sys.which("git") == "") stop("❌ Git finns inte tillgängligt i PATH. Kontrollera Git-installationen.")
+  
+  if (!nzchar(repo_namn)) stop("❌ repo_namn måste anges.")
+  if (!nzchar(repo_org)) stop("❌ repo_org måste anges.")
+
   # Full sökväg lokalt
   lokal_sokvag <- paste0(repo_lokalt_mapp, repo_namn)
   
@@ -1968,8 +1974,38 @@ github_lagg_till_repo_fran_github <- function(repo_namn,   # bara själva namnet
   
   github_url <- glue("https://github.com/{repo_org}/{repo_namn}.git")
   
+  # Kontrollera att repo:t finns på GitHub
+  repo_url_check <- sub("\\.git$", "", github_url)  # ta bort .git för API-kompatibel URL
+  response <- tryCatch(
+    {
+      httr::HEAD(repo_url_check, httr::user_agent("github_lagg_till_repo"))
+    },
+    error = function(e) {
+      stop("❌ Kunde inte nå GitHub för att kontrollera repo: ", conditionMessage(e))
+    }
+  )
+  
+  if (httr::status_code(response) == 404) {
+    stop("❌ Repo hittades inte på GitHub: \n", repo_url_check,"\n\nAnvänd funktionen github_lista_repos() för att se vilka repositorys som finns hos en användare på Github.")
+  } else if (httr::status_code(response) >= 400) {
+    stop("❌ Fel vid kontroll av repo på GitHub (status ", httr::status_code(response), "): ", repo_url_check)
+  }
+  
+  
   # Klona från GitHub
-  system(paste("git clone", github_url, shQuote(lokal_sokvag)), intern = TRUE)
+  klon_resultat <- tryCatch({
+    out <- system2("git", args = c("clone", github_url, shQuote(lokal_sokvag)), stdout = TRUE, stderr = TRUE)
+    cat("🔍 Git clone output:\n", paste(out, collapse = "\n"), "\n")
+    out
+  }, error = function(e) {
+    stop("❌ Fel vid git clone: ", conditionMessage(e))
+  })
+  
+  # 
+  # if (!dir.exists(lokal_sokvag)) {
+  #   stop("❌ Kloning misslyckades. Kontrollera repo-URL och åtkomst.")
+  # }
+  
   
   # Skapa .Rproj-fil om den saknas
   rproj_file <- file.path(lokal_sokvag, paste0(repo_namn, ".Rproj"))
