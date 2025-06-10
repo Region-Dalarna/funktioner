@@ -1786,7 +1786,15 @@ github_commit_push <- function(
     pull_forst = TRUE) {
   
   lokal_sokvag_repo <- paste0(sokvag_lokal_repo, repo)
-  push_repo <- git2r::init(lokal_sokvag_repo)
+  
+  # Skydd mot parallell körning (låser processen)
+  lockfil <- file.path(tempdir(), paste0("github_push_lock_", repo, ".lock"))
+  if (file.exists(lockfil)) stop("🛑 En annan push-process verkar redan köra.")
+  writeLines(as.character(Sys.time()), lockfil)
+  on.exit(unlink(lockfil), add = TRUE)
+  
+  
+  push_repo <- git2r::repository(lokal_sokvag_repo)
   repo_status <- git2r::status(push_repo)
   
   # Kategorisera filer
@@ -1832,9 +1840,15 @@ github_commit_push <- function(
     
     # Pull innan push (om aktiverat)
     if (pull_forst) {
-      git2r::pull(repo = push_repo,
-                  credentials = cred_user_pass(username = key_list(service = "github")$username,
-                                               password = key_get("github", key_list(service = "github")$username)))
+      # Kontrollera att current branch har en tracking branch innan pull
+      head_branch <- git2r::repository_head(push_repo)
+      if (!is.null(git2r::branch_target(head_branch))) {
+        git2r::pull(repo = push_repo,
+                    credentials = cred_user_pass(username = key_list(service = "github")$username,
+                                                 password = key_get("github", key_list(service = "github")$username)))
+      } else {
+        message("⚠️ Ingen upstream-branch är satt – skippar git pull.")
+      }
     }
     
     # Kolla om det ligger filer stage:ade sedan tidigare (oftast gör det inte det) - och i så fall skriver vi det i konsolen
@@ -1850,7 +1864,7 @@ github_commit_push <- function(
       git2r::add(push_repo, path = c(filer_tillagda, filer_andrade, filer_borttagna) %>% as.character())
     } else {
       git2r::add(push_repo, path = ".")
-    }
+    } 
     
     git2r::commit(push_repo, commit_txt)
     
@@ -1888,7 +1902,7 @@ github_pull_lokalt_repo_fran_github <- function(
       
     lokal_sokvag_repo <- paste0(sokvag_lokal_repo, .x)
     
-    push_repo <- git2r::init(lokal_sokvag_repo)
+    push_repo <- git2r::repository(lokal_sokvag_repo)
     #repo_status <- git2r::status(push_repo)
     
     # Om repo-initialiseringen misslyckas, hoppa över med ett meddelande
@@ -1900,6 +1914,12 @@ github_pull_lokalt_repo_fran_github <- function(
     
     resultat <- tryCatch(
       {
+        head_branch <- git2r::repository_head(push_repo)
+        
+        if (is.null(git2r::branch_target(head_branch))) {
+          return("Ingen tracking-branch kopplad – skippar pull.")
+        }
+        
         git2r::pull(
           repo = push_repo,
           credentials = cred_user_pass(
@@ -1909,11 +1929,10 @@ github_pull_lokalt_repo_fran_github <- function(
         )
       },
       error = function(e) {
-        #cat("Fel vid försök att dra från repositoryt", .x, ":", e$message, "\n")
-        #flush.console()
-        return("Hittar inte repositoryt på github.com.")
+        return(paste("Fel vid git pull:", e$message))
       }
     )
+    
     
     # resultat <- git2r::pull( repo = push_repo,                 
     #               credentials = cred_user_pass( username = key_list(service = "github")$username, 
@@ -1929,19 +1948,23 @@ github_pull_lokalt_repo_fran_github <- function(
   }) # slut walk-funktion
   } # slut funktion
 
-github_lagg_till_repo_fran_github <- function(github_url,
+github_lagg_till_repo_fran_github <- function(repo_namn,   # bara själva namnet, inte url:en, tex. "hamta_data" eller "kartor"
+                                              repo_org = "Region-Dalarna",
                                               repo_lokalt_mapp = "c:/gh/",
                                               rprojekt_oppna = FALSE) {
 
-  # Extrahera repo-namn
-  repo_namn <- basename(gsub("\\.git$", "", github_url))
+  # kontrollera att git är installerat och finns i PATH  
+  if (Sys.which("git") == "") stop("❌ Git finns inte tillgängligt i PATH. Kontrollera Git-installationen.")
   
+  if (!nzchar(repo_namn)) stop("❌ repo_namn måste anges.")
+  if (!nzchar(repo_org)) stop("❌ repo_org måste anges.")
+
   # Full sökväg lokalt
-  local_path <- paste0(repo_lokalt_mapp, repo_namn)
+  lokal_sokvag <- paste0(repo_lokalt_mapp, repo_namn)
   
   # Stoppa om mappen redan finns
-  if (dir.exists(local_path)) {
-    stop("Katalogen finns redan: ", local_path)
+  if (dir.exists(lokal_sokvag)) {
+    stop("Katalogen finns redan: ", lokal_sokvag)
   }
   
   # Skapa lokal rotmapp om den inte finns
@@ -1949,24 +1972,56 @@ github_lagg_till_repo_fran_github <- function(github_url,
     dir.create(repo_lokalt_mapp, recursive = TRUE)
   }
   
+  github_url <- glue("https://github.com/{repo_org}/{repo_namn}.git")
+  
+  # Kontrollera att repo:t finns på GitHub
+  repo_url_check <- sub("\\.git$", "", github_url)  # ta bort .git för API-kompatibel URL
+  response <- tryCatch(
+    {
+      httr::HEAD(repo_url_check, httr::user_agent("github_lagg_till_repo"))
+    },
+    error = function(e) {
+      stop("❌ Kunde inte nå GitHub för att kontrollera repo: ", conditionMessage(e))
+    }
+  )
+  
+  if (httr::status_code(response) == 404) {
+    stop("❌ Repo hittades inte på GitHub: \n", repo_url_check,"\n\nAnvänd funktionen github_lista_repos() för att se vilka repositorys som finns hos en användare på Github.")
+  } else if (httr::status_code(response) >= 400) {
+    stop("❌ Fel vid kontroll av repo på GitHub (status ", httr::status_code(response), "): ", repo_url_check)
+  }
+  
+  
   # Klona från GitHub
-  system(paste("git clone", github_url, shQuote(local_path)), intern = TRUE)
+  klon_resultat <- tryCatch({
+    out <- system2("git", args = c("clone", github_url, shQuote(lokal_sokvag)), stdout = TRUE, stderr = TRUE)
+    cat("🔍 Git clone output:\n", paste(out, collapse = "\n"), "\n")
+    out
+  }, error = function(e) {
+    stop("❌ Fel vid git clone: ", conditionMessage(e))
+  })
+  
+  # 
+  # if (!dir.exists(lokal_sokvag)) {
+  #   stop("❌ Kloning misslyckades. Kontrollera repo-URL och åtkomst.")
+  # }
+  
   
   # Skapa .Rproj-fil om den saknas
-  rproj_file <- file.path(local_path, paste0(repo_namn, ".Rproj"))
+  rproj_file <- file.path(lokal_sokvag, paste0(repo_namn, ".Rproj"))
   if (!file.exists(rproj_file)) {
-    usethis::create_project(local_path, open = FALSE, rstudio = TRUE)
+    usethis::create_project(lokal_sokvag, open = FALSE, rstudio = TRUE)
   }
   
   # Öppna projektet i RStudio endast om önskat
   if (rprojekt_oppna) {
-    usethis::proj_activate(local_path)
-    message("✅ Projekt öppnat i RStudio: ", local_path)
+    usethis::proj_activate(lokal_sokvag)
+    message("✅ Projekt öppnat i RStudio: ", lokal_sokvag)
   } else {
-    message("✅ Projekt klonat: ", local_path)
+    message("✅ Projekt klonat: ", lokal_sokvag)
   }
   
-  return(invisible(local_path))
+  return(invisible(lokal_sokvag))
 }
 
 
