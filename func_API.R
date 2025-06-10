@@ -2,7 +2,8 @@
 # andra paket 
  
 if (!require("pacman")) install.packages("pacman")
-p_load(pxweb,
+p_load(git2r,
+       pxweb,
        tidyverse,
        rKolada,
        httr,
@@ -10,7 +11,6 @@ p_load(pxweb,
        rvest,
        curl,
        usethis,
-       git2r,
        glue)
  
 # ================================================= pxweb-funktioner ========================================================
