@@ -83,7 +83,7 @@ hamta_karttabell <- function(){
     add_row(namn = "tatorter", id_kol = "tatortskod", lankol = "lan", kommunkol = "kommun", sokord = list(c("tatort", "tätort", "tatorter", "tätorter", "tatortspolygoner", "tätortspolygoner"))) %>% 
     add_row(namn = "tatortspunkter", id_kol = "tatortskod", lankol = "lan", kommunkol = "kommun", sokord = list(c("tatortspunkter", "tätortspunkter"))) %>% 
     add_row(namn = "regso", id_kol = "regsokod",  lankol = "lan", kommunkol = "kommun", sokord = list(c("regso", "regsopolygoner"))) %>% 
-    add_row(namn = "deso", id_kol = "desokod", lankol = "lanskod", kommunkol = "kommunkod", sokord = list(c("deso", "desopolygoner"))) %>% 
+    add_row(namn = "deso", id_kol = "deso", lankol = "lan", kommunkol = "kommun", sokord = list(c("deso", "desopolygoner"))) %>% 
     add_row(namn = "distrikt", id_kol = "distriktskod", lankol = "lankod", kommunkol = "kommunkod", sokord = list(c("distrikt"))) %>% 
     add_row(namn = "nuts2", id_kol = "id", lankol = "id", kommunkol = "cntr_code", sokord = list(c("nuts2", "nuts2-områden"))) %>% 
     add_row(namn = "laregion_scb", id_kol = "lakod", lankol = "lan", kommunkol = "kommun", sokord = list(c("la", "laomraden", "la-omraden", "la-områden", "la-omraden")))
@@ -712,13 +712,9 @@ skapa_sf_fran_csv_eller_excel_supercross <- function(fil_med_sokvag,            
 
 # ============================== postgres-funktioner (för att hantera databaser) ============================================
 
-uppkoppling_praktik_adm <- function(databas = "praktik") {
-  uppkoppling_db(service_name = "rd_geodata", db_name = databas)
-}
 
 uppkoppling_adm <- function(databas = "geodata") {
   uppkoppling_db(service_name = "rd_geodata", db_name = databas)
-  
 }
 
 uppkoppling_db <- function(
@@ -915,32 +911,39 @@ postgres_lista_behorighet_till_scheman <- function(con = "default",
   
   query <- "
   WITH privilege_summary AS (
-    SELECT 
+    SELECT
       grantee AS role_or_user,
       table_schema,
       CASE
         WHEN STRING_AGG(privilege_type, ',') LIKE '%INSERT%' OR
              STRING_AGG(privilege_type, ',') LIKE '%UPDATE%' OR
+             STRING_AGG(privilege_type, ',') LIKE '%CREATE%' OR
              STRING_AGG(privilege_type, ',') LIKE '%DELETE%' THEN 'write'
         WHEN STRING_AGG(privilege_type, ',') LIKE '%SELECT%'THEN 'read'
         ELSE 'no access'
       END AS access_type
-    FROM 
+    FROM
       information_schema.role_table_grants
-    GROUP BY 
+    GROUP BY
       grantee, table_schema
   )
-  SELECT 
+  SELECT
     role_or_user,
     table_schema,
     MAX(access_type) AS access_level
-  FROM 
+  FROM
     privilege_summary
-  GROUP BY 
+  GROUP BY
     role_or_user, table_schema
-  ORDER BY 
+  ORDER BY
     role_or_user, table_schema;
 "
+  
+  
+
+  
+  
+  
   
   # Exekvera SQL-frågan och spara resultatet
   permissions_per_schema <- dbGetQuery(con, query)
@@ -1019,112 +1022,358 @@ postgres_test <- function(con = "default",
   return(test)
 }
 
+# postgres_alla_rattigheter <- function(con = "default", 
+#                                       meddelande_tid = FALSE
+# ) {
+#   
+#   starttid <- Sys.time()                                        # Starta tidstagning
+#   
+#   # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+#   if(is.character(con) && con == "default") {
+#     con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+#     default_flagga = TRUE
+#   } else  default_flagga = FALSE  
+#   
+#   
+#   query <- "
+#   WITH recursive role_inheritance AS (
+#     -- Start med att samla alla användare och roller de är medlemmar i
+#     SELECT 
+#       member.oid AS user_oid,
+#       member.rolname AS user_or_role,
+#       role.oid AS inherited_role_oid,
+#       role.rolname AS inherited_role
+#     FROM 
+#       pg_auth_members m
+#     JOIN 
+#       pg_roles member ON m.member = member.oid
+#     JOIN 
+#       pg_roles role ON m.roleid = role.oid
+#     
+#     UNION ALL
+#     
+#     -- Rekursivt hämta ärvda roller längre upp i hierarkin
+#     SELECT 
+#       ri.user_oid,
+#       ri.user_or_role,
+#       role.oid AS inherited_role_oid,
+#       role.rolname AS inherited_role
+#     FROM 
+#       role_inheritance ri
+#     JOIN 
+#       pg_auth_members m ON ri.inherited_role_oid = m.member
+#     JOIN 
+#       pg_roles role ON m.roleid = role.oid
+#   ),
+#   all_users AS (
+#     SELECT oid AS user_oid, rolname AS role_or_user, rolsuper FROM pg_roles WHERE rolcanlogin = TRUE
+#   ),
+#   all_schemas AS (
+#     SELECT schema_name 
+#     FROM information_schema.schemata
+#     WHERE schema_name NOT LIKE 'pg_%' AND schema_name != 'information_schema'
+#   ),
+#   privileges AS (
+#     SELECT 
+#       grantee AS role_or_user,
+#       table_schema,
+#       CASE
+#         WHEN STRING_AGG(privilege_type, ',') LIKE '%INSERT%' OR
+#              STRING_AGG(privilege_type, ',') LIKE '%UPDATE%' OR
+#              STRING_AGG(privilege_type, ',') LIKE '%DELETE%' THEN 'write'
+#         WHEN STRING_AGG(privilege_type, ',') LIKE '%SELECT%' THEN 'read'
+#         ELSE 'no access'
+#       END AS access_type
+#     FROM 
+#       information_schema.role_table_grants
+#     GROUP BY 
+#       grantee, table_schema
+#   ),
+#   combined_access AS (
+#     SELECT 
+#       u.role_or_user,
+#       s.schema_name,
+#       CASE
+#         -- Om användaren är en superanvändare, ge dem skrivbehörigheter till alla scheman
+#         WHEN u.rolsuper THEN 'write'
+#         -- Annars, hämta de faktiska behörigheterna
+#         ELSE COALESCE(p.access_type, 'no access')
+#       END AS access_type
+#     FROM 
+#       (SELECT role_or_user, rolsuper FROM all_users UNION SELECT inherited_role AS role_or_user, FALSE AS rolsuper FROM role_inheritance) u
+#     CROSS JOIN 
+#       all_schemas s
+#     LEFT JOIN 
+#       privileges p ON u.role_or_user = p.role_or_user AND s.schema_name = p.table_schema
+#   )
+#   -- Eliminera dubbletter och prioritera 'write' över 'read' och 'no access'
+#   SELECT role_or_user, schema_name, 
+#          MAX(CASE 
+#                WHEN access_type = 'write' THEN 'write'
+#                WHEN access_type = 'read' THEN 'read'
+#                ELSE 'no access'
+#              END) AS access_level
+#   FROM combined_access
+#   GROUP BY role_or_user, schema_name
+#   ORDER BY role_or_user, schema_name;
+# "
+#   
+#   # Exekvera SQL-frågan och spara resultatet
+#   user_schema_permissions <- dbGetQuery(con, query)
+#   
+#   if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
+#   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
+#   if (meddelande_tid) cat(glue("Processen tog {berakningstid} sekunder att köra"))
+#   
+#   return(user_schema_permissions)
+#   
+# }
+
+
 postgres_alla_rattigheter <- function(con = "default", 
-                                      meddelande_tid = FALSE
-) {
+                                      anvandarnamn = NULL,
+                                      meddelande_tid = FALSE) {
+  starttid <- Sys.time()
   
-  starttid <- Sys.time()                                        # Starta tidstagning
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
   
-  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
-  if(is.character(con) && con == "default") {
-    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
-    default_flagga = TRUE
-  } else  default_flagga = FALSE  
+  filter_anvandare <- if (!is.null(anvandarnamn)) glue::glue("WHERE u.role_or_user = '{anvandarnamn}'") else ""
   
+  query <- glue::glue("
+    WITH recursive role_inheritance AS (
+      SELECT 
+        member.oid AS user_oid,
+        member.rolname AS user_or_role,
+        role.oid AS inherited_role_oid,
+        role.rolname AS inherited_role
+      FROM pg_auth_members m
+      JOIN pg_roles member ON m.member = member.oid
+      JOIN pg_roles role ON m.roleid = role.oid
+      UNION ALL
+      SELECT 
+        ri.user_oid,
+        ri.user_or_role,
+        role.oid AS inherited_role_oid,
+        role.rolname AS inherited_role
+      FROM role_inheritance ri
+      JOIN pg_auth_members m ON ri.inherited_role_oid = m.member
+      JOIN pg_roles role ON m.roleid = role.oid
+    ),
+    all_users AS (
+      SELECT oid AS user_oid, rolname AS role_or_user, rolsuper FROM pg_roles WHERE rolcanlogin = TRUE
+    ),
+    all_schemas AS (
+      SELECT schema_name 
+      FROM information_schema.schemata
+      WHERE schema_name NOT LIKE 'pg_%' AND schema_name != 'information_schema'
+    ),
+    privileges AS (
+      SELECT 
+        grantee AS role_or_user,
+        table_schema,
+        STRING_AGG(privilege_type, ',') AS privileges
+      FROM information_schema.role_table_grants
+      GROUP BY grantee, table_schema
+    ),
+    schema_create_privileges AS (
+      SELECT 
+        r.rolname AS role_or_user,
+        n.nspname AS table_schema,
+        'CREATE' AS privilege_type
+      FROM pg_roles r
+      CROSS JOIN pg_namespace n
+      WHERE has_schema_privilege(r.rolname, n.nspname, 'CREATE')
+    ),
+    merged_privileges AS (
+      SELECT * FROM privileges
+      UNION ALL
+      SELECT 
+        role_or_user,
+        table_schema,
+        privilege_type AS privileges
+      FROM schema_create_privileges
+    ),
+    access_levels AS (
+      SELECT 
+        role_or_user,
+        table_schema,
+        CASE
+          WHEN STRING_AGG(privileges, ',') LIKE '%INSERT%' OR
+               STRING_AGG(privileges, ',') LIKE '%UPDATE%' OR
+               STRING_AGG(privileges, ',') LIKE '%DELETE%' OR
+               STRING_AGG(privileges, ',') LIKE '%CREATE%' THEN 'write'
+          WHEN STRING_AGG(privileges, ',') LIKE '%SELECT%' THEN 'read'
+          ELSE 'no access'
+        END AS access_type
+      FROM merged_privileges
+      GROUP BY role_or_user, table_schema
+    ),
+    combined_access AS (
+      SELECT 
+        u.role_or_user,
+        s.schema_name,
+        CASE
+          WHEN u.rolsuper THEN 'write'
+          ELSE COALESCE(p.access_type, 'no access')
+        END AS access_type
+      FROM 
+        (SELECT role_or_user, rolsuper FROM all_users 
+         UNION 
+         SELECT inherited_role AS role_or_user, FALSE AS rolsuper FROM role_inheritance) u
+      CROSS JOIN all_schemas s
+      LEFT JOIN access_levels p ON u.role_or_user = p.role_or_user AND s.schema_name = p.table_schema
+    )
+    SELECT role_or_user, schema_name, 
+           MAX(CASE 
+                 WHEN access_type = 'write' THEN 'write'
+                 WHEN access_type = 'read' THEN 'read'
+                 ELSE 'no access'
+               END) AS access_level
+    FROM combined_access
+    {filter_anvandare}
+    GROUP BY role_or_user, schema_name
+    ORDER BY role_or_user, schema_name;
+  ")
   
-  query <- "
-  WITH recursive role_inheritance AS (
-    -- Start med att samla alla användare och roller de är medlemmar i
-    SELECT 
-      member.oid AS user_oid,
-      member.rolname AS user_or_role,
-      role.oid AS inherited_role_oid,
-      role.rolname AS inherited_role
-    FROM 
-      pg_auth_members m
-    JOIN 
-      pg_roles member ON m.member = member.oid
-    JOIN 
-      pg_roles role ON m.roleid = role.oid
-    
-    UNION ALL
-    
-    -- Rekursivt hämta ärvda roller längre upp i hierarkin
-    SELECT 
-      ri.user_oid,
-      ri.user_or_role,
-      role.oid AS inherited_role_oid,
-      role.rolname AS inherited_role
-    FROM 
-      role_inheritance ri
-    JOIN 
-      pg_auth_members m ON ri.inherited_role_oid = m.member
-    JOIN 
-      pg_roles role ON m.roleid = role.oid
-  ),
-  all_users AS (
-    SELECT oid AS user_oid, rolname AS role_or_user, rolsuper FROM pg_roles WHERE rolcanlogin = TRUE
-  ),
-  all_schemas AS (
-    SELECT schema_name 
-    FROM information_schema.schemata
-    WHERE schema_name NOT LIKE 'pg_%' AND schema_name != 'information_schema'
-  ),
-  privileges AS (
-    SELECT 
-      grantee AS role_or_user,
-      table_schema,
-      CASE
-        WHEN STRING_AGG(privilege_type, ',') LIKE '%INSERT%' OR
-             STRING_AGG(privilege_type, ',') LIKE '%UPDATE%' OR
-             STRING_AGG(privilege_type, ',') LIKE '%DELETE%' THEN 'write'
-        WHEN STRING_AGG(privilege_type, ',') LIKE '%SELECT%' THEN 'read'
-        ELSE 'no access'
-      END AS access_type
-    FROM 
-      information_schema.role_table_grants
-    GROUP BY 
-      grantee, table_schema
-  ),
-  combined_access AS (
-    SELECT 
-      u.role_or_user,
-      s.schema_name,
-      CASE
-        -- Om användaren är en superanvändare, ge dem skrivbehörigheter till alla scheman
-        WHEN u.rolsuper THEN 'write'
-        -- Annars, hämta de faktiska behörigheterna
-        ELSE COALESCE(p.access_type, 'no access')
-      END AS access_type
-    FROM 
-      (SELECT role_or_user, rolsuper FROM all_users UNION SELECT inherited_role AS role_or_user, FALSE AS rolsuper FROM role_inheritance) u
-    CROSS JOIN 
-      all_schemas s
-    LEFT JOIN 
-      privileges p ON u.role_or_user = p.role_or_user AND s.schema_name = p.table_schema
-  )
-  -- Eliminera dubbletter och prioritera 'write' över 'read' och 'no access'
-  SELECT role_or_user, schema_name, 
-         MAX(CASE 
-               WHEN access_type = 'write' THEN 'write'
-               WHEN access_type = 'read' THEN 'read'
-               ELSE 'no access'
-             END) AS access_level
-  FROM combined_access
-  GROUP BY role_or_user, schema_name
-  ORDER BY role_or_user, schema_name;
-"
+  resultat <- DBI::dbGetQuery(con, query)
   
-  # Exekvera SQL-frågan och spara resultatet
-  user_schema_permissions <- dbGetQuery(con, query)
+  if (default_flagga) DBI::dbDisconnect(con)
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)
+  if (meddelande_tid) cat(glue::glue("Processen tog {berakningstid} sekunder att köra"))
   
-  if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
-  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
-  if (meddelande_tid) cat(glue("Processen tog {berakningstid} sekunder att köra"))
-  
-  return(user_schema_permissions)
-  
+  return(resultat)
 }
+
+
+
+
+postgres_alla_rattigheter <- function(con = "default", 
+                                      anvandarnamn = NULL,
+                                      meddelande_tid = FALSE) {
+  starttid <- Sys.time()
+  
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
+  
+  filter_anvandare <- if (!is.null(anvandarnamn)) glue::glue("WHERE u.role_or_user = '{anvandarnamn}'") else ""
+  
+  query <- glue::glue("
+    WITH recursive role_inheritance AS (
+      SELECT 
+        member.oid AS user_oid,
+        member.rolname AS user_or_role,
+        role.oid AS inherited_role_oid,
+        role.rolname AS inherited_role
+      FROM pg_auth_members m
+      JOIN pg_roles member ON m.member = member.oid
+      JOIN pg_roles role ON m.roleid = role.oid
+      UNION ALL
+      SELECT 
+        ri.user_oid,
+        ri.user_or_role,
+        role.oid AS inherited_role_oid,
+        role.rolname AS inherited_role
+      FROM role_inheritance ri
+      JOIN pg_auth_members m ON ri.inherited_role_oid = m.member
+      JOIN pg_roles role ON m.roleid = role.oid
+    ),
+    all_users AS (
+      SELECT oid AS user_oid, rolname AS role_or_user, rolsuper FROM pg_roles WHERE rolcanlogin = TRUE
+    ),
+    all_schemas AS (
+      SELECT schema_name 
+      FROM information_schema.schemata
+      WHERE schema_name NOT LIKE 'pg_%' AND schema_name != 'information_schema'
+    ),
+    privileges AS (
+      SELECT 
+        grantee AS role_or_user,
+        table_schema,
+        STRING_AGG(privilege_type, ',') AS privileges
+      FROM information_schema.role_table_grants
+      GROUP BY grantee, table_schema
+    ),
+    schema_create_privileges AS (
+      SELECT 
+        r.rolname AS role_or_user,
+        n.nspname AS table_schema,
+        'CREATE' AS privilege_type
+      FROM pg_roles r
+      CROSS JOIN pg_namespace n
+      WHERE has_schema_privilege(r.rolname, n.nspname, 'CREATE')
+    ),
+    merged_privileges AS (
+      SELECT * FROM privileges
+      UNION ALL
+      SELECT 
+        role_or_user,
+        table_schema,
+        privilege_type AS privileges
+      FROM schema_create_privileges
+    ),
+    access_levels AS (
+      SELECT 
+        role_or_user,
+        table_schema,
+        CASE
+          WHEN STRING_AGG(privileges, ',') LIKE '%INSERT%' OR
+               STRING_AGG(privileges, ',') LIKE '%UPDATE%' OR
+               STRING_AGG(privileges, ',') LIKE '%DELETE%' OR
+               STRING_AGG(privileges, ',') LIKE '%CREATE%' THEN 'write'
+          WHEN STRING_AGG(privileges, ',') LIKE '%SELECT%' THEN 'read'
+          ELSE 'no access'
+        END AS access_type
+      FROM merged_privileges
+      GROUP BY role_or_user, table_schema
+    ),
+    combined_access AS (
+      SELECT 
+        u.role_or_user,
+        s.schema_name,
+        CASE
+          WHEN u.rolsuper THEN 'write'
+          ELSE COALESCE(p.access_type, 'no access')
+        END AS access_type
+      FROM 
+        (SELECT role_or_user, rolsuper FROM all_users 
+         UNION 
+         SELECT inherited_role AS role_or_user, FALSE AS rolsuper FROM role_inheritance) u
+      CROSS JOIN all_schemas s
+      LEFT JOIN access_levels p ON u.role_or_user = p.role_or_user AND s.schema_name = p.table_schema
+    )
+    SELECT role_or_user, schema_name, 
+           MAX(CASE 
+                 WHEN access_type = 'write' THEN 'write'
+                 WHEN access_type = 'read' THEN 'read'
+                 ELSE 'no access'
+               END) AS access_level
+    FROM combined_access
+    {filter_anvandare}
+    GROUP BY role_or_user, schema_name
+    ORDER BY role_or_user, schema_name;
+  ")
+  
+  resultat <- DBI::dbGetQuery(con, query)
+  
+  if (default_flagga) DBI::dbDisconnect(con)
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)
+  if (meddelande_tid) cat(glue::glue("Processen tog {berakningstid} sekunder att köra"))
+  
+  return(resultat)
+}
+
+
+
+
 
 
 # Funktion för att lägga till en användare och ge rättigheter till flera databaser
@@ -1225,7 +1474,7 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default",
   
   
   # Steg 1: Tilldela anslutningsrättigheter till den specifika databasen (CONNECT på databasnivå)
-  if ("CONNECT" %in% rattigheter) {
+  if ("CONNECT" %in% rattigheter ) {
     tilldela_atkomst_query <- paste0("GRANT CONNECT ON DATABASE ", db, " TO ", anvandarnamn, ";")
     tryCatch({
       dbExecute(con, tilldela_atkomst_query)
@@ -1235,13 +1484,16 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default",
     })
   }
   
+  
+  
   scheman_att_bearbeta <- postgres_lista_scheman_tabeller(con = con) %>% names()
   if (!all(schema == "alla")) scheman_att_bearbeta <- scheman_att_bearbeta[scheman_att_bearbeta %in% schema] 
   if (length(scheman_att_bearbeta) < 1) stop(glue("Scheman {schema %>% list_komma_och()} finns inte i databasen. Kontrollera uppgifterna och försök igen."))
   
-  # Iterera över varje schema som existerar och tilldela rättigheter
+  # Steg 2: Tilldela rättigheter på schemanivå
   for (schema_namn in scheman_att_bearbeta) {
-    # Steg 2: Tilldela USAGE rättighet till schemat
+    
+    # Tilldela USAGE rättighet till schemat
     if ("USAGE" %in% rattigheter) {
       tilldela_usage_query <- paste0("GRANT USAGE ON SCHEMA ", schema_namn, " TO ", anvandarnamn, ";")
       tryCatch({
@@ -1251,9 +1503,19 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default",
         message(paste("Kunde inte lägga till USAGE-rättighet för schemat", schema_namn, "för användaren", anvandarnamn, ":", e$message))
       })
     }
+    # Tilldela CREATE rättighet till schemat
+    if ("CREATE" %in% rattigheter) {
+      tilldela_create_query <- paste0("GRANT CREATE ON SCHEMA ", schema_namn, " TO ", anvandarnamn, ";")
+      tryCatch({
+        dbExecute(con, tilldela_create_query)
+        message(paste("CREATE-rättighet har lagts till för schemat", schema_namn, "för användaren", anvandarnamn))
+      }, error = function(e) {
+        message(paste("Kunde inte lägga till CREATE-rättighet för schemat", schema_namn, "för användaren", anvandarnamn, ":", e$message))
+      })
+    }
     
     # Tilldela rättigheter på tabellnivå
-    for (rattighet in setdiff(rattigheter, c("CONNECT", "USAGE"))) {
+    for (rattighet in setdiff(rattigheter, c("CONNECT", "USAGE", "CREATE"))) {
       if (rattighet %in% postgres_lista_giltiga_rattigheter()$Rattighet) {
         tilldela_rattigheter_query <- paste0("GRANT ", rattighet, " ON ALL TABLES IN SCHEMA ", schema_namn, " TO ", anvandarnamn, ";")
         tryCatch({
