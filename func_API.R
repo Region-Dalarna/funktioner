@@ -2024,47 +2024,6 @@ github_lagg_till_repo_fran_github <- function(repo_namn,   # bara själva namnet
   return(invisible(lokal_sokvag))
 }
 
-github_push_system_force_ours <- function(repo_path = ".", commit_msg = "Automatisk commit från R") {
-  
-  # funktion för att göra en force push till ett git-repo med merge-strategin "ours", används främst för skript
-  # som skriver geopackage-filer till webbsida
-  
-  old_wd <- getwd()
-  on.exit(setwd(old_wd), add = TRUE)
-  setwd(repo_path)
-  
-  run_git <- function(cmd) {
-    full_cmd <- paste("git", cmd)
-    message(glue::glue("🔧 Kör: {full_cmd}"))
-    res <- system(full_cmd, intern = TRUE)
-    cat(paste(res, collapse = "\n"), "\n")
-    invisible(res)
-  }
-  
-  tryCatch({
-    run_git("fetch origin main")
-    # Återställ remote-tracking branch så vi kan forcera merge
-    run_git("merge -X ours origin/main || true")
-    
-    # Lägg till alla ändringar (inkl. konfliktlösning)
-    run_git("add .")
-    
-    # Kontrollera om det finns något att committa
-    if (system("git diff --cached --quiet") == 0) {
-      message("✅ Inget att committa.")
-    } else {
-      run_git(glue::glue('commit -m "{commit_msg}"'))
-    }
-    
-    # Push med force så att vi skriver över remote-historiken
-    run_git("push origin main --force")
-    
-    invisible(list(status = "OK", message = "Force push genomförd."))
-  }, error = function(e) {
-    message("❌ Fel: ", e$message)
-    return(invisible(list(status = "FEL", message = e$message)))
-  })
-}
 
 # ================================================= skapa skript-funktioner ========================================================
 
