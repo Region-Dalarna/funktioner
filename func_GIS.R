@@ -1514,6 +1514,14 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default",
       })
     }
     
+    # hämta alla materialiserade vyer i det schema som hanteras
+    matviews <- dbGetQuery(con, glue::glue(
+      "SELECT quote_ident(nspname) || '.' || quote_ident(relname) AS full_name
+   FROM pg_class
+   JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
+   WHERE relkind = 'm' AND nspname = '{schema_namn}'"
+    ))
+    
     # Tilldela rättigheter på tabellnivå
     for (rattighet in setdiff(rattigheter, c("CONNECT", "USAGE", "CREATE"))) {
       if (rattighet %in% postgres_lista_giltiga_rattigheter()$Rattighet) {
@@ -1522,29 +1530,26 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default",
         tryCatch({
           dbExecute(con, tilldela_rattigheter_query)
           message(paste("Rättigheten", rattighet, "har lagts till för användaren", anvandarnamn, "i schemat", schema_namn))
+          
+          # om det finns materialiserade vyer i schemat, lägg till rättigheten på dem också
+          if (nrow(matviews) > 0) {
+            for (mv in matviews$full_name) {
+              query_mv <- glue::glue("GRANT {rattighet} ON {mv} TO {anvandarnamn};")
+              tryCatch({
+                dbExecute(con, query_mv)
+                message(glue::glue("Rättigheten {rattighet} har lagts till för användaren {anvandarnamn} på materialiserad vy {mv}"))
+              }, error = function(e) {
+                message(glue::glue("Kunde inte lägga till rättigheten {rattighet} på materialiserad vy {mv}: {e$message}"))
+              })
+            }
+          }
+          
+          
         }, error = function(e) {
           message(paste("Kunde inte lägga till rättigheten", rattighet, "för användaren", anvandarnamn, "i schemat", schema_namn, ":", e$message))
         })
         
-        # Rättigheter för vyer
-        tilldela_view_query <- paste0("GRANT ", rattighet, " ON ALL VIEWS IN SCHEMA ", schema_namn, " TO ", anvandarnamn, ";")
-        tryCatch({
-          dbExecute(con, tilldela_view_query)
-          message(paste("Rättigheten", rattighet, "har lagts till för användaren", anvandarnamn, "på vyer i schemat", schema_namn))
-        }, error = function(e) {
-          message(paste("Kunde inte lägga till rättigheten", rattighet, "på vyer i schemat", schema_namn, ":", e$message))
-        })
         
-        # Rättigheter för materialiserade vyer 
-        if (rattighet == "SELECT") {
-          tilldela_matview_query <- paste0("GRANT SELECT ON ALL MATERIALIZED VIEWS IN SCHEMA ", schema_namn, " TO ", anvandarnamn, ";")
-          tryCatch({
-            dbExecute(con, tilldela_matview_query)
-            message(paste("SELECT har lagts till för användaren", anvandarnamn, "på materialiserade vyer i schemat", schema_namn))
-          }, error = function(e) {
-            message(paste("Kunde inte lägga till SELECT på materialiserade vyer i schemat", schema_namn, ":", e$message))
-          })
-        }
         
         
       } else {
