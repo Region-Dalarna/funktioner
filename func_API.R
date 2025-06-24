@@ -1080,6 +1080,42 @@ funktion_upprepa_forsok_om_fel <- function(funktion,
   }
 }
 
+skriptrader_upprepa_om_fel <- function(expr, 
+                                       max_forsok = 5, 
+                                       vila_sek = 1,
+                                       exportera_till_globalenv = TRUE,
+                                       returnera_vid_fel = NULL
+) {
+  expr <- substitute(expr)
+  
+  for (i in seq_len(max_forsok)) {
+    env <- new.env(parent = globalenv())
+    resultat <- tryCatch(
+      {
+        eval(expr, envir = env)
+        obj_namn <- ls(env, all.names = TRUE)
+        #message("✅ Följande objekt skapades: ", paste(obj_namn, collapse = ", "))
+        obj_lista <- mget(obj_namn, envir = env)
+        if (exportera_till_globalenv) {
+          list2env(obj_lista, envir = globalenv())
+          return(invisible(NULL))
+        } else {
+          return(list(result = obj_lista, error = NULL))
+        }
+      },
+      error = function(e) {
+        message("⚠️ Fel vid försök ", i, ": ", e$message)
+        if (i < max_forsok) Sys.sleep(vila_sek)
+        if (i == max_forsok) {
+          if (exportera_till_globalenv) return(e$message) else return(list(result = returnera_vid_fel, error = e))
+        }
+        NULL
+      }
+    )
+    if (!is.null(resultat)) return(resultat)
+  }
+}
+
 url_finns_webbsida <- function(skickad_url) {
   response <- HEAD(skickad_url)
   status <- status_code(response)
