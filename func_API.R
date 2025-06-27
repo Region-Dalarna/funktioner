@@ -1084,7 +1084,8 @@ skriptrader_upprepa_om_fel <- function(expr,
                                        max_forsok = 5, 
                                        vila_sek = 1,
                                        exportera_till_globalenv = TRUE,
-                                       returnera_vid_fel = NULL
+                                       returnera_vid_fel = NULL,
+                                       upprepa_vid_felmeddelande_som_innehaller = "curl"       # NULL om man vill köra på alla felmeddelanden, skiftlägesokänslig just nu, går att skicka en vektor med flera sökord
 ) {
   expr <- substitute(expr)
   
@@ -1104,10 +1105,23 @@ skriptrader_upprepa_om_fel <- function(expr,
         }
       },
       error = function(e) {
-        message("⚠️ Fel vid försök ", i, ": ", e$message)
-        if (i < max_forsok) Sys.sleep(vila_sek)
-        if (i == max_forsok) {
-          if (exportera_till_globalenv) return(e$message) else return(list(result = returnera_vid_fel, error = e))
+        felmeddelande <- e$message
+        message("⚠️ Fel vid försök ", i, ": ", felmeddelande)
+        
+        # om man skickat med upprepa_vid_felmeddelande_som_innehaller så ska vi kolla om felmeddelandet innehåller det som ska upprepas
+        ska_forsoka_igen <- TRUE
+        if (!is.null(upprepa_vid_felmeddelande_som_innehaller)) {
+          ska_forsoka_igen <- any(str_detect(tolower(felmeddelande), tolower(upprepa_vid_felmeddelande_som_innehaller)))
+        }
+        
+        if (i < max_forsok && ska_forsoka_igen) {
+          Sys.sleep(vila_sek)
+        } else {
+          if (exportera_till_globalenv) {
+            return(felmeddelande) 
+          } else { 
+            return(list(result = returnera_vid_fel, error = e))
+          }
         }
         NULL
       }
@@ -1359,6 +1373,20 @@ nummer_till_text <- function(x) {
   if (length(retur_x) == 0) stop("Funktionen kan bara hantera tal som är 1-20.") else return(retur_x)
 }
 
+sokvag_for_skript_hitta <- function() {
+  # funktion för att hämta sökväg för det skript som körs
+  
+  if (!is.null(sys.frame(1)$ofile)) {
+    retur_varde <- dirname(normalizePath(sys.frame(1)$ofile))  # körs via source()
+  } else if (interactive()) {
+    retur_varde <- dirname(rstudioapi::getActiveDocumentContext()$path)  # interaktivt
+  } else {
+    retur_varde <- getwd()  # fallback: aktuell arbetskatalog
+  }
+  # säkerställ att sökvägen slutar med snedstreck
+  retur_varde <- if (str_sub(retur_varde, -1) == "/") retur_varde else paste0(retur_varde, "/")
+  return(retur_varde)
+}
 
 
 # avrundning_dynamisk <- function(x, gräns_stora = 10, gräns_medel = 1, dec_stora = 0, dec_medel = 1, dec_små = 2) {
