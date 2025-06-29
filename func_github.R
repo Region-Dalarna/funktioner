@@ -1,8 +1,10 @@
 
 if (!require("pacman")) install.packages("pacman")
 p_load(tidyverse,
+       httr,
        git2r,
        gert,
+       gh,
        keyring,
        usethis,
        glue)
@@ -69,7 +71,10 @@ skapa_webbrapport_github <- function(githubmapp_lokalt,                 # sökv�
                                      github_repo,                       # namn på själva github-repot, döper mappen och github-repot. Mappen skapas om den inte finns
                                      github_org = "Region-Dalarna",     # ändra till NULL om man vill lägga repo:t i sin privata github
                                      rapport_titel,                     # titel på rapporten i RMarkdown
-                                     rapport_undertitel = NA) {         # om man vill ha en undertitel så lägger man in den här
+                                     rapport_undertitel = NA,
+                                     anvand_publicera_rapporter = TRUE, # TRUE så publiceras rapporten med Github Pages via repositoryt publicera_rapporter
+                                     behorighet_team = "samhallsanalys" # namn på team som ska ges behörighet, NULL om man inte vill ge något team behörighet, teamet måste finnas i organisationen om detta ska fungera
+                                     ) {         # om man vill ha en undertitel så lägger man in den här
   
   githubmapp_lokalt <- githubmapp_lokalt %>% str_replace_all(fixed("\\"), "/")
   if (str_sub(githubmapp_lokalt, nchar(githubmapp_lokalt), nchar(githubmapp_lokalt)) != "/") githubmapp_lokalt <- paste0(githubmapp_lokalt, "/")
@@ -108,9 +113,9 @@ skapa_webbrapport_github <- function(githubmapp_lokalt,                 # sökv�
   
   
   # skapa övriga mappar vi brukar ha
-  skapa_mapp_om_den_inte_finns(glue("{sokvag_proj}Diagram"))
-  skapa_mapp_om_den_inte_finns(glue("{sokvag_proj}docs"))
-  skapa_mapp_om_den_inte_finns(glue("{sokvag_proj}Skript"))
+  skapa_mapp_om_den_inte_finns(glue("{sokvag_proj}figurer"))
+  #skapa_mapp_om_den_inte_finns(glue("{sokvag_proj}docs"))
+  skapa_mapp_om_den_inte_finns(glue("{sokvag_proj}skript"))
   
   undertitel_html <- if (!is.na(rapport_undertitel)) glue('<div class="bottom_text">{rapport_undertitel}</div>') else ""
   
@@ -147,7 +152,9 @@ skapa_webbrapport_github <- function(githubmapp_lokalt,                 # sökv�
       logo_liggande_platta_farg = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/logo_liggande_platta_farg.png",
       logo_liggande_platta_svart = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/logo_liggande_platta_svart.png",
       logo_liggande_fri_svart = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/rd_logo_liggande_fri_svart.png",
-      styles_hero_css = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/styles_hero.css"
+      styles_hero_css = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/styles_hero.css",
+      favicon_html = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/favicon.html",
+      favicon_ico = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/favicon.ico"
   )
   
   filnamn <- map_chr(list_filer, ~ str_extract(.x, "[^/]+$"))
@@ -157,6 +164,19 @@ skapa_webbrapport_github <- function(githubmapp_lokalt,                 # sökv�
     download.file(.x, paste0(sokvag_proj, filnamn), mode = "wb")
   })
   
+  # nu laddar vi ner filer till mappen "skript"
+  list_skript_filer <- list(
+    hamta_data_webbrapport = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/1_hamta_data.R",
+    knitta_rapport = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/2_knitta_rapport.R",
+    kopiera_till_publicera_rapporter = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/3_kopiera_till_publicera_rapporter_docs_for_publicering_pa_webben.R",
+    push_till_github = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/4_push_av_hela_repo_till_github.R"
+  )
+  
+  sokvag_skript <- glue("{sokvag_proj}skript/")
+  walk(list_skript_filer, ~ {
+    filnamn <- str_extract(.x, "[^/]+$")
+    download.file(.x, paste0(sokvag_skript, filnamn), mode = "wb")
+  })
   # ============================================== vi skapar nu själva .Rmd-filen ===================================================
   
   # vi börjar med headern i webbrapporten
@@ -167,8 +187,11 @@ author: ""
 date: ""
 output: 
   html_document:
-    includes:
-      in_header: hero_image.html
+  self_contained: true
+  includes:
+      in_header: 
+      - favicon.html
+      - hero_image.html
     toc: yes
     toc_float: yes
     toc_depth: 6
@@ -214,7 +237,7 @@ spara_figur = FALSE
 # }}
 # 
 # if(uppdatera_data == TRUE){{
-# source(here('Skript','1_hamta_data.R'), encoding='UTF-8')
+# source(here('skript','1_hamta_data.R'), encoding='UTF-8')
 # }}
 
 # Läser in data (ett exempel på hur det kan se ut - byt ut detta)
@@ -424,7 +447,25 @@ if (is.null(github_org)) {
   ) 
 }
 
-use_github_pages(branch = git_default_branch(), path = "/docs", cname = NA)
+# # ställ in att vi ska använda Github pages
+# use_github_pages(branch = git_default_branch(), path = "/docs", cname = NA)
+
+# ställ in behörighet för samhallsanalys om parametern är TRUE
+if (behorighet_samhallsanalys && !is.null(github_org)) {
+  
+  response <- PUT(
+    url = glue("https://api.github.com/orgs/{github_org}/teams/samhallsanalys/repos/{github_org}/{repo_namn}"),
+    add_headers(Authorization = paste("token", key_get("github_token", key_list(service = "github_token")$username))),
+    body = list(permission = "push"),
+    encode = "json"
+  )
+  
+  if (httr::status_code(response) == 204) {
+    message("✅ Teamet 'samhallsanalys' har fått push-behörighet.")  # visa svar från GitHub
+  }
+  
+  
+}
 
 
   
