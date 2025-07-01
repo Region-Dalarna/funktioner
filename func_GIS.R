@@ -1879,6 +1879,27 @@ postgres_schema_finns <- function(con,
   return(result$schema_exists[1])
 }
 
+postgres_schema_skapa_om_inte_finns <- function(schema_namn, 
+                                               meddelande_tid = FALSE,
+                                               con = "default"){
+  
+  starttid <- Sys.time()                                        # Starta tidstagning
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if(is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga = TRUE
+  } else  default_flagga = FALSE
+  
+  # kör sql-kod för att skapa ett nytt schema med namn definierat ovan
+  dbExecute(con, paste0("create schema if not exists ", schema_namn, ";"))
+  
+  if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
+  if (meddelande_tid) cat(glue("Processen tog {berakningstid} sekunder att köra"))
+  
+}
+
 postgres_schema_ta_bort <- function(con = "default", 
                                     schema,
                                     meddelande_tid = FALSE
@@ -2180,6 +2201,45 @@ postgis_kopiera_tabell <- function(schema_fran,
   
 }                      
 
+postgis_kopiera_tabell_mellan_databaser <- function(
+    con_input = con_adm,
+    con_output,
+    schema_fran, 
+    tabell_fran,
+    schema_till,
+    tabell_till,
+    meddelande_tid = FALSE
+) {
+  
+  # funktion för att kopiera en tabell i en postgisdatabas till en annan tabell
+  # i samma schema eller under ett annat schema
+  
+  starttid <- Sys.time()                                        # Starta tidstagning
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if(is.character(con_input) && con_input == "default") {
+    con_input <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga_input = TRUE
+  } else  default_flagga_input = FALSE
+  
+
+  # 1. Läs in tabellen (som sf-objekt om den innehåller geometri)
+  input_data <- st_read(con_input, query = glue("SELECT * FROM {schema_fran}.{tabell_fran}"))
+  
+  # 2. Skriv till den andra databasen
+  st_write(dsn = con_output,
+           obj = input_data,
+           layer = DBI::Id(schema = schema_till, table = tabell_till),
+           append = FALSE)
+  
+  if(default_flagga_input) dbDisconnect(con_input)                                        # Koppla ner om defaultuppkopplingen har använts
+  dbDisconnect(con_output)                                        # Koppla ner om defaultuppkopplingen har använts
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
+  if (meddelande_tid) cat(glue("Processen tog {berakningstid} sekunder att köra"))
+  
+}
+
+
 postgis_flytta_tabell <- function(schema_fran,
                                   tabell_fran,
                                   schema_till,
@@ -2199,27 +2259,6 @@ postgis_flytta_tabell <- function(schema_fran,
   
   # byt schema för en tabell
   dbExecute(con_flytt, paste0("ALTER TABLE ", schema_fran, ".", tabell_fran, " SET SCHEMA ", schema_till, ";"))
-  
-  if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
-  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
-  if (meddelande_tid) cat(glue("Processen tog {berakningstid} sekunder att köra"))
-  
-}
-
-postgis_skapa_schema_om_inte_finns <- function(schema_namn, 
-                                               meddelande_tid = FALSE,
-                                               con = "default"){
-  
-  starttid <- Sys.time()                                        # Starta tidstagning
-  
-  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
-  if(is.character(con) && con == "default") {
-    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
-    default_flagga = TRUE
-  } else  default_flagga = FALSE
-  
-  # kör sql-kod för att skapa ett nytt schema med namn definierat ovan
-  dbExecute(con, paste0("create schema if not exists ", schema_namn, ";"))
   
   if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
