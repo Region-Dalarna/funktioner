@@ -1932,25 +1932,18 @@ postgres_schema_skapa_om_inte_finns <- function(schema_namn,
   
 }
 
-postgres_schema_ta_bort <- function(con = "default", 
+postgres_schema_ta_bort <- function(con, 
                                     schema,
                                     meddelande_tid = FALSE
 ) {
   
   starttid <- Sys.time()  # Starta tidstagning
-  
-  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
-  if (is.character(con) && con == "default") {
-    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
-    default_flagga <- TRUE
-  } else {
-    default_flagga <- FALSE
-  }
-  
+
+
   # Kontrollera om schemat existerar
   schema_finns <- postgres_schema_finns(con, schema)
   
-  if (schema_finns) {
+  if (!schema_finns) {
     message("Schemat '", schema, "' existerar inte. Ingen åtgärd vidtogs.")
   } else {
     # Hämta alla tabeller i schemat
@@ -1973,7 +1966,7 @@ postgres_schema_ta_bort <- function(con = "default",
   }
   
   # Koppla ner anslutningen om den skapades som default
-  if (default_flagga) dbDisconnect(con)
+  #if (default_flagga) dbDisconnect(con)
   
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)  # Beräkna och skriv ut tidsåtgång
   if (meddelande_tid) cat(glue("Processen tog {berakningstid} sekunder att köra"))
@@ -2076,7 +2069,8 @@ postgis_installera_i_postgres_db <- function(con) {
 }
 
 postgis_sf_till_postgistabell <- 
-  function(inlas_sf,
+  function(con = "default",
+           inlas_sf,
            schema = "karta",
            tabell,   # de tabellnamn de nya filerna ska få i postgis
            postgistabell_id_kol,
@@ -2084,8 +2078,7 @@ postgis_sf_till_postgistabell <-
            skapa_spatialt_index = TRUE,
            nytt_schema_oppet_for_geodata_las = TRUE,             # om TRUE så öppnas läsrättigheter för användaren geodata_las (vilket är det som ska användas om det inte finns mycket goda skäl att låta bli)
            #postgistabell_till_crs,
-           meddelande_tid = FALSE,
-           con = "default"
+           meddelande_tid = FALSE
   ) {
     # Skript för att läsa in ett sf-objekt till en postgistabell 
     #
@@ -2181,11 +2174,12 @@ postgis_sf_till_postgistabell <-
   } # slut funktion
 
 postgis_postgistabell_till_sf <- function(
+    con = "default",
     schema,                 # det schema i vilken tabellen finns som man vill hämta
     tabell,                 # den tabell i postgisdatabasen man vill hämta
     query = NA,     # om man inte skickar med någon query hämtas hela tabellen
-    meddelande_tid = FALSE,
-    con = "default"){
+    meddelande_tid = FALSE
+    ){
   
   starttid <- Sys.time()                                        # Starta tidstagning
   
@@ -2206,12 +2200,12 @@ postgis_postgistabell_till_sf <- function(
   return(retur_sf)
 } # slut funktion
 
-postgis_kopiera_tabell <- function(schema_fran, 
+postgis_kopiera_tabell <- function(con = "default",
+                                   schema_fran, 
                                    tabell_fran,
                                    schema_till,
                                    tabell_till,
-                                   meddelande_tid = FALSE,
-                                   con = "default"
+                                   meddelande_tid = FALSE
 ) {
   
   # funktion för att kopiera en tabell i en postgisdatabas till en annan tabell
@@ -2289,11 +2283,11 @@ postgis_kopiera_tabell_mellan_databaser <- function(
 }
 
 
-postgis_flytta_tabell <- function(schema_fran,
+postgis_flytta_tabell <- function(con = "default",
+                                  schema_fran,
                                   tabell_fran,
                                   schema_till,
-                                  meddelande_tid = FALSE,
-                                  con = "default"
+                                  meddelande_tid = FALSE
 ) {
   
   # funktion för att flytta en tabell från ett schema till ett annat
@@ -2386,8 +2380,8 @@ pgrouting_klipp_natverk_skapa_tabell <- function(
     regionkod_kol = "lankod",              # regionkoderna ligger i denna kolumn, tex. länskoder eller kommunkoder
     regionkoder = "20",                    # man kan ha en eller skicka med en vektor med regionkoder, t.ex. c("20", "21")
     region_geokol = "geom",                # geometry-kolumnen i region-tabellen, default är geom
-    output_schema = "nvdb",                # schema att spara output-tabellen i, default är nvdb
-    output_tabell = "graf_nvdb",           # tabell att spara output i, default är graf_nvdb
+    output_schema = "grafer",                # schema att spara output-tabellen i, default är nvdb
+    output_tabell = "nvdb_alla",           # tabell att spara output i, default är nvdb_alla     (alla för bil + gång och cykelväg, annars tex bil), detta lager är klippt för att koppla bättre mot adresspunkterna
     urval_fran_natverk = ""                # om man vill välja något specifikt från nätverkstabellen, ska då vara i formatet "WHERE vagtrafiknat_nattyp = 1"
 ) {
   # Starta tidtagning
@@ -2470,7 +2464,7 @@ pgrouting_klipp_natverk_skapa_tabell <- function(
   
   # Tidtagning
   sluttid <- Sys.time()
-  message(sprintf("⏱ Processen tog %s att köra", sluttid - starttid))
+  message(sprintf("⏱ Processen tog %.2f sekunder att köra", sluttid - starttid))
 }
 
 # ---------- 2. Funktion för att utöka nätverk med nya noder
@@ -2486,11 +2480,11 @@ pgrouting_hitta_narmaste_punkt_pa_natverk <- function(
     tabell_punkter_fran = "adresser_dalarna",       # tabellen som används, default är "dalarna" som är alla adresser i Dalarna
     geometri_kol_punkter_fran = "geom",             # geometri-kolumnen i punkttabellen från. 
     id_kol_punkter_fran = "gml_id",                 # id-kolumnen i punkttabellen från, default är "gml_id"
-    schema_graf = "nvdb",                           # schema för grafen, dvs. nätverket som ska användas, default är nvdb
-    tabell_graf = "graf_nvdb",                      # tabell för grafen, dvs. nätverket som ska användas, default är graf_nvdb
+    schema_graf = "grafer",                           # schema för grafen, dvs. nätverket som ska användas, default är nvdb
+    tabell_graf = "nvdb_alla",                      # tabell för grafen, dvs. nätverket som ska användas, default är graf_nvdb
     geometri_graf = "geom",                         # geometri-kolumnen i grafen, dvs. nätverket som ska användas, default är geom
     id_graf = "rad_id",                             # id-kolumnen i grafen, dvs. nätverket som ska användas, default är rad_id
-    kostnadsfalt = "",                              # lite oklart i nuläget vilket syfte detta har
+    kostnadsfalt = "",                              # lite oklart i nuläget vilket syfte detta har, behövs sannolikt inte
     tolerans_avstand = 3                            # för att bygga kluster av punkter och spara körtid, 0 = då skapar vi i praktiken inga kluster
 ) {
   starttid <- Sys.time()
@@ -2514,14 +2508,15 @@ pgrouting_hitta_narmaste_punkt_pa_natverk <- function(
     stop("En anslutning till databasen måste skickas med, som con-objekt eller som namn på databasen man vill koppla upp mot.")
   } 
 
+  tabell_ny_natverk <- glue("{tabell_graf}_{tabell_punkter_fran}")
   # här börjar vi körningen, vi kör med dbBegin() för att kunna rulla 
   dbBegin(con)
   tryCatch({
     # 1. Närmaste punkt på nätverket
     # Ta bort eventuell gammal tabell
-    dbExecute(con, glue("DROP TABLE IF EXISTS {schema_graf}.narmaste_punkt;"))
+    dbExecute(con, glue("DROP TABLE IF EXISTS {schema_graf}.{tabell_ny_natverk}_narmaste_punkt;"))
     sql_narmaste <- glue("
-      CREATE TABLE {schema_graf}.narmaste_punkt AS
+      CREATE TABLE {schema_graf}.{tabell_ny_natverk}_narmaste_punkt AS
       WITH closest_points AS (
         SELECT
           f.{id_kol_punkter_fran} AS adress_id,
@@ -2544,21 +2539,21 @@ pgrouting_hitta_narmaste_punkt_pa_natverk <- function(
     
     dbExecute(con, sql_narmaste)
 
-    n_narmaste <- dbGetQuery(con, glue("SELECT COUNT(*) FROM {schema_graf}.narmaste_punkt"))$count
+    n_narmaste <- dbGetQuery(con, glue("SELECT COUNT(*) FROM {schema_graf}.{tabell_ny_natverk}_narmaste_punkt"))$count
     print(glue("✅ Antal nya närmaste punkter: {n_narmaste}"))
     
     if (n_narmaste == 0) stop("🚫 Inga giltiga punkter hittades på nätverket.")
     
     # 2. Skapa kluster av närmaste punkter
-    dbExecute(con, glue("DROP TABLE IF EXISTS {schema_graf}.klusterpunkt;"))
+    dbExecute(con, glue("DROP TABLE IF EXISTS {schema_graf}.{tabell_ny_natverk}_klusterpunkt;"))
     sql_kluster <- glue("
-      CREATE TABLE {schema_graf}.klusterpunkt AS
+      CREATE TABLE {schema_graf}.{tabell_ny_natverk}_klusterpunkt AS
       WITH clusters AS (
         SELECT
           ST_ClusterDBSCAN(punkt_pa_natverk, eps := {tolerans_avstand}, minpoints := 1) OVER(PARTITION BY graf_id) AS cid,
           punkt_pa_natverk,
           graf_id
-        FROM {schema_graf}.narmaste_punkt
+        FROM {schema_graf}.{tabell_ny_natverk}_narmaste_punkt
       ), cluster_centroids AS (
         SELECT
           cid, graf_id,
@@ -2586,14 +2581,12 @@ pgrouting_hitta_narmaste_punkt_pa_natverk <- function(
     ")
     
     dbExecute(con, sql_kluster)
-    n_kluster <- dbGetQuery(con, glue("SELECT COUNT(*) FROM {schema_graf}.klusterpunkt"))$count
+    n_kluster <- dbGetQuery(con, glue("SELECT COUNT(*) FROM {schema_graf}.{tabell_ny_natverk}_klusterpunkt"))$count
     print(glue("✅ Antal klusterrepresentanter: {n_kluster}"))
     
     if (n_kluster == 0) stop("🚫 Klustring misslyckades – inga punkter valda som representanter.")
     
     # 3. Skapa nytt nätverk
-    tabell_ny_natverk <- glue("{tabell_graf}_{tabell_punkter_fran}")
-    
     dbExecute(con, glue("DROP TABLE IF EXISTS {schema_graf}.{tabell_ny_natverk};"))
     print(glue("Tabell {tabell_ny_natverk} droppades om den fanns."))
     
@@ -2618,7 +2611,7 @@ pgrouting_hitta_narmaste_punkt_pa_natverk <- function(
         UNION ALL
         SELECT {id_graf} AS gid, 1 AS l FROM {schema_graf}.{tabell_graf}
         UNION ALL
-        SELECT graf_id AS gid, line_location AS l FROM {schema_graf}.klusterpunkt
+        SELECT graf_id AS gid, line_location AS l FROM {schema_graf}.{tabell_ny_natverk}_klusterpunkt
       ),
       loc_with_idx AS (
         SELECT gid, l, RANK() OVER (PARTITION BY gid ORDER BY l) AS idx
@@ -2642,13 +2635,12 @@ pgrouting_hitta_narmaste_punkt_pa_natverk <- function(
     ")
     
     
-    
     dbExecute(con, sql_create)
     # Skapa index på geometrin
     index_namn <- glue("{schema_graf}_{tabell_ny_natverk}_geom_idx")
     dbExecute(con, glue("DROP INDEX IF EXISTS {index_namn};"))
     dbExecute(con, glue("CREATE INDEX {index_namn} ON {schema_graf}.{tabell_ny_natverk} USING GIST({geometri_graf});"))
-    dbExecute(con, glue("ANALYZE {output_schema}.{output_tabell};"))
+    dbExecute(con, glue("ANALYZE {schema_graf}.{tabell_ny_natverk};"))
     #dbExecute(con, glue("CREATE INDEX ON {schema_graf}.{tabell_ny_natverk} USING GIST({geometri_graf});"))
     print(glue("✅ Nytt nätverk {tabell_ny_natverk} skapat."))
     
@@ -2672,8 +2664,8 @@ pgrouting_hitta_narmaste_punkt_pa_natverk <- function(
 
 pgrouting_tabell_till_pgrgraf <- function(
     con = "ruttanalyser",                           # databas där punkterna finns, default är ruttanalyser (dvs. Region Dalarnas databas för ruttanalyser)
-    schema_graf = "nvdb",                           # schema där tabellen som ska bli graf ligger. Default: nvdb
-    tabell_graf = "graf_nvdb_adresser_dalarna",     # Tabellen som ska förberedas för pgrouting. Default: graf_nvdb_adresser_dalarna
+    schema_graf = "grafer",                           # schema där tabellen som ska bli graf ligger. Default: nvdb
+    tabell_graf = "nvdb_alla_adresser_dalarna",     # Tabellen som ska förberedas för pgrouting. Default: graf_nvdb_adresser_dalarna
     id_kol_graf = "rad_id",                         # Kolumnen med id i den tabell som ska bli graf
     geom_kol_graf = "geom",                     # Namn på kolumnen som innehåller geometrin i tabellen som ska bli graf
     tolerans = 0.001           # Toleransvärdet för hur nära segment måste vara för att ansluta. 
@@ -2761,8 +2753,8 @@ pgrouting_punkttabell_koppla_till_pgr_graf <- function(
     tabell_punkter = "adresser_dalarna",            # tabell med punkter som ska kopplas till grafen, default är adresser_dalarna
     geom_kol_punkter = "geom",                      # geometri-kolumnen i punkttabellen, default är geom
     id_kol_punkter = "gml_id",                      # id-kolumnen i punkttabellen, default är gml_id
-    schema_natverk = "nvdb",                        # schema där grafen finns, default är nvdb
-    tabell_natverk = "graf_nvdb_adresser_dalarna"   # tabell med grafen som ska användas, default är graf_nvdb_adresser_dalarna
+    schema_natverk = "grafer",                        # schema där grafen finns, default är nvdb
+    tabell_natverk = "nvdb_alla_adresser_dalarna"   # tabell med grafen som ska användas, default är graf_nvdb_adresser_dalarna
   ){
     
   # Starta tidstagning
