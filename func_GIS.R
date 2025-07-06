@@ -2986,7 +2986,7 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
     kostnad_berakning <- ""
     kostnad_filter <- ""
     kostnad_as_sats <- ""
-    kostnad_sum <- "0 AS kostnad_tid_bil_f,"
+    kostnad_sum <- "NULL AS kostnad_tid_bil_f,"
   }
   
   print(glue("Letar efter kortaste vägen från {antal_noder} noder i {antal_batcher} batcher."))
