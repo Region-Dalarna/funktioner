@@ -178,7 +178,7 @@ sf_fran_df_med_x_y_kol <- function(skickad_df,
   
   
   retur_sf <- intern_funktion_sf_skapa_fran_df_med_rutkolumner(skickad_df = skickad_df, x_kol = x_kol, 
-                                               y_kol = y_kol, rutstorlek = rutstorlek, vald_crs = vald_crs)
+                                                               y_kol = y_kol, rutstorlek = rutstorlek, vald_crs = vald_crs)
   
   if (polygonlager) retur_sf <- st_buffer(retur_sf,(rutstorlek/2), endCapStyle = "SQUARE")
   
@@ -974,7 +974,7 @@ postgres_lista_behorighet_till_scheman <- function(con = "default",
 "
   
   
-
+  
   
   
   
@@ -1912,8 +1912,8 @@ postgres_schema_finns <- function(con,
 }
 
 postgres_schema_skapa_om_inte_finns <- function(schema_namn, 
-                                               meddelande_tid = FALSE,
-                                               con = "default"){
+                                                meddelande_tid = FALSE,
+                                                con = "default"){
   
   starttid <- Sys.time()                                        # Starta tidstagning
   
@@ -1938,8 +1938,8 @@ postgres_schema_ta_bort <- function(con,
 ) {
   
   starttid <- Sys.time()  # Starta tidstagning
-
-
+  
+  
   # Kontrollera om schemat existerar
   schema_finns <- postgres_schema_finns(con, schema)
   
@@ -2056,6 +2056,79 @@ postgres_metadata_uppdatera <- function(con, schema, tabell, version_datum = NA,
   
   message("Metadata har lagts till för tabellen: ", schema, ".", tabell)
 }
+
+postgres_finns_schema_tabell_kolumner <- function(con = "default",        # uppkoppling, vilken databas ansluter vi till
+                                                  schema = NULL,          # vilket schema vill vi kontrollera om det finns
+                                                  tabell = NULL,          # vilken tabell vill vi kontrollera om den finns
+                                                  kolumner = NULL,        # vilka kolumner vill vi kontrollera om de finns, kan uteslutas
+                                                  stoppa_vid_fel = TRUE   # vid TRUE returneras ingenting utan koden stoppas
+) {
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
+  
+  # Kontrollera att schema finns
+  schema_finns <- DBI::dbGetQuery(con, glue::glue("
+    SELECT EXISTS (
+      SELECT 1 FROM information_schema.schemata 
+      WHERE schema_name = '{schema}'
+    ) AS finns;
+  "))$finns
+  
+  if (!schema_finns) {
+    fel <- glue::glue("Schemat '{schema}' finns inte.")
+    if (stoppa_vid_fel) stop(fel)
+    return(list(allt_finns = FALSE, felmeddelande = fel))
+  }
+  
+  # Kontrollera att tabellen finns i schemat
+  tabell_finns <- DBI::dbGetQuery(con, glue::glue("
+    SELECT EXISTS (
+      SELECT 1 FROM information_schema.tables 
+      WHERE table_schema = '{schema}' AND table_name = '{tabell}'
+    ) AS finns;
+  "))$finns
+  
+  if (!tabell_finns) {
+    fel <- glue::glue("Tabellen '{tabell}' i schemat '{schema}' finns inte.")
+    if (stoppa_vid_fel) stop(fel)
+    return(list(allt_finns = FALSE, felmeddelande = fel))
+  }
+  
+  # Kontrollera om angivna kolumner finns i tabellen
+  if (!is.null(kolumner)) {
+    kolumner_i_tabell <- DBI::dbGetQuery(con, glue::glue("
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = '{schema}' AND table_name = '{tabell}'
+    "))$column_name
+    
+    saknade_kolumner <- kolumner[!kolumner %in% kolumner_i_tabell]
+    
+    if (length(saknade_kolumner) > 0) {
+      fel <- glue::glue(
+        "Kolumn{if(length(saknade_kolumner)==1) '' else 'er'} '{paste(saknade_kolumner, collapse = \"', '\")}' i {schema}.{tabell} finns inte."
+      )
+      if (stoppa_vid_fel) stop(fel)
+      return(list(allt_finns = FALSE, felmeddelande = fel))
+    }
+  }
+  
+  # Om allt finns
+  if (stoppa_vid_fel) {
+    #stop(felmeddelande, call. = FALSE)
+    return(invisible(NULL))  # tekniskt onåbar kod men gör inget
+  } else {
+    return(list(allt_finns = TRUE, felmeddelande = NULL))  
+  }
+  
+  if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
+  
+} # slut funktion postgres_finns_schema_tabell_kolumner()
 
 
 
@@ -2179,7 +2252,7 @@ postgis_postgistabell_till_sf <- function(
     tabell,                 # den tabell i postgisdatabasen man vill hämta
     query = NA,     # om man inte skickar med någon query hämtas hela tabellen
     meddelande_tid = FALSE
-    ){
+){
   
   starttid <- Sys.time()                                        # Starta tidstagning
   
@@ -2225,7 +2298,7 @@ postgis_kopiera_tabell <- function(con = "default",
   
   # fyll på den nya tabellen med data från tabellen vi kopierar från
   dbExecute(con, paste0("INSERT INTO ", schema_till, ".", tabell_till, " SELECT * ",  
-                            "FROM ", schema_fran, ".", tabell_fran, ";"))
+                        "FROM ", schema_fran, ".", tabell_fran, ";"))
   
   if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
@@ -2254,7 +2327,7 @@ postgis_kopiera_tabell_mellan_databaser <- function(
     default_flagga_input = TRUE
   } else  default_flagga_input = FALSE
   
-
+  
   # 1. Läs in tabellen (som sf-objekt om den innehåller geometri)
   #input_data <- st_read(con_fran_databas, query = glue("SELECT * FROM {schema_fran}.{tabell_fran}"))
   input_data <- st_read(con_fran_databas, layer = DBI::Id(schema = schema_fran, table = tabell_fran))
@@ -2388,26 +2461,30 @@ pgrouting_klipp_natverk_skapa_tabell <- function(
   starttid <- Sys.time()
   
   # om man skickat med ett con_till_databas (dvs. ska skriva resultatet till annan databas)
-   if (!is.null(con_till_databas)) {
-     # testar om det är ett con-objekt, i så fall gör vi ingenting utan utgår från att det är korrekt
-      if (!inherits(con_till_databas, "DBIConnection")){
-        # om det inte är ett con-objekt så behöver vi skapa det men då krävs keyring-paketet och en service som heter rd_geodata
-        if (!requireNamespace("keyring", quietly = TRUE)) {
-          stop("Funktionen kräver paketet 'keyring' för att hantera databasuppkopplingar. Installera det med install.packages('keyring').")
-        }
-        # om man har paketet keyring måste också servicen "rd_geodata" finnas, som ska innehålla inloggningsuppgifter till databasen
-        if (!"rd_geodata" %in%  keyring::key_list()$service) {
-          stop("Keyring-service 'rd_geodata' saknas. Skapa den och lägg in användare och lösenord till databasen där.")
-        }
-        
-        con_till_databas <- uppkoppling_adm(con_till_databas)
-        skapad_i_funktionen <- TRUE
-        
-      } else skapad_i_funktionen <- FALSE # slut test om att det inte är ett con-objekt, om det är ett con-objekt görs inget mer utan vi använder det bara
-   } else {
-     con_till_databas <- con                  # om con_till_databas är NA så antar det samma värde som con (jobba i samma databas)
-     skapad_i_funktionen <- FALSE
-   } 
+  if (!is.null(con_till_databas)) {
+    # testar om det är ett con-objekt, i så fall gör vi ingenting utan utgår från att det är korrekt
+    if (!inherits(con_till_databas, "DBIConnection")){
+      # om det inte är ett con-objekt så behöver vi skapa det men då krävs keyring-paketet och en service som heter rd_geodata
+      if (!requireNamespace("keyring", quietly = TRUE)) {
+        stop("Funktionen kräver paketet 'keyring' för att hantera databasuppkopplingar. Installera det med install.packages('keyring').")
+      }
+      # om man har paketet keyring måste också servicen "rd_geodata" finnas, som ska innehålla inloggningsuppgifter till databasen
+      if (!"rd_geodata" %in%  keyring::key_list()$service) {
+        stop("Keyring-service 'rd_geodata' saknas. Skapa den och lägg in användare och lösenord till databasen där.")
+      }
+      
+      con_till_databas <- uppkoppling_adm(con_till_databas)
+      skapad_i_funktionen <- TRUE
+      
+    } else skapad_i_funktionen <- FALSE # slut test om att det inte är ett con-objekt, om det är ett con-objekt görs inget mer utan vi använder det bara
+  } else {
+    con_till_databas <- con                  # om con_till_databas är NA så antar det samma värde som con (jobba i samma databas)
+    skapad_i_funktionen <- FALSE
+  } 
+  
+  # ====== kontrollera att alla scheman, tabeller och kolumner finns
+  postgres_finns_schema_tabell_kolumner(con, natverk_schema, natverk_tabell, natverk_geokol, stoppa_vid_fel = TRUE)     # kontrollera att nätverket finns
+  postgres_finns_schema_tabell_kolumner(con, region_schema, region_tabell, c(regionkod_kol, region_geokol), stoppa_vid_fel = TRUE)
   
   # Formatera regionkoder till SQL-sträng
   regionkoder_str <- paste0("'", paste(regionkoder, collapse = "', '"), "'")
@@ -2440,9 +2517,9 @@ pgrouting_klipp_natverk_skapa_tabell <- function(
            dsn = con_till_databas,
            layer = DBI::Id(schema = output_schema, table = output_tabell),
            append = FALSE)  # skriv över tabellen om den finns, annars skapa ny
-  print(glue("✅ Nätverket klippt !"))
-             
-
+  print(glue("✅ Nätverket klippt!"))
+  
+  
   # Konvertera till 2D
   # Denna raden är utbytt för att det skapar problem för att vi har defingerat att det ska vara en multilinestring 
   # och för att uppdatara detta måste vi göra den uppdaterade skriptet istället. 
@@ -2471,7 +2548,7 @@ pgrouting_klipp_natverk_skapa_tabell <- function(
 # denna funktion används för att skapa bättre anslutningar från ett punktlager till ett nätverk (oftast nvdb). I default kör
 # vi på adresser som är det vi kommer att använda mest men vill man köra med andra punkter så kan man göra det.
 # som det är nu måste punkter flyttas över till databasen "ruttanalyser" där allt körs för att skapa grafer
-# då kopplas i en senare funktion också toponode_id till varje punkt så att det går att göra körningar med pgrouting utifrån
+# då kopplas i en senare funktion också nid till varje punkt så att det går att göra körningar med pgrouting utifrån
 # dessa punkter
 
 pgrouting_hitta_narmaste_punkt_pa_natverk <- function(
@@ -2507,7 +2584,7 @@ pgrouting_hitta_narmaste_punkt_pa_natverk <- function(
   } else {
     stop("En anslutning till databasen måste skickas med, som con-objekt eller som namn på databasen man vill koppla upp mot.")
   } 
-
+  
   tabell_ny_natverk <- glue("{tabell_graf}_{tabell_punkter_fran}")
   # här börjar vi körningen, vi kör med dbBegin() för att kunna rulla 
   dbBegin(con)
@@ -2538,7 +2615,7 @@ pgrouting_hitta_narmaste_punkt_pa_natverk <- function(
     ")
     
     dbExecute(con, sql_narmaste)
-
+    
     n_narmaste <- dbGetQuery(con, glue("SELECT COUNT(*) FROM {schema_graf}.{tabell_ny_natverk}_narmaste_punkt"))$count
     print(glue("✅ Antal nya närmaste punkter: {n_narmaste}"))
     
@@ -2744,7 +2821,7 @@ pgrouting_tabell_till_pgrgraf <- function(
 }
 
 #====== 4. Funktion för att koppla tabell med punkter till pgRoutinggraf
-# Denna ska köras för att få ett toponode_id på våra punkt tabeller. 
+# Denna ska köras för att få ett nid på våra punkt tabeller. 
 # Den ska köras två gånger en på från_tabellen och en på till_tabellen
 # 
 # Obs!! Om det är så att du vill kolla mellan två adresser behöver du inte köra den två gånger.
@@ -2757,8 +2834,8 @@ pgrouting_punkttabell_koppla_till_pgr_graf <- function(
     id_kol_punkter = "gml_id",                      # id-kolumnen i punkttabellen, default är gml_id
     schema_natverk = "grafer",                        # schema där grafen finns, default är nvdb
     tabell_natverk = "nvdb_alla_adresser"   # tabell med grafen som ska användas, default är graf_nvdb_adresser_dalarna
-  ){
-    
+){
+  
   # Starta tidstagning
   starttid <- Sys.time()
   
@@ -2780,18 +2857,17 @@ pgrouting_punkttabell_koppla_till_pgr_graf <- function(
   } else {
     stop("En anslutning till databasen måste skickas med, som con-objekt eller som namn på databasen man vill koppla upp mot.")
   } 
-    
-
-    tryCatch({
-      dbBegin(con)
-      # vi börjar med att skapa en ny kolumn i den nya tabellen
-      dbExecute(con, glue("ALTER TABLE {schema_punkter}.{tabell_punkter} ADD COLUMN IF NOT EXISTS toponode_id bigint;"))
-      # Töm kolumnen om där redan finns värden
-      dbExecute(con, glue("UPDATE {schema_punkter}.{tabell_punkter} SET toponode_id = NULL;"))
-      # därefter gör vi en spatial join från mittpunkten till noderna i nvdb
-      sql_koppla_toponode <- glue("
+  
+  tryCatch({
+    dbBegin(con)
+    # vi börjar med att skapa en ny kolumn i den nya tabellen
+    dbExecute(con, glue("ALTER TABLE {schema_punkter}.{tabell_punkter} ADD COLUMN IF NOT EXISTS nid_{tabell_natverk} bigint;"))
+    # Töm kolumnen om där redan finns värden
+    dbExecute(con, glue("UPDATE {schema_punkter}.{tabell_punkter} SET nid_{tabell_natverk} = NULL;"))
+    # därefter gör vi en spatial join från mittpunkten till noderna i nvdb
+    sql_koppla_toponode <- glue("
                     UPDATE {schema_punkter}.{tabell_punkter} AS f
-                    SET toponode_id = n.id
+                    SET nid_{tabell_natverk} = n.id
                     FROM (
                       SELECT f2.{id_kol_punkter} AS punkt_id, v.id
                       FROM {schema_punkter}.{tabell_punkter} AS f2
@@ -2804,25 +2880,25 @@ pgrouting_punkttabell_koppla_till_pgr_graf <- function(
                     ) AS n
                     WHERE f.{id_kol_punkter} = n.punkt_id;
                   ")
-      dbExecute(con, sql_koppla_toponode)        
-                        
-                      
-      # Om allt gått bra, committa
-      dbCommit(con)
-      print(glue("Punkterna i {schema_punkter}.{tabell_punkter} har nu toponode_id kopplat till sig från grafen {schema_natverk}.{tabell_natverk}."))
-    }, error = function(e) {
-      # Om något gått fel under processen, återställ databasen till innan denna funktion
-      dbRollback(con)
-      message(glue("Transaktionen misslyckades: {e$message}"))
-      
-    }) 
+    dbExecute(con, sql_koppla_toponode)        
     
+    
+    # Om allt gått bra, committa
+    dbCommit(con)
+    print(glue("Punkterna i {schema_punkter}.{tabell_punkter} har nu nid_{tabell_natverk} kopplat till sig från grafen {schema_natverk}.{tabell_natverk}."))
+  }, error = function(e) {
+    # Om något gått fel under processen, återställ databasen till innan denna funktion
+    dbRollback(con)
+    message(glue("Transaktionen misslyckades: {e$message}"))
+    
+  }) 
+  
   # Koppla ner om uppkopplingen har skapats i funktionen
   if(skapad_i_funktionen){
     dbDisconnect(con)
     #print("Uppkopplingen avslutad!")
   }
-    
+  
 } # slut funktion
 
 
@@ -2830,7 +2906,6 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
     con = "ruttanalyser",                           # databas där punkterna finns, default är ruttanalyser (dvs. Region Dalarnas databas för ruttanalyser)    schema_output,
     schema_fran = "punktlager",
     tabell_fran = "adresser",
-    #prefix_till = "malpunkt",
     schema_till,
     tabell_till,
     schema_graf = "grafer",
@@ -2845,7 +2920,7 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
     hastighet_elcykel = 22,
     batch_storlek = 1000,  # Ny parameter för batch-storlek
     antal_batcher_test = NULL        # NULL när man kör skarpt, annars antal batcher om man vill begränsa en körning i ett test, heltal (tex 2 om man vill köra 2 batcher)
-  ){
+){
   # Funktion för att skapa en geotabell för närmaste rutt från alla rader i fråntabell till
   # närmaste punkt i till-tabellen dijkstraNear() med pgrouting, inklusive alla rutter som
   # linjer
@@ -2873,7 +2948,7 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
   } 
   
   
-  # Skapa en ny tabell med alla unika toponode_id i tabell_fran om den inte redan finns. Om den finns så töm tabellen först
+  # Skapa en ny tabell med alla unika nid i tabell_fran om den inte redan finns. Om den finns så töm tabellen först
   # 1. SKapa den nya tabellens namn, en kombination av de två tabellerna fran och till
   
   # först tar vi reda på vilken typ av nätverk det är, tex. "alla" eller "bil"
@@ -2888,8 +2963,8 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
     tabell_ny <- glue("{tabell_fran}_till_{tabell_till}_{urval_till_namn}_{natverkstyp}")
   }
   
-  # inhämtar kolumner från från-tabellen, men tar inte med
-  # geom, geometry eller toponode_id
+  # här hämtas kolumner från från-tabellen, men tar inte med
+  # geom, geometry eller nid, dessa tas med i resultat-tabellerna
   frantabell_kolumner <- dbGetQuery(con, glue("
     SELECT column_name, data_type
     FROM information_schema.columns
@@ -2899,15 +2974,14 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
   ")) %>%
     filter(
       !column_name %in% c("geom", "geometry"),
-      !str_detect(column_name, "toponode_id")
+      !str_detect(column_name, "nid_")
     ) %>% 
     mutate(data_type = ifelse(data_type == "USER-DEFINED", "geometry", data_type),
            data_type = ifelse(data_type == "text", "varchar", data_type),
            definition = glue("{column_name} {data_type}"))
-  # %>%
-  #   dplyr::pull(definition) %>%
-  #   paste(collapse = ",\n")
   
+  # kolumner som tas med från målpunkterna samt ruttanalysen som genomförs
+  # med pgr_dijkstraNear(), dessa läggs efter kolumnerna från "från"-tabellen ovan
   malpunkt_rutt_kolumner <- "malpunkt_id varchar,
                             malpunkt_namn varchar,
                             start_vid int, 
@@ -2918,14 +2992,14 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
                             kostnad_elcykel_min double precision,
                             kostnad_bil_min double precision,
                             geom geometry" %>% 
-                str_split(",\\s*\n?") %>%
-                pluck(1) %>%
-                str_trim() %>%
-                str_match("^([a-zA-Z0-9_]+)\\s+(.+)$") %>%
-                as_tibble(.name_repair = "minimal") %>%
-                setNames(c("tabort", "column_name", "data_type")) %>%
-                select(-tabort) %>%
-                mutate(definition = glue("{column_name} {data_type}"))
+    str_split(",\\s*\n?") %>%                      # Dela upp strängen i en lista med ett element per kolumndefinition (separerat på kommatecken, ev. följt av radbrytning)
+    pluck(1) %>%                                   # extrahera vektorn (första elementet) ur listan som str_split() returnerar.
+    str_trim() %>%                                 # kör en trim (ta bort blanksteg i början eller i slutet av strängen)
+    str_match("^([a-zA-Z0-9_]+)\\s+(.+)$") %>%     # Plocka ut kolumnnamn och datatyp med regex. Första gruppen (([a-zA-Z0-9_]+)) är kolumnnamnet, andra ((.+)) är datatypen
+    as_tibble(.name_repair = "minimal") %>%        # Gör en tibble av detta
+    setNames(c("tabort", "column_name", "data_type")) %>%       # döp kolumnerna i tibble:n
+    select(-tabort) %>%                                         # ta bort den första kolumnen som vi inte behöver
+    mutate(definition = glue("{column_name} {data_type}"))      # skapa en kolumn av kolumnnamn + mellanslag + datatyp, det använder vi i sql-kod nedan
   
   # 2. Kolla om den redan finns, isf töm den
   res <- dbGetQuery(con, glue("SELECT table_name FROM information_schema.tables WHERE table_schema = '{schema_output}' AND table_name = '{tabell_ny}';"))
@@ -2949,19 +3023,19 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
     dbExecute(con, glue("TRUNCATE TABLE {schema_output}.{tabell_ny};"))
     print(glue("Tabellen {tabell_ny} fanns redan och har tömts på värden."))
   }
-  # Skapa temporära tabeller för toponode_idn från tabell_fran och tabell_till, skall användas i djikstranearcost
+  # Skapa temporära tabeller för nidn från tabell_fran och tabell_till, skall användas i djikstranearcost
   temp_fran <- glue("temp_{tabell_fran}")
   temp_till <- glue("temp_{tabell_till}")
   
   dbExecute(con, glue("DROP TABLE IF EXISTS {temp_fran};"))
   dbExecute(con, glue("DROP TABLE IF EXISTS {temp_till};"))
   
-  dbExecute(con, glue("CREATE TEMP TABLE {temp_fran} AS SELECT DISTINCT toponode_id FROM {schema_fran}.{tabell_fran};"))
-  dbExecute(con, glue("CREATE TEMP TABLE {temp_till} AS SELECT DISTINCT toponode_id FROM {schema_till}.{tabell_till};"))
+  dbExecute(con, glue("CREATE TEMP TABLE {temp_fran} AS SELECT DISTINCT nid_{tabell_graf} FROM {schema_fran}.{tabell_fran};"))
+  dbExecute(con, glue("CREATE TEMP TABLE {temp_till} AS SELECT DISTINCT nid_{tabell_graf} FROM {schema_till}.{tabell_till};"))
   
   # Skapa index till temptabellerna, behöver ej droppas efter de försvinner automagiskt när tabellen droppas
-  dbExecute(con, glue("CREATE INDEX temp_fran_toponode_idx ON {temp_fran}(toponode_id);"))
-  dbExecute(con, glue("CREATE INDEX temp_till_toponode_idx ON {temp_till}(toponode_id)"))
+  dbExecute(con, glue("CREATE INDEX temp_fran_nidx ON {temp_fran}(nid_{tabell_graf});"))
+  dbExecute(con, glue("CREATE INDEX temp_till_nidx ON {temp_till}(nid_{tabell_graf})"))
   
   # Skapa förutsättningar för batchkörning
   # Räkna antalet rader i tabell_ny
@@ -2978,15 +3052,30 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
   # restid bil eller avstånd i meter (restid bil är rimligt när man gör
   # ett dedikerat bilnätverk, annars är meter rimligast)
   if (natverkstyp == "bil") {
-    kostnad_berakning <- "/ (hastighetsgrans_f / 3.6)"
-    kostnad_filter <- " AND hastighetsgrans_f > 0"
+    # skapa två CASE-satser, en för hastighetsgrans_f och en för hastighetsgrans_b
+    # och så kör vi directed := true, för att köra riktat nätverk
+    kostnad_berakning <- "CASE 
+    WHEN hastighetsgrans_f IS NOT NULL THEN kostnad_meter / hastighetsgrans_f / 3.6
+    ELSE -1 
+  END AS cost,
+  CASE 
+    WHEN hastighetsgrans_b IS NOT NULL THEN kostnad_meter / hastighetsgrans_b / 3.6
+    ELSE -1 
+  END AS reverse_cost"
+    #kostnad_berakning <- "kostnad_meter / (hastighetsgrans_f / 3.6) AS cost, \nkostnad_meter / (hastighetsgrans_b / 3.6) AS reverse_cost"
+    #kostnad_berakning_b <- ", kostnad_meter / (hastighetsgrans_b / 3.6) AS reverse_cost \n"
+    #kostnad_filter <- " AND hastighetsgrans_f > 0"
+    kostnad_filter <- ""
     kostnad_as_sats <- " AS segment_tid_bil"
     kostnad_sum <- "SUM(segment_tid_bil) AS kostnad_tid_bil_f,"
+    vagnat_directed <- "true"
   } else {
-    kostnad_berakning <- ""
+    kostnad_berakning <- "kostnad_meter AS cost"
+    #kostnad_berakning_b <- ""
     kostnad_filter <- ""
     kostnad_as_sats <- ""
     kostnad_sum <- "NULL AS kostnad_tid_bil_f,"
+    vagnat_directed <- "false"
   }
   
   print(glue("Letar efter kortaste vägen från {antal_noder} noder i {antal_batcher} batcher."))
@@ -3011,18 +3100,18 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
           'SELECT rad_id AS id,
                   source,
                   target,
-                  kostnad_meter {kostnad_berakning} AS cost
+                  {kostnad_berakning}
            FROM {schema_graf}.{tabell_graf}
            WHERE kostnad_meter IS NOT NULL{kostnad_filter}',
           ARRAY(
-            SELECT DISTINCT toponode_id 
+            SELECT DISTINCT nid_{tabell_graf} 
             FROM {schema_fran}.{tabell_fran} LIMIT {batch_storlek} OFFSET {offset}
           )::INT[],
           ARRAY(
-            SELECT DISTINCT toponode_id 
+            SELECT DISTINCT nid_{tabell_graf} 
             FROM {schema_till}.{tabell_till}
           )::INT[],
-          directed := false,
+          directed := {vagnat_directed},
           cap := 1,
           global := false
         )
@@ -3060,11 +3149,11 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
         r.kostnad_meter / ({hastighet_gang} / 3.6) / 60 AS kostnad_gang_min,
         r.kostnad_meter / ({hastighet_cykel} / 3.6) / 60 AS kostnad_cykel_min,
         r.kostnad_meter / ({hastighet_elcykel} / 3.6) / 60 AS kostnad_elcykel_min,
-        r.kostnad_tid_bil_f / 60 AS kostnad_bil_min,
+        CAST(r.kostnad_tid_bil_f AS double precision) / 60 AS kostnad_bil_min,  
         r.rutt_geom AS geom
       FROM summerad_rutt r
-      JOIN {schema_fran}.{tabell_fran} fran ON r.start_vid = fran.toponode_id
-      JOIN {schema_till}.{tabell_till} till ON r.end_vid = till.toponode_id
+      JOIN {schema_fran}.{tabell_fran} fran ON r.start_vid = fran.nid_{tabell_graf}
+      JOIN {schema_till}.{tabell_till} till ON r.end_vid = till.nid_{tabell_graf}
       ORDER BY r.start_vid;
     ")
       
@@ -3088,13 +3177,13 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
   
   # Leta noder där start och slutnod är samma och sätt kostnad till 0
   sql_query <- glue("INSERT INTO {schema_output}.{tabell_ny} (start_vid, end_vid, kostnad_meter, kostnad_gang_min, kostnad_cykel_min, kostnad_elcykel_min, kostnad_bil_min)
-                        SELECT t.toponode_id, tt.toponode_id, 0, 0, 0, 0, 0
+                        SELECT t.nid_{tabell_graf}, tt.nid_{tabell_graf}, 0, 0, 0, 0, 0
                         FROM {temp_till} tt
-                        INNER JOIN {temp_fran} t ON tt.toponode_id = t.toponode_id
+                        INNER JOIN {temp_fran} t ON tt.nid_{tabell_graf} = t.nid_{tabell_graf}
                         WHERE NOT EXISTS (
                             SELECT 1
                             FROM {schema_output}.{tabell_ny} ny
-                            WHERE ny.start_vid = t.toponode_id
+                            WHERE ny.start_vid = t.nid_{tabell_graf}
                         );")
   
   dbExecute(con, sql_query)
@@ -3102,7 +3191,7 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
   # ===== vi skapar ett punktlager av frånlagret med målpunkts-
   # id respektive namn samt kostnadskolumnerna
   dbExecute(con, glue("DROP TABLE IF EXISTS {schema_output}.{tabell_ny}_punkt;"))
-
+  
   dbExecute(con, glue("CREATE TABLE {schema_output}.{tabell_ny}_punkt AS
   SELECT 
     a.*,
@@ -3118,7 +3207,7 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
       SELECT DISTINCT ON (start_vid)
         *
   FROM {schema_output}.{tabell_ny} ) r
-    ON a.toponode_id = r.start_vid;"))
+    ON a.nid_{tabell_graf} = r.start_vid;"))
   
   # Skapa spatialt index
   dbExecute(con, glue("
@@ -3144,7 +3233,6 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
     #print("Uppkopplingen avslutad!")
   }
 } # slut pgr_dijkstraNear()-funktion
-
 
 
 las_in_rutor_xlsx_till_postgis_skapa_pgr_graf <- 
