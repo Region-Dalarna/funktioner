@@ -3055,11 +3055,11 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
     # skapa två CASE-satser, en för hastighetsgrans_f och en för hastighetsgrans_b
     # och så kör vi directed := true, för att köra riktat nätverk
     kostnad_berakning <- "CASE 
-    WHEN hastighetsgrans_f IS NOT NULL THEN kostnad_meter / hastighetsgrans_f / 3.6
+    WHEN hastighetsgrans_f IS NOT NULL THEN kostnad_meter / (hastighetsgrans_f / 3.6)
     ELSE -1 
   END AS cost,
   CASE 
-    WHEN hastighetsgrans_b IS NOT NULL THEN kostnad_meter / hastighetsgrans_b / 3.6
+    WHEN hastighetsgrans_b IS NOT NULL THEN kostnad_meter / (hastighetsgrans_b / 3.6)
     ELSE -1 
   END AS reverse_cost"
     #kostnad_berakning <- "kostnad_meter / (hastighetsgrans_f / 3.6) AS cost, \nkostnad_meter / (hastighetsgrans_b / 3.6) AS reverse_cost"
@@ -3067,14 +3067,14 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
     #kostnad_filter <- " AND hastighetsgrans_f > 0"
     kostnad_filter <- ""
     kostnad_as_sats <- " AS segment_tid_bil"
-    kostnad_sum <- "SUM(segment_tid_bil) AS kostnad_tid_bil_f,"
+    kostnad_sum <- "SUM(segment_tid_bil) AS kostnad_tid_bil,"
     vagnat_directed <- "true"
   } else {
     kostnad_berakning <- "kostnad_meter AS cost"
     #kostnad_berakning_b <- ""
     kostnad_filter <- ""
     kostnad_as_sats <- ""
-    kostnad_sum <- "NULL AS kostnad_tid_bil_f,"
+    kostnad_sum <- "NULL AS kostnad_tid_bil,"
     vagnat_directed <- "false"
   }
   
@@ -3149,7 +3149,8 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
         r.kostnad_meter / ({hastighet_gang} / 3.6) / 60 AS kostnad_gang_min,
         r.kostnad_meter / ({hastighet_cykel} / 3.6) / 60 AS kostnad_cykel_min,
         r.kostnad_meter / ({hastighet_elcykel} / 3.6) / 60 AS kostnad_elcykel_min,
-        CAST(r.kostnad_tid_bil_f AS double precision) / 60 AS kostnad_bil_min,  
+        CAST(r.kostnad_tid_bil AS double precision) / 60 AS kostnad_bil_min,
+        -- CAST(r.kostnad_tid_bil AS double precision) AS kostnad_bil_min,
         r.rutt_geom AS geom
       FROM summerad_rutt r
       JOIN {schema_fran}.{tabell_fran} fran ON r.start_vid = fran.nid_{tabell_graf}
@@ -3159,6 +3160,7 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
       
       #print(glue("Kör batch {i} av {antal_batcher} med {batch_storlek} noder."))
       #print(sql_query)
+      #print(sql_query)     # felsökning
       
       dbExecute(con, sql_query)
       # tid <- difftime(Sys.time(), start_tid, units = "secs") %>% as.numeric() %>% round(.,1)
@@ -3185,7 +3187,7 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
                             FROM {schema_output}.{tabell_ny} ny
                             WHERE ny.start_vid = t.nid_{tabell_graf}
                         );")
-  
+  #print(sql_query)     # felsökning
   dbExecute(con, sql_query)
   
   # ===== vi skapar ett punktlager av frånlagret med målpunkts-
