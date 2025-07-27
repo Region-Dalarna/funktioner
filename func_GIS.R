@@ -3109,7 +3109,7 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
           )::INT[],
           ARRAY(
             SELECT DISTINCT nid_{tabell_graf} 
-            FROM {schema_till}.{tabell_till}
+            FROM {schema_till}.{tabell_till} {urval_till_tabell}
           )::INT[],
           directed := {vagnat_directed},
           cap := 1,
