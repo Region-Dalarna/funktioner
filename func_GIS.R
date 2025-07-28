@@ -1482,6 +1482,7 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default",
                                                      anvandarnamn,
                                                      schema = "alla", 
                                                      rattigheter = c("CONNECT", "SELECT", "USAGE"),
+                                                     meddelande_rattigheter = TRUE,
                                                      meddelande_tid = FALSE
 ){
   starttid <- Sys.time()  # Starta tidtagning
@@ -1512,13 +1513,11 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default",
     tilldela_atkomst_query <- paste0("GRANT CONNECT ON DATABASE ", db, " TO ", anvandarnamn, ";")
     tryCatch({
       dbExecute(con, tilldela_atkomst_query)
-      message(paste("CONNECT-rättighet har lagts till för användaren", anvandarnamn, "till databasen", db))
+      if (meddelande_rattigheter) message(paste("CONNECT-rättighet har lagts till för användaren", anvandarnamn, "till databasen", db))
     }, error = function(e) {
       message(paste("Kunde inte lägga till CONNECT-rättighet för användaren", anvandarnamn, "i databasen", db, ":", e$message))
     })
   }
-  
-  
   
   scheman_att_bearbeta <- postgres_lista_scheman_tabeller(con = con) %>% names()
   if (!all(schema == "alla")) scheman_att_bearbeta <- scheman_att_bearbeta[scheman_att_bearbeta %in% schema] 
@@ -1532,7 +1531,7 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default",
       tilldela_usage_query <- paste0("GRANT USAGE ON SCHEMA ", schema_namn, " TO ", anvandarnamn, ";")
       tryCatch({
         dbExecute(con, tilldela_usage_query)
-        message(paste("USAGE-rättighet har lagts till för schemat", schema_namn, "för användaren", anvandarnamn))
+        if (meddelande_rattigheter) message(paste("USAGE-rättighet har lagts till för schemat", schema_namn, "för användaren", anvandarnamn))
       }, error = function(e) {
         message(paste("Kunde inte lägga till USAGE-rättighet för schemat", schema_namn, "för användaren", anvandarnamn, ":", e$message))
       })
@@ -1542,7 +1541,7 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default",
       tilldela_create_query <- paste0("GRANT CREATE ON SCHEMA ", schema_namn, " TO ", anvandarnamn, ";")
       tryCatch({
         dbExecute(con, tilldela_create_query)
-        message(paste("CREATE-rättighet har lagts till för schemat", schema_namn, "för användaren", anvandarnamn))
+        if (meddelande_rattigheter) message(paste("CREATE-rättighet har lagts till för schemat", schema_namn, "för användaren", anvandarnamn))
       }, error = function(e) {
         message(paste("Kunde inte lägga till CREATE-rättighet för schemat", schema_namn, "för användaren", anvandarnamn, ":", e$message))
       })
@@ -1563,7 +1562,7 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default",
         # Rättigheter för tabeller
         tryCatch({
           dbExecute(con, tilldela_rattigheter_query)
-          message(paste("Rättigheten", rattighet, "har lagts till för användaren", anvandarnamn, "i schemat", schema_namn))
+          if (meddelande_rattigheter) message(paste("Rättigheten", rattighet, "har lagts till för användaren", anvandarnamn, "i schemat", schema_namn))
           
           # om det finns materialiserade vyer i schemat, lägg till rättigheten på dem också
           if (nrow(matviews) > 0) {
@@ -1571,7 +1570,7 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default",
               query_mv <- glue::glue("GRANT {rattighet} ON {mv} TO {anvandarnamn};")
               tryCatch({
                 dbExecute(con, query_mv)
-                message(glue::glue("Rättigheten {rattighet} har lagts till för användaren {anvandarnamn} på materialiserad vy {mv}"))
+                if (meddelande_rattigheter) message(glue::glue("Rättigheten {rattighet} har lagts till för användaren {anvandarnamn} på materialiserad vy {mv}"))
               }, error = function(e) {
                 message(glue::glue("Kunde inte lägga till rättigheten {rattighet} på materialiserad vy {mv}: {e$message}"))
               })
@@ -1582,9 +1581,6 @@ postgres_rattigheter_anvandare_lagg_till <- function(con = "default",
         }, error = function(e) {
           message(paste("Kunde inte lägga till rättigheten", rattighet, "för användaren", anvandarnamn, "i schemat", schema_namn, ":", e$message))
         })
-        
-        
-        
         
       } else {
         message(paste("Ogiltig rättighet:", rattighet, "- denna rättighet har inte lagts till."))
@@ -1603,6 +1599,7 @@ postgres_rattigheter_anvandare_ta_bort <- function(con = "default",
                                                    anvandarnamn,
                                                    schema = "alla",
                                                    rattigheter = "alla",
+                                                   meddelande_rattigheter = TRUE,
                                                    meddelande_tid = FALSE
 ) {
   
@@ -1639,7 +1636,7 @@ postgres_rattigheter_anvandare_ta_bort <- function(con = "default",
     for (rattighet in databas_rattigheter) {
       ta_bort_atkomst_query <- glue("REVOKE {rattighet} ON DATABASE {db} FROM {anvandarnamn};")
       dbExecute(con, ta_bort_atkomst_query)
-      message(glue("Rättigheten {rattighet} har tagits bort från användaren {anvandarnamn} i databasen {dbGetInfo(con)$dbname}."))
+      if (meddelande_rattigheter) message(glue("Rättigheten {rattighet} har tagits bort från användaren {anvandarnamn} i databasen {dbGetInfo(con)$dbname}."))
     }
   }
   
@@ -1650,7 +1647,7 @@ postgres_rattigheter_anvandare_ta_bort <- function(con = "default",
       for (rattighet in schema_rattigheter) {
         ta_bort_schema_query <- glue("REVOKE {rattighet} ON SCHEMA {schema_loop} FROM {anvandarnamn};")
         dbExecute(con, ta_bort_schema_query)
-        message(glue("Rättigheten {rattighet} har tagits bort från användaren {anvandarnamn} på schemat {schema_loop}."))
+        if (meddelande_rattigheter) message(glue("Rättigheten {rattighet} har tagits bort från användaren {anvandarnamn} på schemat {schema_loop}."))
       }
     }
   }
@@ -1662,40 +1659,11 @@ postgres_rattigheter_anvandare_ta_bort <- function(con = "default",
       for (rattighet in tabell_rattigheter) {
         ta_bort_rattigheter_query <- glue("REVOKE {rattighet} ON ALL TABLES IN SCHEMA {schema_loop} FROM {anvandarnamn};")
         dbExecute(con, ta_bort_rattigheter_query)
-        message(glue("Rättigheten {rattighet} har tagits bort från användaren {anvandarnamn} i schemat {schema_loop}."))
+        if (meddelande_rattigheter) message(glue("Rättigheten {rattighet} har tagits bort från användaren {anvandarnamn} i schemat {schema_loop}."))
       }
     }
   }
-  
-  # if ("CONNECT" %in% rattigheter) {
-  #   # Ta bort anslutningsrättigheter till databasen
-  #   ta_bort_atkomst_query <- paste0("REVOKE CONNECT ON DATABASE ", db, " FROM ", anvandarnamn, ";")
-  #   dbExecute(con, ta_bort_atkomst_query)
-  #   message(paste("Rättigheten CONNECT har tagits bort från användaren", anvandarnamn, "i databasen", db))
-  # }
-  # 
-  # # Om rättigheter är "ALL", ta bort alla rättigheter från användaren för alla tabeller
-  # if (all(rattigheter == "alla")) {
-  #   ta_bort_rattigheter_query <- paste0("REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM ", anvandarnamn, ";")
-  #   dbExecute(con, ta_bort_rattigheter_query)
-  #   message(paste("Alla rättigheter har tagits bort för användaren", anvandarnamn, "i databasen", db))
-  # } else {
-  #   # Annars, iterera över varje rättighet och validera om den är giltig men ta bort rättigheter som hanteras på databasnivå
-  #   rattigheter_schema_valda <- rattigheter %>% .[. != "CONNECT"]
-  #   for (rattighet in rattigheter_schema_valda) {
-  #     
-  #     rattigheter_scheman <- postgres_lista_giltiga_rattigheter()$Rattighet %>% .[. != "CONNECT"]
-  #     if (rattighet %in% rattigheter_scheman) {
-  #       ta_bort_rattigheter_query <- paste0("REVOKE ", rattighet, " ON ALL TABLES IN SCHEMA public FROM ", anvandarnamn, ";")
-  #       dbExecute(con, ta_bort_rattigheter_query)
-  #       message(paste("Rättigheten", rattighet, "har tagits bort från användaren", anvandarnamn, "i databasen", db))
-  #     } else {
-  #       message(paste("Ogiltig rättighet:", rattighet, "- denna rättighet har inte tagits bort."))
-  #     }
-  #   }
-  # }
-  
-  
+
   if (default_flagga) dbDisconnect(con)  # Koppla ner om defaultuppkopplingen har använts
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)  # Beräkna och skriv ut tidsåtgång
   if (meddelande_tid) cat(glue("Processen tog {berakningstid} sekunder att köra"))
