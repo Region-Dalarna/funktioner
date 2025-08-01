@@ -2375,14 +2375,189 @@ postgis_aktivera_i_postgres_db <- function(con = "default") {
   if (default_flagga) dbDisconnect(con)
 }
 
+postgis_isokroner_bil <- function(
+    punkter_sf = NULL,
+    schema_punkt = NULL,             # tex "punktlager",
+    tabell_punkt = NULL,             # tex "akutmottagningar",
+    idkol_punkt = "id",
+    nodkolumn_punkt = "nid_nvdb_bil_adresser",    # NULL, eller om man har ett punktlager som redan är kopplat till en graf kan kolumnen för noderna läggas till här
+    namnkol_punkt = "namn",
+    intervall_varden = c(15, 30, 45, 60),
+    spara_schema = NULL,        # om man vill spara i databasen, ange schema här
+    spara_tabell = NULL,        # om man vill spara i databasen, ange tabell här
+    returnera_sf = TRUE,        # om man vill returnera ett sf-objekt
+    dela_upp_polygoner = TRUE   # TRUE så returneras polygoner utan överlappning, annars täcker de större polygonerna även ytan för de mindre polygonerna, med TRUE blir det som "ringar"
+    
+) {
+  retur_sf <- postgis_isokroner_skapa(
+    punkter_sf = punkter_sf,
+    schema_punkt = schema_punkt,             
+    tabell_punkt = tabell_punkt,
+    idkol_punkt = idkol_punkt,
+    nodkolumn_punkt = nodkolumn_punkt,    # NULL, eller om man har ett punktlager som redan är kopplat till en graf kan kolumnen för noderna läggas till här
+    namnkol_punkt = namnkol_punkt,
+    tabell_graf = "nvdb_bil_adresser",
+    idkol_graf = "rad_id",
+    kostnadskol_graf_f = "kostnad_bil_f_min",
+    kostnadskol_graf_b = "kostnad_bil_b_min",
+    intervall_varden = intervall_varden,
+    kostnad_enhet = "auto",
+    spara_schema = spara_schema,        # om man vill spara i databasen, ange schema här
+    spara_tabell = spara_tabell,        # om man vill spara i databasen, ange tabell här
+    returnera_sf = returnera_sf,        # om man vill returnera ett sf-objekt
+    dela_upp_polygoner = dela_upp_polygoner   
+  )
+  
+} # slut funktion isokron_bil
+
+postgis_isokroner_meter <- function(
+    punkter_sf = NULL,
+    schema_punkt = NULL,             # tex "punktlager",
+    tabell_punkt = NULL,             # tex "akutmottagningar",
+    idkol_punkt = "id",
+    nodkolumn_punkt = "nid_nvdb_alla_adresser",    # NULL, eller om man har ett punktlager som redan är kopplat till en graf kan kolumnen för noderna läggas till här
+    namnkol_punkt = "namn",
+    intervall_varden = c(1000, 5000, 10000, 20000),
+    spara_schema = NULL,        # om man vill spara i databasen, ange schema här
+    spara_tabell = NULL,        # om man vill spara i databasen, ange tabell här
+    returnera_sf = TRUE,        # om man vill returnera ett sf-objekt
+    dela_upp_polygoner = TRUE   # TRUE så returneras polygoner utan överlappning, annars täcker de större polygonerna även ytan för de mindre polygonerna, med TRUE blir det som "ringar"
+    
+) {
+  retur_sf <- postgis_isokroner_skapa(
+    punkter_sf = punkter_sf,
+    schema_punkt = schema_punkt,             
+    tabell_punkt = tabell_punkt,
+    idkol_punkt = idkol_punkt,
+    nodkolumn_punkt = nodkolumn_punkt,    # NULL, eller om man har ett punktlager som redan är kopplat till en graf kan kolumnen för noderna läggas till här
+    namnkol_punkt = namnkol_punkt,
+    tabell_graf = "nvdb_alla_adresser",
+    idkol_graf = "rad_id",
+    kostnadskol_graf_f = "kostnad_meter",
+    kostnadskol_graf_b = NULL,
+    intervall_varden = intervall_varden,
+    kostnad_enhet = "auto",
+    spara_schema = spara_schema,        # om man vill spara i databasen, ange schema här
+    spara_tabell = spara_tabell,        # om man vill spara i databasen, ange tabell här
+    returnera_sf = returnera_sf,        # om man vill returnera ett sf-objekt
+    dela_upp_polygoner = dela_upp_polygoner   
+  )
+  
+} # slut funktion isokron_meter
+
+postgis_isokroner_gang <- function(
+    punkter_sf = NULL,
+    schema_punkt = NULL,             # tex "punktlager",
+    tabell_punkt = NULL,             # tex "akutmottagningar",
+    idkol_punkt = "id",
+    nodkolumn_punkt = "nid_nvdb_alla_adresser",    # NULL, eller om man har ett punktlager som redan är kopplat till en graf kan kolumnen för noderna läggas till här
+    namnkol_punkt = "namn",
+    intervall_varden = c(15, 30, 45, 60),
+    spara_schema = NULL,        # om man vill spara i databasen, ange schema här
+    spara_tabell = NULL,        # om man vill spara i databasen, ange tabell här
+    returnera_sf = TRUE,        # om man vill returnera ett sf-objekt
+    dela_upp_polygoner = TRUE   # TRUE så returneras polygoner utan överlappning, annars täcker de större polygonerna även ytan för de mindre polygonerna, med TRUE blir det som "ringar"
+    
+) {
+  retur_sf <- postgis_isokroner_skapa(
+    punkter_sf = punkter_sf,
+    schema_punkt = schema_punkt,             
+    tabell_punkt = tabell_punkt,
+    idkol_punkt = idkol_punkt,
+    nodkolumn_punkt = nodkolumn_punkt,    # NULL, eller om man har ett punktlager som redan är kopplat till en graf kan kolumnen för noderna läggas till här
+    namnkol_punkt = namnkol_punkt,
+    tabell_graf = "nvdb_alla_adresser",
+    idkol_graf = "rad_id",
+    kostnadskol_graf_f = "kostnad_gang_min",
+    kostnadskol_graf_b = NULL,
+    intervall_varden = intervall_varden,
+    kostnad_enhet = "auto",
+    spara_schema = spara_schema,        # om man vill spara i databasen, ange schema här
+    spara_tabell = spara_tabell,        # om man vill spara i databasen, ange tabell här
+    returnera_sf = returnera_sf,        # om man vill returnera ett sf-objekt
+    dela_upp_polygoner = dela_upp_polygoner   
+  )
+  
+} # slut funktion isokron_gang
+
+postgis_isokroner_cykel <- function(
+    punkter_sf = NULL,
+    schema_punkt = NULL,             # tex "punktlager",
+    tabell_punkt = NULL,             # tex "akutmottagningar",
+    idkol_punkt = "id",
+    nodkolumn_punkt = "nid_nvdb_alla_adresser",    # NULL, eller om man har ett punktlager som redan är kopplat till en graf kan kolumnen för noderna läggas till här
+    namnkol_punkt = "namn",
+    intervall_varden = c(15, 30, 45, 60),
+    spara_schema = NULL,        # om man vill spara i databasen, ange schema här
+    spara_tabell = NULL,        # om man vill spara i databasen, ange tabell här
+    returnera_sf = TRUE,        # om man vill returnera ett sf-objekt
+    dela_upp_polygoner = TRUE   # TRUE så returneras polygoner utan överlappning, annars täcker de större polygonerna även ytan för de mindre polygonerna, med TRUE blir det som "ringar"
+    
+) {
+  retur_sf <- postgis_isokroner_skapa(
+    punkter_sf = punkter_sf,
+    schema_punkt = schema_punkt,             
+    tabell_punkt = tabell_punkt,
+    idkol_punkt = idkol_punkt,
+    nodkolumn_punkt = nodkolumn_punkt,    # NULL, eller om man har ett punktlager som redan är kopplat till en graf kan kolumnen för noderna läggas till här
+    namnkol_punkt = namnkol_punkt,
+    tabell_graf = "nvdb_alla_adresser",
+    idkol_graf = "rad_id",
+    kostnadskol_graf_f = "kostnad_cykel_min",
+    kostnadskol_graf_b = NULL,
+    intervall_varden = intervall_varden,
+    kostnad_enhet = "auto",
+    spara_schema = spara_schema,        # om man vill spara i databasen, ange schema här
+    spara_tabell = spara_tabell,        # om man vill spara i databasen, ange tabell här
+    returnera_sf = returnera_sf,        # om man vill returnera ett sf-objekt
+    dela_upp_polygoner = dela_upp_polygoner   
+  )
+  
+} # slut funktion isokron_cykel
+
+postgis_isokroner_elcykel <- function(
+    punkter_sf = NULL,
+    schema_punkt = NULL,             # tex "punktlager",
+    tabell_punkt = NULL,             # tex "akutmottagningar",
+    idkol_punkt = "id",
+    nodkolumn_punkt = "nid_nvdb_alla_adresser",    # NULL, eller om man har ett punktlager som redan är kopplat till en graf kan kolumnen för noderna läggas till här
+    namnkol_punkt = "namn",
+    intervall_varden = c(15, 30, 45, 60),
+    spara_schema = NULL,        # om man vill spara i databasen, ange schema här
+    spara_tabell = NULL,        # om man vill spara i databasen, ange tabell här
+    returnera_sf = TRUE,        # om man vill returnera ett sf-objekt
+    dela_upp_polygoner = TRUE   # TRUE så returneras polygoner utan överlappning, annars täcker de större polygonerna även ytan för de mindre polygonerna, med TRUE blir det som "ringar"
+    
+) {
+  retur_sf <- postgis_isokroner_skapa(
+    punkter_sf = punkter_sf,
+    schema_punkt = schema_punkt,             
+    tabell_punkt = tabell_punkt,
+    idkol_punkt = idkol_punkt,
+    nodkolumn_punkt = nodkolumn_punkt,    # NULL, eller om man har ett punktlager som redan är kopplat till en graf kan kolumnen för noderna läggas till här
+    namnkol_punkt = namnkol_punkt,
+    tabell_graf = "nvdb_alla_adresser",
+    idkol_graf = "rad_id",
+    kostnadskol_graf_f = "kostnad_elcykel_min",
+    kostnadskol_graf_b = NULL,
+    intervall_varden = intervall_varden,
+    kostnad_enhet = "auto",
+    spara_schema = spara_schema,        # om man vill spara i databasen, ange schema här
+    spara_tabell = spara_tabell,        # om man vill spara i databasen, ange tabell här
+    returnera_sf = returnera_sf,        # om man vill returnera ett sf-objekt
+    dela_upp_polygoner = dela_upp_polygoner   
+  )
+  
+} # slut funktion isokron_elcykel
+
 postgis_isokroner_skapa <- function(
     con = "default",
     punkter_sf = NULL,               # om man vill skicka med ett sf-objekt istället för en punkttabell i postgis
-    schema_punkt = "punktlager",
-    tabell_punkt = "akutmottagningar",
+    schema_punkt = NULL,             # tex "punktlager",
+    tabell_punkt = NULL,             # tex "akutmottagningar",
     idkol_punkt = "id",
     nodkolumn_punkt = "nid_nvdb_alla_adresser",    # NULL, eller om man har ett punktlager som redan är kopplat till en graf kan kolumnen för noderna läggas till här
-    namnkol_punkt = "mottagnings_namn",
+    namnkol_punkt = "namn",
     schema_graf = "grafer",
     tabell_graf = "nvdb_alla_adresser",
     idkol_graf = "rad_id",
@@ -2397,7 +2572,8 @@ postgis_isokroner_skapa <- function(
     polygon_metod = "concave",  # eller "buffer", "convex"
     buffer_m = 100,             # sätter en buffer på vägar när man vill bygga polygonerna runt vägarna (långsammare än convex hull och concave hull)
     simplify_tol = 100,         # för att förenkla polygoner ju högre desto mer förenkling, nära 0 nästan ingen förenkling, används bara i buffer-metoden
-    visa_meddelanden = FALSE    # om man vill se vad som görs i postgis, oftast vill man inte det
+    visa_meddelanden = FALSE,   # om man vill se vad som görs i postgis, oftast vill man inte det
+    felsokning_meddelanden = FALSE    # för att se vad som händer i felsökning
 ) {
   # man måste ha skickat med ett sf-objekt eller en tabell i den databas man jobbar i
   stopifnot(!is.null(punkter_sf) || (!is.null(schema_punkt) && !is.null(tabell_punkt)))
@@ -2467,6 +2643,10 @@ postgis_isokroner_skapa <- function(
     nodkolumn_punkt <- "toponode"
   } 
   
+  if (felsokning_meddelanden) {
+    cat("🧪 Kontroll: Finns kolumnen", nodkolumn_punkt, "i", temptabell, "?\n")
+    print(DBI::dbReadTable(con, DBI::Id(schema = "temp", table = "franpunkter")))
+  }
   # Ta bort den temporära tabellen om den redan finns
   DBI::dbExecute(con, "DROP TABLE IF EXISTS noder_start")
   DBI::dbExecute(con, glue::glue("
@@ -2475,6 +2655,9 @@ postgis_isokroner_skapa <- function(
     FROM {temptabell}
     WHERE {nodkolumn_punkt} IS NOT NULL;
   "))
+  
+  # stanna om inte noder_start skapas
+  stopifnot("noder_start" %in% DBI::dbListTables(con))
   
   # ordna intervallerna
   from_vals <- c(0, head(intervall_varden, -1) + 1)
@@ -2504,6 +2687,10 @@ postgis_isokroner_skapa <- function(
   
   # Läs in punkternas ID och nod
   noder <- DBI::dbReadTable(con, "noder_start")
+  if (felsokning_meddelanden) {
+    cat("Noder: \n")
+    print(noder)
+  } 
   
   sql_per_punkt <- purrr::map_chr(noder[[idkol_punkt]], function(pid) {
     node <- noder$node[noder[[idkol_punkt]] == pid]
@@ -2536,6 +2723,11 @@ postgis_isokroner_skapa <- function(
   CREATE TEMP TABLE isokron_edges AS
   {sql_union}
 "))
+  if (felsokning_meddelanden) {
+    DBI::dbGetQuery(con, "SELECT COUNT(*) FROM isokron_edges")
+    DBI::dbGetQuery(con, "SELECT punkt_id, kostnadsintervall, ST_AsText(geom) FROM isokron_edges LIMIT 5")
+    cat(sql_union)
+  } 
   
   # Ta bort den temporära tabellen om den redan finns
   DBI::dbExecute(con, "DROP TABLE IF EXISTS isokron_polygons")
@@ -2572,7 +2764,8 @@ postgis_isokroner_skapa <- function(
   
   # efterbearbetning när man kör med buffer-metoden
   # 1. Läs in polygonerna
-  iso_polys <- st_read(con, query = "SELECT * FROM isokron_polygons") %>% 
+  iso_polys <- st_read(con, query = "SELECT * FROM isokron_polygons") 
+  iso_polys <- iso_polys %>% 
     mutate(kostnadsintervall = factor(kostnadsintervall, levels = iso_polys$kostnadsintervall %>%
                                         unique() %>%
                                         stringr::str_extract("^\\d+") %>%     # extrahera startvärdet
@@ -2606,8 +2799,8 @@ postgis_isokroner_skapa <- function(
   
   # ta bort temptabell och tempschema om de finns
   if (postgres_schema_finns(con = con, schema_namn = "temp")) {
-    postgres_tabell_ta_bort(con = con, schema = "temp", tabell = "franpunkter")
-    postgres_schema_ta_bort(con = con, schema = "temp")
+    suppressMessages(postgres_tabell_ta_bort(con = con, schema = "temp", tabell = "franpunkter"))
+    suppressMessages(postgres_schema_ta_bort(con = con, schema = "temp"))
   }
   # återställ så att postgis skickar meddelanden igen
   if (!visa_meddelanden) DBI::dbExecute(con, "SET client_min_messages TO notice;")
@@ -2619,7 +2812,6 @@ postgis_isokroner_skapa <- function(
     return(invisible(NULL))
   }
 } # slut funktion
-
 
 
 postgis_isokroner_dela_upp_polygoner <- function(
