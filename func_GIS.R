@@ -3500,12 +3500,45 @@ pgrouting_punkttabell_koppla_till_pgr_graf <- function(
     # Om allt gått bra, committa
     dbCommit(con)
     print(glue("Punkterna i {schema_punkter}.{tabell_punkter} har nu nid_{tabell_natverk} kopplat till sig från grafen {schema_natverk}.{tabell_natverk}."))
+    
+    # skapa variabler för att fylla på metadata-tabellen
+    meta_punkter <- postgres_meta(
+      con = con_rutt,
+      query = glue("WHERE schema = 'punktlager' AND tabell = '{punkter_till_tabell}'")
+    ) %>% 
+      select(version_datum, version_tid, kommentar)
+    
+    meta_pgr_graf <- postgres_meta(
+      con = con_rutt,
+      query = glue("WHERE schema = 'grafer' AND tabell = 'nvdb_{natverkstyp}_{punkter_till_tabell}'")
+    ) %>% 
+      select(version_datum, version_tid, kommentar)
+    
+    tabell_ver_db <- glue("{meta_punkter$kommentar}, {meta_pgr_graf$kommentar}")
+    lyckad_uppdatering <- TRUE
+    
   }, error = function(e) {
     # Om något gått fel under processen, återställ databasen till innan denna funktion
     dbRollback(con)
     message(glue("Transaktionen misslyckades: {e$message}"))
     
-  }) 
+    tabell_ver_db <- glue("{e$message}")
+    lyckad_uppdatering <- FALSE
+    
+  }, finally = {
+    # kod som körs oavsett om skriptet fungerade att köra eller inte
+    # hämta metadata för fran-tabellen
+    
+    postgres_metadata_uppdatera(
+      con = con_rutt,
+      schema = "punktlager",
+      tabell = punkter_till_tabell,
+      version_datum = meta_punkter$version_datum,
+      version_tid = meta_punkter$version_tid,
+      lyckad_uppdatering = lyckad_uppdatering,
+      kommentar = tabell_ver_db
+    )
+  }) # slut tryCatch() 
   
   # Koppla ner om uppkopplingen har skapats i funktionen
   if(skapad_i_funktionen){
@@ -3643,12 +3676,48 @@ pgrouting_kostnadskolumner_transporttyp_graf <- function(
     # Om allt gått bra, committa
     dbCommit(con)
     print(glue("Kostnadskolumner i {schema_natverk}.{tabell_natverk} har beräknats."))
+    
+    # skapa variabler för att fylla på metadata-tabellen
+    meta_kostnader <- postgres_meta(
+      con = con_rutt,
+      query = glue("WHERE schema = '{schema_natverk}' AND tabell = 'nvdb_{natverkstyp}_{punkter_till_tabell}'")
+    ) %>% 
+      select(version_datum, version_tid, kommentar)
+    
+    nu <- now()
+    dag <- as.integer(format(as.Date(nu), "%d"))
+    manad_ar <- tolower(format(as.Date(nu), "%b%Y"))
+    tid <- format(nu, "%H%M")
+    kostnad_ver <- paste0(dag, manad_ar, "_", tid)
+    
+    
+    frantabell_ver_db <- glue("{meta_kostnader$kommentar}, kostnader ver: {kostnad_ver}")
+    lyckad_uppdatering <- TRUE
+    
+    
   }, error = function(e) {
     # Om något gått fel under processen, återställ databasen till innan denna funktion
     dbRollback(con)
     message(glue("Transaktionen misslyckades: {e$message}"))
     
-  }) 
+    frantabell_ver_db <- glue("{e$message}")
+    lyckad_uppdatering <- FALSE
+    
+  }, finally = {
+  
+  # kod som körs oavsett om skriptet fungerade att köra eller inte
+  # hämta metadata för fran-tabellen
+  postgres_metadata_uppdatera(
+    con = con_rutt,
+    schema = schema_natverk,
+    tabell = glue("nvdb_{natverkstyp}_{punkter_till_tabell}"),
+    version_datum = meta_kostnader$version_datum,
+    version_tid = meta_kostnader$version_tid,
+    lyckad_uppdatering = lyckad_uppdatering,
+    kommentar = frantabell_ver_db
+  )
+    
+  }) # slut tryCatch()
   
   # Koppla ner om uppkopplingen har skapats i funktionen
   if(skapad_i_funktionen){
