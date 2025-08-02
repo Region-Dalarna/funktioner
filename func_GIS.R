@@ -1783,12 +1783,10 @@ postgres_meta <- function(tabell = "aktuell_version",
     default_flagga <- FALSE
   }
   
+  sql_query <- paste0("SELECT * FROM ", schema, ".", tabell)
   # Konstruera SQL-frågan
-  if (is.na(query)) {
-    sql_query <- paste0("SELECT * FROM ", schema, ".", tabell)
-  } else {
-    sql_query <- query
-  }
+  if (!is.na(query)) sql_query <- paste0(sql_query, " ", query)
+  
   
   # Försök läsa in data från databasen
   tryCatch({
@@ -1864,6 +1862,39 @@ postgres_tabell_ta_bort <- function(con = "default",
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)
   if (meddelande_tid) cat(glue::glue("Processen tog {berakningstid} sekunder att köra"))
 }
+
+postgres_tabell_finns <- function(
+    con = "default", 
+    schema, 
+    tabell,
+    meddelande_tid = FALSE
+    ) {
+  
+  starttid <- Sys.time()  # Starta tidstagning
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
+  
+  tabell_finns <- dbExistsTable(con, Id(schema = schema, table = tabell))
+  
+  # Koppla ner anslutningen om den skapades som default
+  if (default_flagga) dbDisconnect(con)  # Koppla ner om defaultuppkopplingen har använts
+  
+  # Beräkna och skriv ut tidsåtgång
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)
+  if (meddelande_tid) cat(glue::glue("Processen tog {berakningstid} sekunder att köra"))
+  
+  return(tabell_finns)
+  
+  
+}
+
+
 
 postgres_schema_finns <- function(con, 
                                   schema_namn) {
@@ -2246,6 +2277,7 @@ postgis_kopiera_tabell <- function(con = "default",
                                    tabell_fran,
                                    schema_till,
                                    tabell_till,
+                                   skriv_over = FALSE,       # skriver över tabell-till om den finns
                                    meddelande_tid = FALSE
 ) {
   
@@ -2260,7 +2292,20 @@ postgis_kopiera_tabell <- function(con = "default",
     default_flagga = TRUE
   } else  default_flagga = FALSE
   
+  # kontroll om den tabell som ska kopieras finns, annars stoppas skriptet
+  if (!postgres_tabell_finns(con = con, schema = schema_fran, tabell = tabell_fran)) {
+    stop(glue("Tabellen {tabell_fran} i schemat {schema_fran} finns inte, kontrollera namnet på schemat och tabellen och försök igen."))
+  }
   
+  # kollar om tabell-till redan finns, i så fall stannar vi skriptet om inte skriv_over är satt till TRUE
+  if (postgres_tabell_finns(con = con, schema = schema_till, tabell = tabell_till)) {
+    if (skriv_over) {
+      postgres_tabell_ta_bort(con = con, schema = schema_till, tabell = tabell_till)
+    } else {
+      stop(glue("Tabellen {tabell_till} i schemat {schema_till} finns redan, välj ett annat namn eller sätt skriv_over till TRUE om du vill skriva över befintlig tabell."))
+    }
+    
+  }
   # skapa tabell som har samma struktur som den tabell vi ska kopiera
   dbExecute(con, paste0("CREATE TABLE ", schema_till, ".", tabell_till, " (LIKE ", schema_fran, ".", tabell_fran, " INCLUDING ALL);"))
   
@@ -2950,52 +2995,85 @@ pgrouting_klipp_natverk_skapa_tabell <- function(
   # Formatera regionkoder till SQL-sträng
   regionkoder_str <- paste0("'", paste(regionkoder, collapse = "', '"), "'")
   
-  # Skapa spatialt index på region-tabellen om det inte finns 
-  sql_index <- glue("CREATE INDEX IF NOT EXISTS {region_tabell}_geom_idx 
-                     ON {region_schema}.{region_tabell} USING GIST({region_geokol});")
-  dbExecute(con, sql_index)
-  
-  # Klipp nätverket med ST_Intersects (behåll hela linjer)
-  dbExecute(con_till_databas, glue("DROP TABLE IF EXISTS {output_schema}.{output_tabell};"))
-  sql_clip_network <- glue("
-    WITH region_buffer AS (
-      SELECT ST_Union(ST_Buffer({region_geokol}, {buffer_m})) AS {region_geokol}
-      FROM {region_schema}.{region_tabell}
-      WHERE {regionkod_kol} IN ({regionkoder_str})
+  tryCatch({
+    # Skapa spatialt index på region-tabellen om det inte finns 
+    sql_index <- glue("CREATE INDEX IF NOT EXISTS {region_tabell}_geom_idx 
+                       ON {region_schema}.{region_tabell} USING GIST({region_geokol});")
+    dbExecute(con, sql_index)
+    
+    # Klipp nätverket med ST_Intersects (behåll hela linjer)
+    dbExecute(con_till_databas, glue("DROP TABLE IF EXISTS {output_schema}.{output_tabell};"))
+    sql_clip_network <- glue("
+      WITH region_buffer AS (
+        SELECT ST_Union(ST_Buffer({region_geokol}, {buffer_m})) AS {region_geokol}
+        FROM {region_schema}.{region_tabell}
+        WHERE {regionkod_kol} IN ({regionkoder_str})
+      )
+      SELECT l.*
+      FROM {natverk_schema}.{natverk_tabell} l
+      JOIN region_buffer d
+      ON ST_Intersects(l.{natverk_geokol}, d.{region_geokol}){urval_fran_natverk} ;
+    ")
+    klippt_natverk <- dbGetQuery(con, sql_clip_network)           # kör queryn och spara i r-objektet
+    
+    if (nrow(klippt_natverk) == 0) {
+      stop("Inga rader hittades i det klippta nätverket. Kontrollera regionkoder och nätverkstabell.")
+    }
+    # skriv det klippta nätverket till den nya databasen
+    st_write(obj = klippt_natverk,
+             dsn = con_till_databas,
+             layer = DBI::Id(schema = output_schema, table = output_tabell),
+             append = FALSE)  # skriv över tabellen om den finns, annars skapa ny
+    print(glue("✅ Nätverket klippt!"))
+    
+    
+    # Konvertera till 2D
+    # Denna raden är utbytt för att det skapar problem för att vi har defingerat att det ska vara en multilinestring 
+    # och för att uppdatara detta måste vi göra den uppdaterade skriptet istället. 
+    # sql_2d <- glue("UPDATE {output_schema}.{output_tabell} SET {natverk_geokol} = ST_LineMerge(ST_Force2D({natverk_geokol}));")
+    
+    sql_2d <- glue("ALTER TABLE {output_schema}.{output_tabell} ALTER COLUMN geom TYPE geometry(LineString, 3006) USING ST_LineMerge(ST_Force2D({natverk_geokol}));")
+    
+    dbExecute(con_till_databas, sql_2d)
+    print("Geometrin utplattad (2d) och MultiLinestrings omgjorda till linestrings.")
+    
+    # Skapa index på geometrin
+    index_namn <- glue("{output_schema}_{output_tabell}_geom_idx")
+    dbExecute(con_till_databas, glue("DROP INDEX IF EXISTS {index_namn};"))
+    dbExecute(con_till_databas, glue("CREATE INDEX {index_namn} ON {output_schema}.{output_tabell} USING GIST({natverk_geokol});"))
+    dbExecute(con_till_databas, glue("ANALYZE {output_schema}.{output_tabell};"))
+    
+    # hämta nvdb-version i metadata-tabell
+    meta_nvdb <- postgres_meta(
+      con = con,
+      query = "WHERE schema = 'nvdb' AND tabell = 'dala_med_grannlan'") %>% 
+      select(version_datum, version_tid)
+    
+    dag <- as.integer(format(as.Date(meta_nvdb$version_datum), "%d"))
+    manad_ar <- tolower(format(as.Date(meta_nvdb$version_datum), "%b%Y"))
+    tid <- paste0(str_sub(meta_nvdb$version_tid, 1, 2), str_sub(meta_nvdb$version_tid, 4, 5))
+    nvdb_ver <- paste0(dag, manad_ar, "_", tid)
+    
+    nvdb_ver_db <- paste0("nvdb ver: ", nvdb_ver)
+    lyckad_uppdatering <- TRUE
+    
+  }, error = function(e) {
+    # Skriv ett felmeddelande om något går fel
+    nvdb_ver_db <- glue("{e$message}")
+    lyckad_uppdatering <- FALSE
+    
+  }, finally = {
+    # kod som körs oavsett om skriptet fungerade att köra eller inte
+    postgres_metadata_uppdatera(
+      con = con_till_databas,
+      schema = output_schema,
+      tabell = output_tabell,
+      version_datum = meta_nvdb$version_datum,
+      version_tid = meta_nvdb$version_tid,
+      lyckad_uppdatering = lyckad_uppdatering,
+      kommentar = nvdb_ver_db
     )
-    SELECT l.*
-    FROM {natverk_schema}.{natverk_tabell} l
-    JOIN region_buffer d
-    ON ST_Intersects(l.{natverk_geokol}, d.{region_geokol}){urval_fran_natverk} ;
-  ")
-  klippt_natverk <- dbGetQuery(con, sql_clip_network)           # kör queryn och spara i r-objektet
-  
-  if (nrow(klippt_natverk) == 0) {
-    stop("Inga rader hittades i det klippta nätverket. Kontrollera regionkoder och nätverkstabell.")
-  }
-  # skriv det klippta nätverket till den nya databasen
-  st_write(obj = klippt_natverk,
-           dsn = con_till_databas,
-           layer = DBI::Id(schema = output_schema, table = output_tabell),
-           append = FALSE)  # skriv över tabellen om den finns, annars skapa ny
-  print(glue("✅ Nätverket klippt!"))
-  
-  
-  # Konvertera till 2D
-  # Denna raden är utbytt för att det skapar problem för att vi har defingerat att det ska vara en multilinestring 
-  # och för att uppdatara detta måste vi göra den uppdaterade skriptet istället. 
-  # sql_2d <- glue("UPDATE {output_schema}.{output_tabell} SET {natverk_geokol} = ST_LineMerge(ST_Force2D({natverk_geokol}));")
-  
-  sql_2d <- glue("ALTER TABLE {output_schema}.{output_tabell} ALTER COLUMN geom TYPE geometry(LineString, 3006) USING ST_LineMerge(ST_Force2D({natverk_geokol}));")
-  
-  dbExecute(con_till_databas, sql_2d)
-  print("Geometrin utplattad (2d) och MultiLinestrings omgjorda till linestrings.")
-  
-  # Skapa index på geometrin
-  index_namn <- glue("{output_schema}_{output_tabell}_geom_idx")
-  dbExecute(con_till_databas, glue("DROP INDEX IF EXISTS {index_namn};"))
-  dbExecute(con_till_databas, glue("CREATE INDEX {index_namn} ON {output_schema}.{output_tabell} USING GIST({natverk_geokol});"))
-  dbExecute(con_till_databas, glue("ANALYZE {output_schema}.{output_tabell};"))
+  })
   
   # Stäng anslutningen om den var temporär
   if (skapad_i_funktionen) dbDisconnect(con_till_databas)
@@ -3184,12 +3262,58 @@ pgrouting_hitta_narmaste_punkt_pa_natverk <- function(
     
     dbCommit(con)
     
+    # fyll på variabler som ska vara till metadatabasen 
+    meta_graf <- postgres_meta(
+      con = con,
+      query = glue("WHERE schema = '{schema_graf}' AND tabell = '{tabell_graf}'")) %>% 
+      select(version_datum, version_tid, kommentar)
+    
+    frantabell_ver_db <- meta_graf$kommentar
+    
   }, error = function(e) {
     dbRollback(con)
     cat("🚨 Fel i processen:", e$message, "\n")
+    
+    frantabell_ver_db <- glue("{e$message}")
+    lyckad_uppdatering <- FALSE
+    
   }, finally = {
     # Stäng anslutningen om den var temporär
     if (skapad_i_funktionen) dbDisconnect(con_till_databas)
+    
+    # huvudtabellen, tex. nvdb_bil_adresser
+    postgres_metadata_uppdatera(
+      con = con,
+      schema = schema_graf,
+      tabell = tabell_ny_natverk,
+      version_datum = meta_graf$version_datum,
+      version_tid = meta_graf$version_tid,
+      lyckad_uppdatering = lyckad_uppdatering,
+      kommentar = frantabell_ver_db
+    )
+    
+    # narmaste_punkt-tabellen
+    postgres_metadata_uppdatera(
+      con = con,
+      schema = schema_graf,
+      tabell = paste0(tabell_ny_natverk, "_narmaste_punkt"),
+      version_datum = meta_graf$version_datum,
+      version_tid = meta_graf$version_tid,
+      lyckad_uppdatering = lyckad_uppdatering,
+      kommentar = frantabell_ver_db
+    )
+    
+    # klusterpunkt-tabellen
+    postgres_metadata_uppdatera(
+      con = con,
+      schema = schema_graf,
+      tabell = paste0(tabell_ny_natverk, "_klusterpunkt"),
+      version_datum = meta_graf$version_datum,
+      version_tid = meta_graf$version_tid,
+      lyckad_uppdatering = lyckad_uppdatering,
+      kommentar = frantabell_ver_db
+    )
+    
     sluttid <- Sys.time()
     message(sprintf("⏱ Total tid: %.1f sekunder", as.numeric(difftime(sluttid, starttid, units = "secs"))))
   })
@@ -3260,10 +3384,29 @@ pgrouting_tabell_till_pgrgraf <- function(
     #Om allt gått bra, committa
     dbCommit(con)
     
+    # fyll på variabler som ska vara till metadatabasen 
+    meta_graf <- postgres_meta(
+      con = con,
+      query = glue("WHERE schema = '{schema_graf}' AND tabell = '{tabell_graf}'")) %>% 
+      select(version_datum, version_tid, kommentar)
+    
+    nu <- now()
+    dag <- as.integer(format(as.Date(nu), "%d"))
+    manad_ar <- tolower(format(as.Date(nu), "%b%Y"))
+    tid <- format(nu, "%H%M")
+    pgr_graf_ver <- paste0(dag, manad_ar, "_", tid)
+    
+    frantabell_ver_db <- glue("pgr_graf ver: {pgr_graf_ver}, {meta_graf$kommentar}") 
+    
+    
     #Om något fel skett i blocket, kör en rollback
   }, error = function(e) {
     dbRollback(con)
     stop("Transaktionen misslyckades: ", e$message)
+    
+    frantabell_ver_db <- glue("{e$message}")
+    lyckad_uppdatering <- FALSE
+    
   }, finally = {
     
     # Koppla ner om uppkopplingen har skapats i funktionen
@@ -3272,11 +3415,21 @@ pgrouting_tabell_till_pgrgraf <- function(
       print("Uppkopplingen avslutad!")
     }
     
+    # fyll på metadata-tabellen
+    postgres_metadata_uppdatera(
+      con = con,
+      schema = schema_graf,
+      tabell = tabell_graf,
+      version_datum = as.Date(nu),
+      version_tid = format(nu, "%H:%M"),
+      lyckad_uppdatering = lyckad_uppdatering,
+      kommentar = frantabell_ver_db
+    )
+    
     # Beräkna och skriv ut tidsåtgång
     sluttid <- Sys.time()
     tidstagning <- sluttid - starttid
     message(sprintf("Processen skapa graf tog %s minuter att köra", tidstagning %>% round(., 1)))
-    
   }
   )
 }
