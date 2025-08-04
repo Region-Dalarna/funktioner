@@ -2961,16 +2961,16 @@ postgis_isokroner_dela_upp_polygoner <- function(
 }
 
 postgis_kopiera_punkttabell_koppla_till_pgr_graf <- function(
-    con_fran_databas,                # från geodatabasen
-    con_till_databas,                # till ruttanalyser-databasen
+    con_fran_databas = uppkoppling_db(),                   # databas från vilket punktlagret kopieras, default är geodatabasen
+    con_till_databas = uppkoppling_adm("ruttanalyser"),    # databas till vilket punktlagret kopieras, default är ruttanalyser
     schema_fran,                     # schema i geodatabasen där adresserna finns
     tabell_fran,                     # tabell i geodatabasen där adresserna finns
     schema_till,                     # schema i ruttanalyser-databasen där adresserna ska kopieras till
     tabell_till,                     # tabell i ruttanalyser-databasen där adresserna ska kopieras till
-    geom_kol_punkter = "geom",             # geometri-kolumnen i punkttabellen, default är geom, ska normalt inte ändras
-    id_kol_punkter = "id",             # id-kolumnen i punkttabellen, default är gml_id, ska normalt inte ändras
+    geom_kol_punkter = "geom",             # geometri-kolumnen i punkttabellen som ska kopieras, default är geom
+    id_kol_punkter = "id",             # id-kolumnen i punkttabellen, default är id
     schema_natverk = "grafer",             # schema där grafen finns, ska normalt inte ändras
-    lagg_till_metadata_i_till_databas = TRUE,
+    lagg_till_metadata_i_till_databas = TRUE,        # punkttabellen läggs till i 
     stang_db_anslutningar = TRUE
 ) {
   
