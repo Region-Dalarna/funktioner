@@ -2326,6 +2326,7 @@ postgis_kopiera_tabell_mellan_databaser <- function(
     tabell_fran,                # tabell i den databas vi kopierar tabellen från
     schema_till,                # schema i den databas vi kopierar tabellen till
     tabell_till,                # tabell i den databas vi kopierar tabellen till
+    lagg_till_metadata_i_till_databas = FALSE,      # om TRUE så läggs metadata till enligt standardförfarande i tilldatabasen
     meddelande_tid = FALSE      # TRUE om vi vill ha meddelande om hur lång tid det tog att köra funktionen, FALSE är default
 ) {
   
@@ -2340,26 +2341,72 @@ postgis_kopiera_tabell_mellan_databaser <- function(
     default_flagga_input = TRUE
   } else  default_flagga_input = FALSE
   
-  
-  # 1. Läs in tabellen (som sf-objekt om den innehåller geometri)
-  #input_data <- st_read(con_fran_databas, query = glue("SELECT * FROM {schema_fran}.{tabell_fran}"))
-  input_data <- st_read(con_fran_databas, layer = DBI::Id(schema = schema_fran, table = tabell_fran))
-  
-  # 2. Skriv till den andra databasen
-  st_write(dsn = con_till_databas,
-           obj = input_data,
-           layer = DBI::Id(schema = schema_till, table = tabell_till),
-           append = FALSE)
-  
-  # säkerställ att 
-  srid <- st_crs(input_data)$epsg
-  geom_kol <- attr(input_data, "sf_column")
-  
-  if (!is.na(srid) && !is.null(geom_kol)) {
-    dbExecute(con_till_databas, glue(
-      "SELECT UpdateGeometrySRID('{schema_till}', '{tabell_till}', '{geom_kol}', {srid});"
-    ))
-  }
+  tryCatch({
+    # 1. Läs in tabellen (som sf-objekt om den innehåller geometri)
+    #input_data <- st_read(con_fran_databas, query = glue("SELECT * FROM {schema_fran}.{tabell_fran}"))
+    input_data <- st_read(con_fran_databas, layer = DBI::Id(schema = schema_fran, table = tabell_fran))
+    
+    # 2. Skriv till den andra databasen
+    st_write(dsn = con_till_databas,
+             obj = input_data,
+             layer = DBI::Id(schema = schema_till, table = tabell_till),
+             append = FALSE)
+    
+    # säkerställ att 
+    srid <- st_crs(input_data)$epsg
+    geom_kol <- attr(input_data, "sf_column")
+    
+    if (!is.na(srid) && !is.null(geom_kol)) {
+      dbExecute(con_till_databas, glue(
+        "SELECT UpdateGeometrySRID('{schema_till}', '{tabell_till}', '{geom_kol}', {srid});"
+      ))
+    }
+    
+    meta_frantabell <- postgres_meta(
+      con = con_geodb,
+      query = glue("WHERE schema = '{schema_fran}' AND tabell = '{tabell_fran}'")
+    ) %>% 
+      select(version_datum, version_tid, kommentar)
+    
+    
+    if (nrow(meta_frantabell) == 0) {
+    # om det inte finns någon rad i metadata-tabellen
+      nu <- now()
+      dag <- as.integer(format(with_tz(nu, tzone = Sys.timezone()), "%d"))
+      manad_ar <- tolower(format(with_tz(nu, tzone = Sys.timezone()), "%b%Y"))
+      tid <- format(nu, "%H%M")
+      frantabell_ver <- paste0(dag, manad_ar, "_", tid)
+      
+      frantabell_ver_db <- glue("{schema_fran}.{tabell_fran} ver: {frantabell_ver}")
+      ver_datum <- format(nu, "%Y-%m-%d")
+      ver_tid <- format(nu, "%H:%M")
+    } else {
+      # om det finns en rad i metadatatabellen används den
+      ver_datum <- meta_frantabell$version_datum
+      ver_tid <- meta_frantabell$version_tid
+      frantabell_ver_db <- meta_frantabell$kommentar
+    }
+    lyckad_uppdatering <- TRUE
+    
+  }, error = function(e) {
+    # Skriv ett felmeddelande om något går fel
+    frantabell_ver_db <- glue("{e$message}")
+    lyckad_uppdatering <- FALSE
+    
+  }, finally = {
+    # kod som körs oavsett om skriptet fungerade att köra eller inte
+    # hämta metadata för fran-tabellen
+    
+    postgres_metadata_uppdatera(
+      con = con_till_databas,
+      schema = schema_till,
+      tabell = tabell_till,
+      version_datum = ver_datum,
+      version_tid = ver_tid,
+      lyckad_uppdatering = lyckad_uppdatering,
+      kommentar = frantabell_ver_db
+    )
+  }) # slut finally och tryCatch()
   
   if(default_flagga_input) dbDisconnect(con_fran_databas)                                        # Koppla ner om defaultuppkopplingen har använts
   #dbDisconnect(con_till_databas)                                        
@@ -2913,6 +2960,62 @@ postgis_isokroner_dela_upp_polygoner <- function(
   return(iso_unik_sf)
 }
 
+postgis_kopiera_punkttabell_koppla_till_pgr_graf <- function(
+    con_fran_databas,                # från geodatabasen
+    con_till_databas,                # till ruttanalyser-databasen
+    schema_fran,                     # schema i geodatabasen där adresserna finns
+    tabell_fran,                     # tabell i geodatabasen där adresserna finns
+    schema_till,                     # schema i ruttanalyser-databasen där adresserna ska kopieras till
+    tabell_till,                     # tabell i ruttanalyser-databasen där adresserna ska kopieras till
+    geom_kol_punkter = "geom",             # geometri-kolumnen i punkttabellen, default är geom, ska normalt inte ändras
+    id_kol_punkter = "id",             # id-kolumnen i punkttabellen, default är gml_id, ska normalt inte ändras
+    schema_natverk = "grafer",             # schema där grafen finns, ska normalt inte ändras
+    lagg_till_metadata_i_till_databas = TRUE,
+    stang_db_anslutningar = TRUE
+) {
+  
+  # om man har en punkttabell i en databas som man vill kopiera till ruttanalyser och koppla till befintliga grafer
+  # så kan man köra denna funktion
+  
+  # först kopierar vi tabellen från en databas till en annan
+  postgis_kopiera_tabell_mellan_databaser(
+    con_fran_databas = con_fran_databas,                # från geodatabasen
+    con_till_databas = con_till_databas,                 # till ruttanalyser-databasen
+    schema_fran = schema_fran,                    # schema i geodatabasen där adresserna finns
+    tabell_fran = tabell_fran,                     # tabell i geodatabasen där adresserna finns
+    schema_till = schema_till,                  # schema i ruttanalyser-databasen där adresserna ska kopieras till
+    tabell_till = tabell_till,            # tabell i ruttanalyser-databasen där adresserna ska kopieras till
+    lagg_till_metadata_i_till_databas = lagg_till_metadata_i_till_databas
+  )
+  
+  # vi kollar i ruttanalyser-db vilka grafer som finns
+  natverkstyper <- postgres_lista_scheman_tabeller(con = con_rutt) %>%
+    pluck(schema_natverk) %>% 
+    .[!str_detect(., "vertices_pgr")]
+  
+  # därefter kopplar vi punkttabellen till samtliga grafer som finns i ruttanalyser i schemat grafer 
+  walk(natverkstyper, ~ {
+    pgrouting_punkttabell_koppla_till_pgr_graf(
+      con = con_rutt,                           # databas där punkterna finns, default är ruttanalyser (dvs. Region Dalarnas databas för ruttanalyser)
+      schema_punkter = schema_till,                  # schema där punkterna finns, default är punktlager
+      tabell_punkter = tabell_till,            # tabell med punkter som ska kopplas till grafen, default är adresser_dalarna
+      geom_kol_punkter = geom_kol_punkter,                      # geometri-kolumnen i punkttabellen, default är geom
+      id_kol_punkter = id_kol_punkter,                      # id-kolumnen i punkttabellen, default är gml_id
+      schema_natverk = schema_natverk,                        # schema där grafen finns, default är nvdb
+      tabell_natverk = .x                    # tabell med grafen som ska användas, default är graf_nvdb_adresser_dalarna
+    )
+  })
+  
+  # stänger anslutningar (default)
+  if (stang_db_anslutningar) {
+    dbDisconnect(con_fran_databas)
+    dbDisconnect(con_till_databas)
+  }
+  
+} # slut funktion
+
+
+
 # ======================================= pgrouting-funktioner ================================================
 
 # funktion för att installera pgrouting i en postgisdatabas
@@ -3048,9 +3151,10 @@ pgrouting_klipp_natverk_skapa_tabell <- function(
       con = con,
       query = "WHERE schema = 'nvdb' AND tabell = 'dala_med_grannlan'") %>% 
       select(version_datum, version_tid)
-    
-    dag <- as.integer(format(as.Date(meta_nvdb$version_datum), "%d"))
-    manad_ar <- tolower(format(as.Date(meta_nvdb$version_datum), "%b%Y"))
+  
+
+    dag <- as.integer(format(with_tz(meta_nvdb$version_datum, tzone = Sys.timezone()), "%d"))
+    manad_ar <- tolower(format(with_tz(meta_nvdb$version_datum, tzone = Sys.timezone()), "%b%Y"))
     tid <- paste0(str_sub(meta_nvdb$version_tid, 1, 2), str_sub(meta_nvdb$version_tid, 4, 5))
     nvdb_ver <- paste0(dag, manad_ar, "_", tid)
     
@@ -3391,8 +3495,8 @@ pgrouting_tabell_till_pgrgraf <- function(
       select(version_datum, version_tid, kommentar)
     
     nu <- now()
-    dag <- as.integer(format(as.Date(nu), "%d"))
-    manad_ar <- tolower(format(as.Date(nu), "%b%Y"))
+    dag <- as.integer(format(with_tz(nu, tzone = Sys.timezone()), "%d"))
+    manad_ar <- tolower(format(with_tz(nu, tzone = Sys.timezone()), "%b%Y"))
     tid <- format(nu, "%H%M")
     pgr_graf_ver <- paste0(dag, manad_ar, "_", tid)
     
@@ -3503,18 +3607,23 @@ pgrouting_punkttabell_koppla_till_pgr_graf <- function(
     
     # skapa variabler för att fylla på metadata-tabellen
     meta_punkter <- postgres_meta(
-      con = con_rutt,
-      query = glue("WHERE schema = 'punktlager' AND tabell = '{punkter_till_tabell}'")
+      con = con,
+      query = glue("WHERE schema = '{schema_punkter}' AND tabell = '{tabell_punkter}'")
     ) %>% 
       select(version_datum, version_tid, kommentar)
     
     meta_pgr_graf <- postgres_meta(
-      con = con_rutt,
-      query = glue("WHERE schema = 'grafer' AND tabell = 'nvdb_{natverkstyp}_{punkter_till_tabell}'")
+      con = con,
+      query = glue("WHERE schema = '{schema_natverk}' AND tabell = '{tabell_natverk}'")
     ) %>% 
       select(version_datum, version_tid, kommentar)
     
-    tabell_ver_db <- glue("{meta_punkter$kommentar}, {meta_pgr_graf$kommentar}")
+    tabell_ver_db <- glue("{meta_punkter$kommentar}, {meta_pgr_graf$kommentar}") %>%    # lägg ihop och ta bort dubletter
+      str_split(",\\s*") %>%        # Dela upp på kommatecken
+      unlist() %>%                  # Gör till vektor
+      unique() %>%                  # Ta bort dubbletter
+      str_c(collapse = ", ")        # Sätt ihop igen
+    
     lyckad_uppdatering <- TRUE
     
   }, error = function(e) {
@@ -3530,9 +3639,9 @@ pgrouting_punkttabell_koppla_till_pgr_graf <- function(
     # hämta metadata för fran-tabellen
     
     postgres_metadata_uppdatera(
-      con = con_rutt,
-      schema = "punktlager",
-      tabell = punkter_till_tabell,
+      con = con,
+      schema = schema_punkter,
+      tabell = tabell_punkter,
       version_datum = meta_punkter$version_datum,
       version_tid = meta_punkter$version_tid,
       lyckad_uppdatering = lyckad_uppdatering,
@@ -3679,14 +3788,14 @@ pgrouting_kostnadskolumner_transporttyp_graf <- function(
     
     # skapa variabler för att fylla på metadata-tabellen
     meta_kostnader <- postgres_meta(
-      con = con_rutt,
+      con = con,
       query = glue("WHERE schema = '{schema_natverk}' AND tabell = 'nvdb_{natverkstyp}_{punkter_till_tabell}'")
     ) %>% 
       select(version_datum, version_tid, kommentar)
     
     nu <- now()
-    dag <- as.integer(format(as.Date(nu), "%d"))
-    manad_ar <- tolower(format(as.Date(nu), "%b%Y"))
+    dag <- as.integer(format(with_tz(nu, tzone = Sys.timezone()), "%d"))
+    manad_ar <- tolower(format(with_tz(nu, tzone = Sys.timezone()), "%b%Y"))
     tid <- format(nu, "%H%M")
     kostnad_ver <- paste0(dag, manad_ar, "_", tid)
     
@@ -3705,17 +3814,17 @@ pgrouting_kostnadskolumner_transporttyp_graf <- function(
     
   }, finally = {
   
-  # kod som körs oavsett om skriptet fungerade att köra eller inte
-  # hämta metadata för fran-tabellen
-  postgres_metadata_uppdatera(
-    con = con_rutt,
-    schema = schema_natverk,
-    tabell = glue("nvdb_{natverkstyp}_{punkter_till_tabell}"),
-    version_datum = meta_kostnader$version_datum,
-    version_tid = meta_kostnader$version_tid,
-    lyckad_uppdatering = lyckad_uppdatering,
-    kommentar = frantabell_ver_db
-  )
+  # # kod som körs oavsett om skriptet fungerade att köra eller inte
+  # # hämta metadata för fran-tabellen
+  # postgres_metadata_uppdatera(
+  #   con = con,
+  #   schema = schema_natverk,
+  #   tabell = glue("nvdb_{natverkstyp}_{punkter_till_tabell}"),
+  #   version_datum = meta_kostnader$version_datum,
+  #   version_tid = meta_kostnader$version_tid,
+  #   lyckad_uppdatering = lyckad_uppdatering,
+  #   kommentar = frantabell_ver_db
+  # )
     
   }) # slut tryCatch()
   
@@ -3779,6 +3888,8 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
   if (is.null(hastighet_cykel)) hastighet_cykel <- pgrouting_hastighet_cykel() 
   if (is.null(hastighet_elcykel)) hastighet_elcykel <- pgrouting_hastighet_elcykel() 
   
+  
+  tryCatch({
   # Skapa en ny tabell med alla unika nid i tabell_fran om den inte redan finns. Om den finns så töm tabellen först
   # 1. SKapa den nya tabellens namn, en kombination av de två tabellerna fran och till
   
@@ -4051,6 +4162,9 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
   dbExecute(con, glue("DROP TABLE IF EXISTS {temp_fran};"))
   dbExecute(con, glue("DROP TABLE IF EXISTS {temp_till};"))
   
+  #Om allt gått bra, committa
+  dbCommit(con)
+  
   # Kolla hur många rader som finns i den nya tabellen, bör stämma med antalet unika noder
   antal_rader <- dbGetQuery(con, glue("SELECT COUNT(*) as antal FROM {schema_output}.{tabell_ny}"))$antal
   
@@ -4060,6 +4174,76 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
     print("Det finns en differens mellan förväntat och faktiskt resultat vilket indikerar att det finns fler adress rader som är kopplade till unika noder.")
   }
   
+  # skapa variabler för att fylla på metadata-tabellen
+  meta_punkter_fran <- postgres_meta(
+    con = con,
+    query = glue("WHERE schema = '{schema_fran}' AND tabell = '{tabell_fran}'")
+  ) %>% 
+    dplyr::pull(kommentar) %>% 
+    str_extract("^[^,]+")
+  
+  meta_punkter_till <- postgres_meta(
+    con = con,
+    query = glue("WHERE schema = '{schema_till}' AND tabell = '{tabell_till}'")
+  ) %>% 
+    dplyr::pull(kommentar) %>% 
+    str_extract("^[^,]+")
+  
+  meta_pgr_graf <- postgres_meta(
+    con = con,
+    query = glue("WHERE schema = '{schema_graf}' AND tabell = '{tabell_graf}'")
+  ) %>% 
+    dplyr::pull(kommentar)
+  
+  ruttreslutat_ver_db <- glue("{meta_pgr_graf}, fran punkter {meta_punkter_fran}, till punkter {meta_punkter_till}")
+  
+  
+  
+  
+  
+  
+  # fyll på variabler som ska vara till metadatabasen 
+  meta_ruttresultat <- postgres_meta(
+    con = con,
+    query = glue("WHERE schema = '{schema_graf}' AND tabell = '{tabell_graf}'")) %>% 
+    select(version_datum, version_tid, kommentar)
+  
+  nu <- now()
+  dag <- as.integer(format(with_tz(nu, tzone = Sys.timezone()), "%d"))
+  manad_ar <- tolower(format(with_tz(nu, tzone = Sys.timezone()), "%b%Y"))
+  tid <- format(nu, "%H%M")
+  pgr_graf_ver <- paste0(dag, manad_ar, "_", tid)
+  
+  ruttreslutat_ver_db <- glue("pgr_graf ver: {pgr_graf_ver}, {meta_ruttresultat$kommentar}") 
+  
+  
+  #Om något fel skett i blocket, kör en rollback
+  }, error = function(e) {
+    dbRollback(con)
+    stop("Transaktionen misslyckades: ", e$message)
+    
+    ruttreslutat_ver_db <- glue("{e$message}")
+    lyckad_uppdatering <- FALSE
+    
+  }, finally = {
+    
+    # fyll på metadata-tabellen
+    postgres_metadata_uppdatera(
+      con = con,
+      schema = schema_graf,
+      tabell = tabell_graf,
+      version_datum = as.Date(nu),
+      version_tid = format(nu, "%H:%M"),
+      lyckad_uppdatering = lyckad_uppdatering,
+      kommentar = ruttreslutat_ver_db
+    )
+    
+    # Beräkna och skriv ut tidsåtgång
+    sluttid <- Sys.time()
+    tidstagning <- sluttid - starttid
+    message(sprintf("Processen skapa graf tog %s minuter att köra", tidstagning %>% round(., 1)))
+  }) # slut på trycatch
+  
   # Koppla ner om uppkopplingen har skapats i funktionen
   if(skapad_i_funktionen){
     dbDisconnect(con)
@@ -4067,9 +4251,12 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
   }
 } # slut pgr_dijkstraNear()-funktion
 
+
+# definiera hastigheter för gång, cykel och elcykel
 pgrouting_hastighet_gang <- function() 5
 pgrouting_hastighet_cykel <- function() 16
 pgrouting_hastighet_elcykel <- function() 22
+
 
 # äldre pgrouting-funktioner, avnänds inte längre
 las_in_rutor_xlsx_till_postgis_skapa_pgr_graf <- 
