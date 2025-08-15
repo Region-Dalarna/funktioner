@@ -4,14 +4,14 @@
 if (!require("pacman")) install.packages("pacman")
 p_load(git2r,
        pxweb,
-       tidyverse,
        rKolada,
        httr,
        keyring,
        rvest,
        curl,
        usethis,
-       glue)
+       glue,
+       tidyverse)
  
 # ================================================= pxweb-funktioner ========================================================
 
