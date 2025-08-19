@@ -1080,53 +1080,54 @@ funktion_upprepa_forsok_om_fel <- function(funktion,
   }
 }
 
-skriptrader_upprepa_om_fel <- function(expr, 
-                                       max_forsok = 5, 
+skriptrader_upprepa_om_fel <- function(expr,
+                                       max_forsok = 5,
                                        vila_sek = 1,
                                        exportera_till_globalenv = TRUE,
                                        returnera_vid_fel = NULL,
-                                       upprepa_vid_felmeddelande_som_innehaller = "curl"       # NULL om man vill köra på alla felmeddelanden, skiftlägesokänslig just nu, går att skicka en vektor med flera sökord
-) {
-  expr <- substitute(expr)
+                                       upprepa_vid_felmeddelande_som_innehaller = "curl") {
+  is_fun_input <- is.function(expr)
+  if (!is_fun_input) expr <- substitute(expr)
   
   for (i in seq_len(max_forsok)) {
-    env <- new.env(parent = globalenv())
-    resultat <- tryCatch(
+    env <- new.env(parent = parent.frame())
+    
+    out <- tryCatch(
       {
-        eval(expr, envir = env)
-        obj_namn <- ls(env, all.names = TRUE)
-        #message("✅ Följande objekt skapades: ", paste(obj_namn, collapse = ", "))
-        obj_lista <- mget(obj_namn, envir = env)
-        if (exportera_till_globalenv) {
-          list2env(obj_lista, envir = globalenv())
-          return(invisible(NULL))
+        if (is_fun_input) {
+          expr()                                   # returnerar funktionsvärdet
         } else {
-          return(list(result = obj_lista, error = NULL))
+          res <- eval(expr, envir = env)           # kör kod-rader
+          obj_namn <- ls(env, all.names = TRUE)
+          if (length(obj_namn)) {
+            obj_lista <- mget(obj_namn, envir = env)
+            if (exportera_till_globalenv) list2env(obj_lista, envir = globalenv())
+            obj_lista                              # returnera skapade objekt
+          } else {
+            res                                    # returnera uttryckets värde
+          }
         }
       },
       error = function(e) {
-        felmeddelande <- e$message
-        message("⚠️ Fel vid försök ", i, ": ", felmeddelande)
+        msg <- tolower(conditionMessage(e))
+        message("⚠️ Fel vid försök ", i, ": ", conditionMessage(e))
         
-        # om man skickat med upprepa_vid_felmeddelande_som_innehaller så ska vi kolla om felmeddelandet innehåller det som ska upprepas
         ska_forsoka_igen <- TRUE
         if (!is.null(upprepa_vid_felmeddelande_som_innehaller)) {
-          ska_forsoka_igen <- any(str_detect(tolower(felmeddelande), tolower(upprepa_vid_felmeddelande_som_innehaller)))
+          pats <- tolower(upprepa_vid_felmeddelande_som_innehaller)
+          ska_forsoka_igen <- any(vapply(pats, function(p) grepl(p, msg, fixed = TRUE), logical(1)))
         }
         
         if (i < max_forsok && ska_forsoka_igen) {
           Sys.sleep(vila_sek)
+          return(NULL)                              # försök igen
         } else {
-          if (exportera_till_globalenv) {
-            return(felmeddelande) 
-          } else { 
-            return(list(result = returnera_vid_fel, error = e))
-          }
+          if (is.null(returnera_vid_fel)) stop(e) else return(returnera_vid_fel)
         }
-        NULL
       }
     )
-    if (!is.null(resultat)) return(resultat)
+    
+    if (!is.null(out)) return(out)
   }
 }
 
