@@ -1695,6 +1695,18 @@ gh_ppt <- function(f = NA) {
                           skriv_ppt_lista = TRUE)
 }
 
+ppt_lista <- function(ppt_url = ""){
+  retur_txt <- 
+    paste0('ppt_lista <- ppt_lista_fyll_pa(\n',
+           '\tppt_lista = ppt_lista,\n',
+           '\tsource_url = "', ppt_url, '",\n',
+           '\tparameter_argument = list(output_mapp = utmapp_bilder),\n',
+           '\tregion_vekt = region_vekt,\n',
+           '\tutmapp_bilder = utmapp_bilder)\n\n')
+  cat(retur_txt)
+  writeLines(text = retur_txt %>% purrr::modify_at(length(.), stringr::str_remove, pattern = "\n"), con = "clipboard", sep = "")
+}
+
 github_lista_repo_filer <- function(owner = "Region-Dalarna",                     # användaren vars repos vi ska lista
                                     repo = "hamta_data",                          # repot vars filer vi ska lista
                                     url_vekt_enbart = TRUE,                       # om TRUE returneras en vektor med url:er, annars en dataframe med både filnamn och url
