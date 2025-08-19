@@ -1081,7 +1081,7 @@ funktion_upprepa_forsok_om_fel <- function(funktion,
 }
 
 skriptrader_upprepa_om_fel <- function(expr,
-                                       max_forsok = 5,
+                                        max_forsok = 5,
                                        vila_sek = 1,
                                        exportera_till_globalenv = TRUE,
                                        returnera_vid_fel = NULL,
