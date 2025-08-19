@@ -1687,6 +1687,14 @@ gh_dia <- function(f = NA) {
                           repo = "diagram")
 }
 
+gh_ppt <- function(f = NA) {
+  github_lista_repo_filer(filtrera = f,
+                          repo = "diagram",
+                          till_urklipp = TRUE,
+                          skriv_source_konsol = FALSE,
+                          skriv_ppt_lista = TRUE)
+}
+
 github_lista_repo_filer <- function(owner = "Region-Dalarna",                     # användaren vars repos vi ska lista
                                     repo = "hamta_data",                          # repot vars filer vi ska lista
                                     url_vekt_enbart = TRUE,                       # om TRUE returneras en vektor med url:er, annars en dataframe med både filnamn och url
@@ -1695,6 +1703,7 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
                                     filtrera = NA,                                # om man vill filtrera filer på specifika sökord så gör man det här, kan vara ett eller en vektor med flera (som körs med OR och inte AND)
                                     keyring_github_token = "github_token",         # om man har sparat en github-token i keyring-paketet så anges service_name här (OBS! Det får bara finnas en användare för denna service i keyring om detta ska fungera)
                                     icke_source_repo = FALSE,                      # om TRUE så returneras bara filnamn och url och inte source-satser
+                                    skriv_ppt_lista = FALSE,                      # om TRUE så returneras kodrader för att skapa skript för att lägga in i ppt-lista
                                     path = "") {                                  # path används för att hantera mappar
   # En funktion för att lista filer i ett repository som finns hos en github-användare
   
@@ -1739,8 +1748,15 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
       tibble::tibble(
         namn = paste0(path, item$name),
         url = item$download_url,
-        source = ifelse(icke_source_repo, item$download_url, paste0('source("', item$download_url, '")\n'))
-      )
+        source = ifelse(icke_source_repo, item$download_url, paste0('source("', item$download_url, '")\n')),
+        ppt_url = ifelse(icke_source_repo, item$download_url, paste0(item$download_url, '\n')), 
+        ppt_lista = ifelse(icke_source_repo, NA, paste0('ppt_lista <- ppt_lista_fyll_pa(\n', 
+                                                        'ppt_lista = ppt_lista,\n',
+                                                        'source_url = "', item$download_url, '",\n',
+                                                        'parameter_argument = list(output_mapp = utmapp_bilder),\n',
+                                                        'region_vekt = region_vekt,\n',
+                                                        'utmapp_bilder = utmapp_bilder)\n\n'
+                                                        )))
     }
   })
   
@@ -1774,6 +1790,11 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
     cat(retur_df$source)
     if (till_urklipp) {
       writeLines(text = retur_df$source %>% purrr::modify_at(length(.), stringr::str_remove, pattern = "\n"), con = "clipboard", sep = "")
+    }
+  } else if (skriv_ppt_lista) {
+    cat(retur_df$ppt_url)
+    if (till_urklipp) {
+      writeLines(text = retur_df$ppt_lista %>% purrr::modify_at(length(.), stringr::str_remove, pattern = "\n"), con = "clipboard", sep = "")
     }
   } else if (url_vekt_enbart) {
     return(retur_df$url)
