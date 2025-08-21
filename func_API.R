@@ -1695,7 +1695,7 @@ gh_ppt <- function(f = NA) {
                           skriv_ppt_lista = TRUE)
 }
 
-ppt_lista <- function(ppt_url = ""){
+ppt_lista_rader <- function(ppt_url = ""){
   retur_txt <- 
     paste0('ppt_lista <- ppt_lista_fyll_pa(\n',
            '\tppt_lista = ppt_lista,\n',
