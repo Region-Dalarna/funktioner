@@ -1948,9 +1948,9 @@ github_commit_push <- function(
                                                  skriv_source_konsol = FALSE)$namn
       
       # Filklassificering
-      filer_tillagda <- untracked_files[!untracked_files %in% github_fillista]
-      filer_andrade <- unstaged_modified
-      filer_borttagna <- unstaged_deleted
+      filer_tillagda  <- unique(c(staged_added, untracked_files[!untracked_files %in% github_fillista]))
+      filer_andrade   <- unique(c(staged_modified, unstaged_modified))
+      filer_borttagna <- unique(c(staged_deleted,  unstaged_deleted))
       
       # Sammanställningsmeddelanden
       konsolmeddelande <- paste0(
