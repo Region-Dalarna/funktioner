@@ -1390,6 +1390,41 @@ sokvag_for_skript_hitta <- function() {
   return(retur_varde)
 }
 
+urklipp <- function(x, sep = "\n") {
+  # Om clipr finns, använd det (bäst cross-platform, hanterar även data.frames snyggt)
+  if (requireNamespace("clipr", quietly = TRUE)) {
+    clipr::write_clip(x)
+    return(invisible(x))
+  }
+  
+  # Fallback: gör text
+  txt <- if (is.data.frame(x) || inherits(x, "tbl")) {
+    tc <- textConnection("..tmp", "w", local = TRUE)
+    utils::write.table(x, tc, sep = "\t", row.names = FALSE, col.names = TRUE, quote = FALSE)
+    close(tc)
+    paste(..tmp, collapse = "\n")
+  } else {
+    ch <- as.character(x)
+    if (length(ch) == 1) ch else paste(ch, collapse = sep)
+  }
+  
+  os <- Sys.info()[["sysname"]]
+  if (identical(os, "Windows")) {
+    utils::writeClipboard(enc2native(txt))
+  } else if (identical(os, "Darwin")) {
+    con <- pipe("pbcopy", "w"); writeChar(enc2utf8(txt), con, eos = , useBytes = TRUE); close(con)
+  } else {
+    if (nzchar(Sys.which("xclip"))) {
+      con <- pipe("xclip -selection clipboard", "w"); writeChar(enc2utf8(txt), con, eos = "", useBytes = TRUE); close(con)
+    } else if (nzchar(Sys.which("xsel"))) {
+      con <- pipe("xsel --clipboard --input", "w"); writeChar(enc2utf8(txt), con, eos = "", useBytes = TRUE); close(con)
+    } else {
+      stop("Ingen urklippsmetod hittades. Installera paketet 'clipr' eller xclip/xsel.")
+    }
+  }
+  invisible(x)
+}
+
 
 # avrundning_dynamisk <- function(x, gräns_stora = 10, gräns_medel = 1, dec_stora = 0, dec_medel = 1, dec_små = 2) {
 #   avrunda <- function(v) {
