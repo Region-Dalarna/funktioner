@@ -5,11 +5,11 @@ p_load(sf,
        rio,
        glue,
        openxlsx,
-       tidyverse, 
        mapview,
        RPostgres,
        keyring,
-       httr)
+       httr,
+       tidyverse)
 
 source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R", encoding = "utf-8")
 source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_text.R", encoding = "utf-8")
@@ -3014,6 +3014,52 @@ postgis_kopiera_punkttabell_koppla_till_pgr_graf <- function(
   
 } # slut funktion
 
+postgis_databas_uppdatera_med_metadata <- function(
+    con,
+    inlas_sf,
+    schema,
+    tabell, 
+    postgistabell_geo_kol = "geometry",
+    postgistabell_id_kol = "id",
+    felmeddelande_medskickat = NA,
+    kommentar_metadata = NA
+) {
+  
+  tryCatch({
+    
+    if (!is.na(felmeddelande_medskickat)) {
+      # om hämtningen har gått fel så skickas felmeddelandet med och läggs in i metadata
+      geo_db_resultat <<- felmeddelande_medskickat
+      lyckad_uppdatering <<- FALSE
+    } else {
+      suppress_specific_warning(
+        postgis_sf_till_postgistabell(con = con,
+                                      inlas_sf = inlas_sf,
+                                      schema = schema,
+                                      tabell = tabell,
+                                      postgistabell_geo_kol = postgistabell_geo_kol,
+                                      postgistabell_id_kol = postgistabell_id_kol),
+        "Invalid time zone 'UTC', falling back to local time.")
+      
+      geo_db_resultat <<- NA
+      lyckad_uppdatering <<- TRUE
+    }
+  }, error = function(e) {
+    # Skriv ett felmeddelande om något går fel
+    geo_db_resultat <<- glue("{e$message}")
+    lyckad_uppdatering <<- FALSE
+    
+  }, finally = {
+    # kod som körs oavsett om skriptet fungerade att köra eller inte
+    postgres_metadata_uppdatera(
+      con = con,
+      schema = schema,
+      tabell = tabell,
+      lyckad_uppdatering = lyckad_uppdatering,
+      kommentar = geo_db_resultat
+    )
+  })
+}
 
 
 # ======================================= pgrouting-funktioner ================================================
@@ -4250,6 +4296,172 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
     #print("Uppkopplingen avslutad!")
   }
 } # slut pgr_dijkstraNear()-funktion
+
+
+pgrouting_skapa_ny_graf_nvdb_koppla_till_punkter <- function(
+    natverkstyp = "bil",            # "bil" eller "alla", "alla" kör kortaste rutt på avstånd, "bil" på restid med bil (ofta men inte alltid samma rutter), planer på att skapa nätverk med bara vägar man kan cykla på (inte alla bilvägar)
+    punkter_fran_schema = "adresser",
+    punkter_fran_tabell = "dalarna",
+    punkter_till_tabell = "adresser",
+    punkter_till_schema = "punktlager"
+) {
+  
+  # Funktion för att vid ny version av NVDB uppdatera graf för adresser
+  # i Dalarna så att vi alltid har färdiga grafer att köra ruttanalyser
+  # eller skapa isokroner utifrån.
+  
+  con_geodb <- uppkoppling_adm("geodata")
+  con_rutt <- uppkoppling_adm("ruttanalyser")
+  
+  # 1. Kopiera nvdb till en ny tabell och bearbeta lagret så att det fungerar bra med adresser
+  
+  # om man vill ha urval i nätverket, typ bara ta med bilvägar ("bil"), eller bara vägar som går att cykla på (inte implementerat ännu)
+  # eller alla vägar (natverkstyp == "alla")
+  natverk_urval <- case_when(natverkstyp == "bil" ~ "WHERE vagtrafiknat_nattyp = 1",
+                             TRUE ~ "")
+  
+  
+  pgrouting_klipp_natverk_skapa_tabell(
+    con = con_geodb,
+    con_till_databas = con_rutt,
+    buffer_m = 30000,                      # Om man vill klippa nätverket utanför en gräns (tex. länsgräns), ange hur många meter
+    natverk_schema = "nvdb",               # schema i vilket nätverket finns, default är nvdb
+    natverk_tabell = "dala_med_grannlan",  # tabell som används att klippa i, default är dala_med_grannlan 
+    natverk_geokol = "geom",               # geometry-kolumnen i nätverkstabellen, default är geom
+    region_schema = "karta",               # schema för region att klippa nätverk med, default är karta
+    region_tabell = "lan_lm",              # tabell för region att klippa nätverk med, default är lan_lm, som är länsgränser som är korrekta men inte snygga (som scb:s läns- och kommungränser)
+    regionkod_kol = "lankod",              # regionkoderna ligger i denna kolumn, tex. länskoder eller kommunkoder
+    regionkoder = "20",                    # man kan ha en eller skicka med en vektor med regionkoder, t.ex. c("20", "21")
+    region_geokol = "geom",                # geometry-kolumnen i region-tabellen, default är geom
+    output_schema = "grafer",              # schema att spara output-tabellen i, default är nvdb
+    output_tabell = glue("nvdb_{natverkstyp}"),           # tabell att spara output i, default är nvdb_alla     (alla för bil + gång och cykelväg, annars tex bil), detta lager är klippt för att koppla bättre mot adresspunkterna
+    urval_fran_natverk = natverk_urval                # om man vill välja något specifikt från nätverkstabellen, ska då vara i formatet "WHERE vagtrafiknat_nattyp = 1", annars ska det vara ""
+  )
+  
+  # 2. Kopiera adresser från geodatabasen till ruttanalyser-databasen                                )
+  
+  postgis_kopiera_tabell_mellan_databaser(
+    con_fran_databas = con_geodb,                # från geodatabasen
+    con_till_databas = con_rutt,                 # till ruttanalyser-databasen
+    schema_fran = punkter_fran_schema,                    # schema i geodatabasen där adresserna finns
+    tabell_fran = punkter_fran_tabell,                     # tabell i geodatabasen där adresserna finns
+    schema_till = punkter_till_schema,                  # schema i ruttanalyser-databasen där adresserna ska kopieras till
+    tabell_till = punkter_till_tabell,            # tabell i ruttanalyser-databasen där adresserna ska kopieras till
+    lagg_till_metadata_i_till_databas = TRUE
+  )
+  
+  # 3. Hitta närmaste punkt på nätverket för varje adress, och skapa klusterpunkter
+  
+  pgrouting_hitta_narmaste_punkt_pa_natverk(
+    con = con_rutt,                           # databas där punkterna finns, default är ruttanalyser (dvs. Region Dalarnas databas för ruttanalyser)
+    schema_punkter_fran = "punktlager",             # att köra med adresser är default, men det går att köra med andra tabeller, schema och från annan databas
+    tabell_punkter_fran = punkter_till_tabell,       # tabellen som används, default är "adresser_dalarna" som är alla adresser i Dalarna
+    geometri_kol_punkter_fran = "geom",             # geometri-kolumnen i punkttabellen från. 
+    id_kol_punkter_fran = "gml_id",                 # id-kolumnen i punkttabellen från, default är "gml_id"
+    schema_graf = "grafer",                         # schema för grafen, dvs. nätverket som ska användas, default är nvdb
+    tabell_graf = glue("nvdb_{natverkstyp}"),                       # tabell för grafen, dvs. nätverket som ska användas, default är graf_nvdb
+    geometri_graf = "geom",                         # geometri-kolumnen i grafen, dvs. nätverket som ska användas, default är geom
+    id_graf = "rad_id",                             # id-kolumnen i grafen, dvs. nätverket som ska användas, default är rad_id
+    tolerans_avstand = 3                            # för att bygga kluster av punkter och spara körtid, 0 = då skapar vi i praktiken inga kluster
+  )
+  
+  # 4. Skapa en graf med det nya nätverket som har klippts med de klusterpunkter som skapades ovan
+  
+  pgrouting_tabell_till_pgrgraf(
+    con = con_rutt,                           # databas där punkterna finns, default är ruttanalyser (dvs. Region Dalarnas databas för ruttanalyser)
+    schema_graf = "grafer",                           # schema där tabellen som ska bli graf ligger. Default: nvdb
+    tabell_graf = glue("nvdb_{natverkstyp}_{punkter_till_tabell}"),     # Tabellen som ska förberedas för pgrouting. Default: graf_nvdb_adresser_dalarna
+    id_kol_graf = "rad_id",                         # Kolumnen med id i den tabell som ska bli graf
+    geom_kol_graf = "geom",                     # Namn på kolumnen som innehåller geometrin i tabellen som ska bli graf
+    tolerans = 0.001           # Toleransvärdet för hur nära segment måste vara för att ansluta. 
+  )
+  
+  # 5. Beräkna kostnader i graf-tabellen
+  pgrouting_kostnadskolumner_transporttyp_graf(
+    con = "ruttanalyser",                           # databas där punkterna finns, default är ruttanalyser (dvs. Region Dalarnas databas för ruttanalyser)
+    schema_natverk = "grafer",                        # schema där grafen finns, default är nvdb
+    tabell_natverk = glue("nvdb_{natverkstyp}_{punkter_till_tabell}"),   # tabell med grafen som ska användas, default är graf_nvdb_adresser_dalarna
+    kostnadskolumn_bil_f = "hastighetsgrans_f",
+    kostnadskolumn_bil_b = "hastighetsgrans_b",
+    kostnadskolumn_meter = "kostnad_meter",
+    berakna_kostnad_bil = if (natverkstyp == "bil") TRUE else FALSE,              # för att kunna stänga av vissa transportsätt, kostnadskolumn måste finnas annars beräknas det ändå inte
+    berakna_kostnad_gang = TRUE,
+    berakna_kostnad_cykel = TRUE,
+    berakna_kostnad_elcykel = TRUE
+  )
+  
+  # 6. Flytta de tabeller som inte behövs till schemat underlag_grafer
+  
+  # lägg de tabeller vi ska flytta i en vektor
+  tabeller_flytt <- c(
+    glue("nvdb_{natverkstyp}"),
+    glue("nvdb_{natverkstyp}_{punkter_till_tabell}_narmaste_punkt"),
+    glue("nvdb_{natverkstyp}_{punkter_till_tabell}_klusterpunkt")
+  )
+  
+  # vi kör samma kod på alla tre tabeller som ska flyttas
+  walk(tabeller_flytt, function(tabell_namn) {
+    # kopiera tabeller till schemat underlag_grafer, skriv över om de redan finns
+    postgis_kopiera_tabell(
+      con = con_rutt,
+      schema_fran = "grafer",
+      tabell_fran = tabell_namn,
+      schema_till = "underlag_grafer",
+      tabell_till = tabell_namn,
+      skriv_over = TRUE
+    )
+    
+    # ta bort dem i schemat grafer
+    postgres_tabell_ta_bort(
+      con = con_rutt,
+      schema = "grafer",
+      tabell = tabell_namn
+    )
+    
+    # och sedan ändrar vi deras schema i metadata-tabellen
+    DBI::dbExecute(con_rutt, glue::glue("
+    WITH senaste AS (
+      SELECT id
+      FROM metadata.uppdateringar
+      WHERE tabell = '{tabell_namn}' AND schema = 'grafer'
+      ORDER BY version_datum DESC, version_tid DESC
+      LIMIT 1
+      )
+      UPDATE metadata.uppdateringar
+      SET schema = 'underlag_grafer'
+      WHERE id IN (SELECT id FROM senaste);
+    "))
+    
+  }) # slut walk-funktion
+  
+  # 7. Koppla punkter till nätverket, vi kör samtliga punktlager till samtliga grafer
+  
+  # hämta grafer från ruttanalyser-db i schemat "grafer"
+  grafer <- postgres_lista_scheman_tabeller(con = con_rutt) %>%
+    pluck("grafer") %>% 
+    .[!str_detect(., "vertices_pgr")]
+  
+  # hämta punktlager från ruttanalyser-db i schemat "punktlager"
+  punktlager <- postgres_lista_scheman_tabeller(con = con_rutt) %>%
+    pluck("punktlager")
+  
+  kombinationer <- expand_grid(punkttabell = punktlager, graf = grafer)
+  
+  pwalk(kombinationer, function(punkttabell, graf) {
+    pgrouting_punkttabell_koppla_till_pgr_graf(
+      con = con_rutt,                           # databas där punkterna finns, default är ruttanalyser (dvs. Region Dalarnas databas för ruttanalyser)
+      schema_punkter = "punktlager",                  # schema där punkterna finns, default är punktlager
+      tabell_punkter = punkttabell,            # tabell med punkter som ska kopplas till grafen, default är adresser_dalarna
+      geom_kol_punkter = "geom",                      # geometri-kolumnen i punkttabellen, default är geom
+      id_kol_punkter = "gml_id",                      # id-kolumnen i punkttabellen, default är gml_id
+      schema_natverk = "grafer",                        # schema där grafen finns, default är nvdb
+      tabell_natverk = graf   # tabell med grafen som ska användas, default är graf_nvdb_adresser_dalarna
+    )
+  })
+  
+  dbDisconnect(con_geodb)
+  dbDisconnect(con_rutt)
+} # slut funktion
 
 
 # definiera hastigheter för gång, cykel och elcykel
