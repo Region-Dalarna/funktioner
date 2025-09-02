@@ -2063,6 +2063,8 @@ postgres_finns_schema_tabell_kolumner <- function(con = "default",        # uppk
                                                   stoppa_vid_fel = TRUE   # vid TRUE returneras ingenting utan koden stoppas
 ) {
   
+  if (is.null(schema) | is.null(tabell) | is.null(kolumner)) stop("Parametrarna schema, tabell och kolumner måste anges för att funktionen ska kunna köras.")
+  
   # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
   if (is.character(con) && con == "default") {
     con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
@@ -3591,13 +3593,14 @@ pgrouting_tabell_till_pgrgraf <- function(
 # Obs!! Om det är så att du vill kolla mellan två adresser behöver du inte köra den två gånger.
 
 pgrouting_punkttabell_koppla_till_pgr_graf <- function(
-    con = "ruttanalyser",                           # databas där punkterna finns, default är ruttanalyser (dvs. Region Dalarnas databas för ruttanalyser)
-    schema_punkter = "punktlager",                  # schema där punkterna finns, default är punktlager
-    tabell_punkter = "adresser",            # tabell med punkter som ska kopplas till grafen, default är adresser_dalarna
-    geom_kol_punkter = "geom",                      # geometri-kolumnen i punkttabellen, default är geom
-    id_kol_punkter = "gml_id",                      # id-kolumnen i punkttabellen, default är gml_id
-    schema_natverk = "grafer",                        # schema där grafen finns, default är nvdb
-    tabell_natverk = "nvdb_alla_adresser"   # tabell med grafen som ska användas, default är graf_nvdb_adresser_dalarna
+    con = "ruttanalyser",                      # databas där punkterna finns, default är ruttanalyser (dvs. Region Dalarnas databas för ruttanalyser)
+    schema_punkter = "punktlager",             # schema där punkterna finns, default är punktlager
+    tabell_punkter = "adresser",               # tabell med punkter som ska kopplas till grafen, default är adresser_dalarna
+    geom_kol_punkter = "geom",                 # geometri-kolumnen i punkttabellen, default är geom
+    id_kol_punkter = "gml_id",                 # id-kolumnen i punkttabellen, default är gml_id
+    schema_natverk = "grafer",                 # schema där grafen finns, default är nvdb
+    tabell_natverk = "nvdb_alla_adresser",     # tabell med grafen som ska användas, default är graf_nvdb_adresser_dalarna
+    generella_namn_prova = TRUE                # TRUE om man ska testa kolumnnamn "id" respektive "geom"/"geometry" om inte medskickad id-kolumnnamn eller geokolumnnamn finns
 ){
   
   # Starta tidstagning
@@ -3622,79 +3625,143 @@ pgrouting_punkttabell_koppla_till_pgr_graf <- function(
     stop("En anslutning till databasen måste skickas med, som con-objekt eller som namn på databasen man vill koppla upp mot.")
   } 
   
-  tryCatch({
-    dbBegin(con)
-    # vi börjar med att skapa en ny kolumn i den nya tabellen
-    dbExecute(con, glue("ALTER TABLE {schema_punkter}.{tabell_punkter} ADD COLUMN IF NOT EXISTS nid_{tabell_natverk} bigint;"))
-    # Töm kolumnen om där redan finns värden
-    dbExecute(con, glue("UPDATE {schema_punkter}.{tabell_punkter} SET nid_{tabell_natverk} = NULL;"))
-    # därefter gör vi en spatial join från mittpunkten till noderna i nvdb
-    sql_koppla_toponode <- glue("
-                    UPDATE {schema_punkter}.{tabell_punkter} AS f
-                    SET nid_{tabell_natverk} = n.id
-                    FROM (
-                      SELECT f2.{id_kol_punkter} AS punkt_id, v.id
-                      FROM {schema_punkter}.{tabell_punkter} AS f2
-                      JOIN LATERAL (
-                        SELECT id
-                        FROM {schema_natverk}.{tabell_natverk}_vertices_pgr AS v
-                        ORDER BY f2.{geom_kol_punkter} <-> v.the_geom
-                        LIMIT 1
-                      ) AS v ON TRUE
-                    ) AS n
-                    WHERE f.{id_kol_punkter} = n.punkt_id;
-                  ")
-    dbExecute(con, sql_koppla_toponode)        
+  id_kol_finns <- TRUE
+  geom_kol_finns <- TRUE
+  # kolla om id-kolum samt geometri-kolumn finns, prova andra namn om generella_namn_prova = TRUE 
+  if (generella_namn_prova) {
+    # prova om id-kolumn för punkter finns, om inte, testa "id" annars blir id_kol_finns = FALSE
+    if (!postgres_finns_schema_tabell_kolumner(con = con,
+                                          schema = schema_punkter,
+                                          tabell = tabell_punkter,
+                                          kolumner = id_kol_punkter,
+                                          stoppa_vid_fel = FALSE)$allt_finns) {
+      
+    } else if (!postgres_finns_schema_tabell_kolumner(con = con,
+                                               schema = schema_punkter,
+                                               tabell = tabell_punkter,
+                                               kolumner = "id",
+                                               stoppa_vid_fel = FALSE)$allt_finns) {
+      id_kol_punkter <- "id"
+      
+    } else id_kol_finns <- FALSE
     
+    # prova om geo-kolumn för punkter finns, om inte, testa "geom" och "geometry" annars blir geom_kol_finns = FALSE
     
-    # Om allt gått bra, committa
-    dbCommit(con)
-    print(glue("Punkterna i {schema_punkter}.{tabell_punkter} har nu nid_{tabell_natverk} kopplat till sig från grafen {schema_natverk}.{tabell_natverk}."))
+    if (!postgres_finns_schema_tabell_kolumner(con = con,
+                                               schema = schema_punkter,
+                                               tabell = tabell_punkter,
+                                               kolumner = geom_kol_punkter,
+                                               stoppa_vid_fel = FALSE)$allt_finns) {
+      
+    } else if (!postgres_finns_schema_tabell_kolumner(con = con,
+                                                      schema = schema_punkter,
+                                                      tabell = tabell_punkter,
+                                                      kolumner = "geometry",
+                                                      stoppa_vid_fel = FALSE)$allt_finns) {
+      geom_kol_punkter <- "geometry"
+      
+    } else if (!postgres_finns_schema_tabell_kolumner(con = con,
+                                                      schema = schema_punkter,
+                                                      tabell = tabell_punkter,
+                                                      kolumner = "geom",
+                                                      stoppa_vid_fel = FALSE)$allt_finns) {
+      geom_kol_punkter <- "geom"
+      
+    } else geom_kol_finns <- FALSE
     
-    # skapa variabler för att fylla på metadata-tabellen
-    meta_punkter <- postgres_meta(
-      con = con,
-      query = glue("WHERE schema = '{schema_punkter}' AND tabell = '{tabell_punkter}'")
-    ) %>% 
-      select(version_datum, version_tid, kommentar)
-    
-    meta_pgr_graf <- postgres_meta(
-      con = con,
-      query = glue("WHERE schema = '{schema_natverk}' AND tabell = '{tabell_natverk}'")
-    ) %>% 
-      select(version_datum, version_tid, kommentar)
-    
-    tabell_ver_db <- glue("{meta_punkter$kommentar}, {meta_pgr_graf$kommentar}") %>%    # lägg ihop och ta bort dubletter
-      str_split(",\\s*") %>%        # Dela upp på kommatecken
-      unlist() %>%                  # Gör till vektor
-      unique() %>%                  # Ta bort dubbletter
-      str_c(collapse = ", ")        # Sätt ihop igen
-    
-    lyckad_uppdatering <- TRUE
-    
-  }, error = function(e) {
-    # Om något gått fel under processen, återställ databasen till innan denna funktion
-    dbRollback(con)
-    message(glue("Transaktionen misslyckades: {e$message}"))
-    
-    tabell_ver_db <- glue("{e$message}")
-    lyckad_uppdatering <- FALSE
-    
-  }, finally = {
-    # kod som körs oavsett om skriptet fungerade att köra eller inte
-    # hämta metadata för fran-tabellen
-    
-    postgres_metadata_uppdatera(
-      con = con,
-      schema = schema_punkter,
-      tabell = tabell_punkter,
-      version_datum = meta_punkter$version_datum,
-      version_tid = meta_punkter$version_tid,
-      lyckad_uppdatering = lyckad_uppdatering,
-      kommentar = tabell_ver_db
-    )
-  }) # slut tryCatch() 
+  } else {             # om generella_namn_prova = FALSE
+    if (!postgres_finns_schema_tabell_kolumner(con = con,
+                                               schema = schema_punkter,
+                                               tabell = tabell_punkter,
+                                               kolumner = id_kol_punkter,
+                                               stoppa_vid_fel = FALSE)$allt_finns) id_kol_finns <- FALSE
+    if (!postgres_finns_schema_tabell_kolumner(con = con,
+                                                schema = schema_punkter,
+                                               tabell = tabell_punkter,
+                                               kolumner = geom_kol_punkter,
+                                               stoppa_vid_fel = FALSE)$allt_finns) geom_kol_finns <- FALSE
+  } # slut kontroll om kolumnnamn finns
   
+  if (id_kol_finns & geom_kol_finns) {
+    tryCatch({
+      dbBegin(con)
+      # vi börjar med att skapa en ny kolumn i den nya tabellen
+      dbExecute(con, glue("ALTER TABLE {schema_punkter}.{tabell_punkter} ADD COLUMN IF NOT EXISTS nid_{tabell_natverk} bigint;"))
+      # Töm kolumnen om där redan finns värden
+      dbExecute(con, glue("UPDATE {schema_punkter}.{tabell_punkter} SET nid_{tabell_natverk} = NULL;"))
+      # därefter gör vi en spatial join från mittpunkten till noderna i nvdb
+      sql_koppla_toponode <- glue("
+                      UPDATE {schema_punkter}.{tabell_punkter} AS f
+                      SET nid_{tabell_natverk} = n.id
+                      FROM (
+                        SELECT f2.{id_kol_punkter} AS punkt_id, v.id
+                        FROM {schema_punkter}.{tabell_punkter} AS f2
+                        JOIN LATERAL (
+                          SELECT id
+                          FROM {schema_natverk}.{tabell_natverk}_vertices_pgr AS v
+                          ORDER BY f2.{geom_kol_punkter} <-> v.the_geom
+                          LIMIT 1
+                        ) AS v ON TRUE
+                      ) AS n
+                      WHERE f.{id_kol_punkter} = n.punkt_id;
+                    ")
+      dbExecute(con, sql_koppla_toponode)        
+      
+      
+      # Om allt gått bra, committa
+      dbCommit(con)
+      print(glue("Punkterna i {schema_punkter}.{tabell_punkter} har nu nid_{tabell_natverk} kopplat till sig från grafen {schema_natverk}.{tabell_natverk}."))
+      
+      # skapa variabler för att fylla på metadata-tabellen
+      meta_punkter <- postgres_meta(
+        con = con,
+        query = glue("WHERE schema = '{schema_punkter}' AND tabell = '{tabell_punkter}'")
+      ) %>% 
+        select(version_datum, version_tid, kommentar)
+      
+      meta_pgr_graf <- postgres_meta(
+        con = con,
+        query = glue("WHERE schema = '{schema_natverk}' AND tabell = '{tabell_natverk}'")
+      ) %>% 
+        select(version_datum, version_tid, kommentar)
+      
+      tabell_ver_db <- glue("{meta_punkter$kommentar}, {meta_pgr_graf$kommentar}") %>%    # lägg ihop och ta bort dubletter
+        str_split(",\\s*") %>%        # Dela upp på kommatecken
+        unlist() %>%                  # Gör till vektor
+        unique() %>%                  # Ta bort dubbletter
+        str_c(collapse = ", ")        # Sätt ihop igen
+      
+      lyckad_uppdatering <- TRUE
+      
+    }, error = function(e) {
+      # Om något gått fel under processen, återställ databasen till innan denna funktion
+      dbRollback(con)
+      message(glue("Transaktionen misslyckades: {e$message}"))
+      
+      tabell_ver_db <- glue("{e$message}")
+      lyckad_uppdatering <- FALSE
+      
+    }, finally = {
+      # kod som körs oavsett om skriptet fungerade att köra eller inte
+      # hämta metadata för fran-tabellen
+      
+      postgres_metadata_uppdatera(
+        con = con,
+        schema = schema_punkter,
+        tabell = tabell_punkter,
+        version_datum = meta_punkter$version_datum,
+        version_tid = meta_punkter$version_tid,
+        lyckad_uppdatering = lyckad_uppdatering,
+        kommentar = tabell_ver_db
+      )
+    }) # slut tryCatch() 
+  } else {
+    # om inte både id-kolumn och geometri-kolumn finns
+    if (!id_kol_finns) cat("Angiven id-kolumn saknas, kontrollera namnet och kör igen med korrekt id-kolumnnamn.")
+    if (!geom_kol_finns) cat("Angiven geometri-kolumn saknas, kontrollera namnet och kör igen med korrekt geometri-kolumnnamn.")
+  }
+    
+    
   # Koppla ner om uppkopplingen har skapats i funktionen
   if(skapad_i_funktionen){
     dbDisconnect(con)
