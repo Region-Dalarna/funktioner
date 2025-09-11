@@ -1751,6 +1751,7 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
                                     keyring_github_token = "github_token",         # om man har sparat en github-token i keyring-paketet så anges service_name här (OBS! Det får bara finnas en användare för denna service i keyring om detta ska fungera)
                                     icke_source_repo = FALSE,                      # om TRUE så returneras bara filnamn och url och inte source-satser
                                     skriv_ppt_lista = FALSE,                      # om TRUE så returneras kodrader för att skapa skript för att lägga in i ppt-lista
+                                    lista_ej_systemfiler = TRUE,                    # TRUE filtreras LICENSE och filer som börjar med punkt bort ur listan
                                     path = "") {                                  # path används för att hantera mappar
   # En funktion för att lista filer i ett repository som finns hos en github-användare
   
@@ -1806,6 +1807,8 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
                                                         )))
     }
   })
+  
+  if (lista_ej_systemfiler) retur_df <- retur_df %>% filter(namn != "LICENSE", str_sub(namn, 1, 1) != ".")
   
   # Filtrera baserat på sökord om filtrera inte är NA
   if (!any(is.na(filtrera))) {
