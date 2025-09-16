@@ -4,6 +4,7 @@ p_load(sf,
        data.table,
        rio,
        glue,
+       terra,
        openxlsx,
        mapview,
        RPostgres,
@@ -6166,4 +6167,30 @@ gdb_extrahera_kolumnnamn_per_gislager <- function(gdb_sokvag,
   
   # Returnera resultatet
   return(lager_kolumnnamn_lista)
+}
+
+raster_till_vektor <- function(
+    rasterlager,
+    vardekolumn,                           # här anges namnet på kolumnen som innehåller värdet
+    filtrera_bort_na = TRUE,
+    behall_varden_over = 0                # större än detta tal behålls, NA = ingen filtrering
+) {
+  
+  rasterlager <- rasterlager %>% 
+    NAflag()
+  
+  rutor_rast_mask <- mask(rutor_rast, rutor_rast, maskvalues=NA)
+  
+  rutor_sf <- as.polygons(rutor_rast, dissolve=FALSE, na.rm=filtrera_bort_na) %>% 
+    st_as_sf() %>% 
+    rename(varde = 1) 
+  
+  
+  if (!is.na(behall_varden_over)) {
+    rutor_sf <- rutor_sf %>% 
+      filter(varde > behall_varden_over)
+  }
+  
+  return(rutor_sf)
+  
 }
