@@ -1214,6 +1214,12 @@ skapa_intervaller <- function(skickad_kolumn, antal_intervaller = 5){
   
 }
 
+skalcirklar_skapa <- function(min_varde, max_varde, antal_skalcirklar) {
+  cirklar <- seq(from = sqrt(min_varde), to = sqrt(max_varde), length.out = antal_skalcirklar) ^ 2
+  cirklar <- round(cirklar, -floor(log10(max_varde)) + 1)  # avrundning till "lagom nivå"
+  unique(cirklar)
+}
+
 
 avrundning_dynamisk <- function(x, gräns_stora = 10, gräns_medel = 1, dec_stora = 0, dec_medel = 1, dec_små = 2) {
   avrunda <- function(v) {
