@@ -6,6 +6,7 @@ p_load(git2r,
        pxweb,
        rKolada,
        httr,
+       farver,
        keyring,
        rvest,
        curl,
@@ -1218,6 +1219,45 @@ skalcirklar_skapa <- function(min_varde, max_varde, antal_skalcirklar) {
   cirklar <- seq(from = sqrt(min_varde), to = sqrt(max_varde), length.out = antal_skalcirklar) ^ 2
   cirklar <- round(cirklar, -floor(log10(max_varde)) + 1)  # avrundning till "lagom nivå"
   unique(cirklar)
+}
+
+varden_jamnt_spridda_valj_ut <- function(skickad_vektor, antal_varden = 4) {
+  
+  # om man vill välja ut ett antal värden i en vektor, min, max + ett antal till jämnt fördelat
+  num_vec <- as.numeric(skickad_vektor)
+  n <- length(num_vec)
+  
+  if (antal_varden >= n) {
+    return(as.character(skickad_vektor))  # returnera allt i originalordning
+  }
+  
+  # välj index från den sorterade vektorn
+  indices <- round(seq(1, n, length.out = antal_varden))
+  valda <- sort(num_vec)[indices]
+  
+  # Bygg returvektor i originalordning
+  resultat <- ifelse(num_vec %in% valda, as.character(num_vec), "")
+  
+  return(resultat)
+}
+
+
+kontrastfarg_hitta <- function(farg_vektor_hex, cutoff = 0.6, justering = 0.3) {
+  # Funktion som väljer mörk eller ljus färg som kontrasterar mot de färger man skickad in som vektor
+  
+  # Hex → HCL (som numerisk matris)
+  col_hcl <- decode_colour(farg_vektor_hex, to = "hcl")
+  
+  # Luminans (0–100)
+  lum <- col_hcl[, "l"] / 100
+  
+  # Justera ljushet
+  col_hcl[, "l"] <- ifelse(lum < cutoff,
+                           pmin(col_hcl[, "l"] + justering*100, 100),
+                           pmax(col_hcl[, "l"] - justering*100, 0))
+  
+  # HCL → hex
+  encode_colour(col_hcl, from = "hcl")
 }
 
 
