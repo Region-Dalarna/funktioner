@@ -1291,6 +1291,12 @@ vektor_till_text <- function(skickad_vektor,
   invisible(retur_text)
 }
 
+hamta_logga_path <- function(){
+  # sökväg till logga för att kunna lägga in den i diagrammen
+  tf <- "https://raw.githubusercontent.com/Region-Dalarna/depot/main/rd_logo_liggande_fri_svart.png"
+  return(tf)
+}   
+
 anv_anvandarkonto_hamta <- function(){
   Sys.info()["user"] %>% as.character()
 }
