@@ -780,6 +780,29 @@ uppkoppling_db <- function(
   
 }
 
+postgres_hamta_oppnadata <- function(
+    schema = NA,
+    tabell = NA,
+    query = NA,
+    meddelande_info = FALSE,
+    meddelande_tid = FALSE
+    ) {
+  # om inte både schema och tabell skickas med så listas scheman och tabeller för databasen öppna data
+  if (is.na(schema) | is.na(tabell)){
+    postgres_lista_scheman_tabeller(con = uppkoppling_db(db_name = "oppna_data"))
+  } else {
+    retur_df <- postgres_tabell_till_df(
+      con = uppkoppling_db(db_name = "oppna_data"),
+      schema = schema,
+      tabell = tabell,
+      query = query,
+      meddelande_info = meddelande_info,
+      meddelande_tid = meddelande_tid
+    )
+    return(retur_df)
+  }
+}
+
 # funktion för att skapa en ny databas på servern som man arbetar i
 postgres_databas_skapa <- function(con, databasnamn) {
   
@@ -1748,7 +1771,11 @@ postgres_tabell_till_df <- function(con = "default",
   }
   
   # SQL-fråga för att läsa in tabellen från ett specifikt schema
-  if (is.na(query)) sql_query <- paste0("SELECT * FROM ", schema, ".", tabell)
+  if (is.na(query)) {
+    sql_query <- paste0("SELECT * FROM ", schema, ".", tabell)
+  } else {
+    sql_query <- paste0("SELECT * FROM ", schema, ".", tabell, " ", query)
+  }
   
   # Kör SQL-frågan och hämta tabellen som en dataframe
   tryCatch({
@@ -2265,8 +2292,12 @@ postgis_postgistabell_till_sf <- function(
     default_flagga = TRUE
   } else  default_flagga = FALSE 
   
+  if (is.na(query)) {
+    query <- paste0("SELECT * FROM ", schema, ".", tabell)
+  } else {
+    query <- paste0("SELECT * FROM ", schema, ".", tabell, " ", query)
+  }
   
-  if (is.na(query)) query <- paste0("SELECT * FROM ", schema, ".", tabell)
   retur_sf <- st_read(con, query = query)
   
   if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
