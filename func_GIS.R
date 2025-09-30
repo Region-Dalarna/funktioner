@@ -2176,7 +2176,7 @@ postgis_sf_till_postgistabell <-
            inlas_sf,
            schema = "karta",
            tabell,   # de tabellnamn de nya filerna ska få i postgis
-           postgistabell_id_kol,
+           postgistabell_id_kol = NA,
            postgistabell_geo_kol = NA,
            skapa_spatialt_index = TRUE,
            nytt_schema_oppet_for_geodata_las = TRUE,             # om TRUE så öppnas läsrättigheter för användaren geodata_las (vilket är det som ska användas om det inte finns mycket goda skäl att låta bli)
@@ -2268,8 +2268,9 @@ postgis_sf_till_postgistabell <-
       }  
     }
     # gör id_kol till id-kolumn i tabellen
-    dbExecute(con, paste0("ALTER TABLE ", schema, ".", tabell, " ADD PRIMARY KEY (", postgistabell_id_kol ,");"))
-    
+    if (!is.na(postgistabell_id_kol)) {
+      dbExecute(con, paste0("ALTER TABLE ", schema, ".", tabell, " ADD PRIMARY KEY (", postgistabell_id_kol ,");"))
+    }
     if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
     berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
     if (meddelande_tid) cat(glue("Processen tog {berakningstid} sekunder att köra"))
