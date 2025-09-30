@@ -1651,7 +1651,7 @@ postgres_rattigheter_anvandare_ta_bort <- function(con = "default",
   
   
   # hämta scheman för vald databas (som styrs med con)
-  scheman_att_bearbeta <- postgres_lista_scheman_tabeller() %>% names()
+  scheman_att_bearbeta <- postgres_lista_scheman_tabeller(con = con) %>% names()
   if (!all(schema == "alla")) scheman_att_bearbeta <- scheman_att_bearbeta[scheman_att_bearbeta %in% schema] 
   if (length(scheman_att_bearbeta) < 1) stop(glue("Scheman {schema %>% list_komma_och()} finns inte i databasen. Kontrollera uppgifterna och försök igen."))
   
