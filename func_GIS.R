@@ -727,10 +727,10 @@ uppkoppling_db <- function(
   # Används av andra funktioner som default om inget eget objekt med databasuppkoppling har skickats till dessa funktioner
   # OBS! Ändra default för db_name till "geodata" sen
   
+  db_name = "geodata",                  
   service_name = NA,                                 # "rd_geodata"
   db_host = "WFALMITVS526.ltdalarna.se",
   db_port = 5432,
-  db_name = "geodata",                  
   db_options = "-c search_path=public",
   db_user = NA,
   db_password = NA
