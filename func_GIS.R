@@ -126,10 +126,11 @@ hamta_karta <- function(karttyp = "kommuner", regionkoder = NA, tabellnamn = NA)
     # 
     grundquery <- paste0("SELECT * FROM karta.", pg_tabell) 
     
-    if ((length(kommunkoder) == 0) & (length(lanskoder) == 0)) skickad_query <- paste0(grundquery, ";") else {
-      
+    #if ((length(kommunkoder) == 0) & (length(lanskoder) == 0)) skickad_query <- paste0(grundquery, ";") else {
+    if ((length(kommunkoder) == 0) & (length(lanskoder) == 0)) skickad_query <- NA else {  
       # det finns lan- eller kommunkoder, så vi lägger på ett WHERE på grundqueryn
-      skickad_query <- paste0(grundquery, " WHERE ")
+      #skickad_query <- paste0(grundquery, " WHERE ")
+      skickad_query <- " WHERE "
       
       # kolla om det finns länskoder i regionkoder, om så lägger vi på länskoder i queryn
       if (length(lanskoder) != 0 & !is.na(tabell_df$lankol[df_rad])) {
