@@ -2162,6 +2162,30 @@ postgres_finns_schema_tabell_kolumner <- function(con = "default",        # uppk
 } # slut funktion postgres_finns_schema_tabell_kolumner()
 
 
+postgres_databas_uppdatera_med_metadata <- function(
+    con,
+    inlas_df,
+    schema,
+    tabell, 
+    id_kol = NA,
+    felmeddelande_medskickat = NA,
+    kommentar_metadata = NA
+) {
+  # Det här är egentligen bara en wrapper kring funktionen postgis_databas_uppdatera_med_metadata() som
+  # kom först pga att vi skapade geodatabasen först. Men geokolumnen är NA per default och går inte att 
+  # ändra. Även id-kolumnen är NA som default. Bra om man har en id-kolumn men inget större måste (tror jag)
+  
+  postgis_databas_uppdatera_med_metadata(
+    con = con,
+    inlas_sf = inlas_df,
+    schema = schema,
+    tabell = tabell, 
+    postgistabell_geo_kol = NA,
+    postgistabell_id_kol = id_kol,
+    felmeddelande_medskickat = felmeddelande_medskickat,
+    kommentar_metadata = kommentar_metadata
+  )
+} # slut funktion postgres_databas_uppdatera_med_metadata
 
 # ================================= postgis-funktioner ================================================
 
@@ -3061,6 +3085,10 @@ postgis_databas_uppdatera_med_metadata <- function(
     felmeddelande_medskickat = NA,
     kommentar_metadata = NA
 ) {
+  # en funktion som används vid uppdatering av data i geodatabasen och andra databaser. Funktionen använder
+  # tryCatch, det finns möjlighet att skicka med ett felmeddelande som kan läggas in i metadata om felet uppstått
+  # innan data ska sparas i databasen (tex vid nedladdning). Data sparas i databasen och så skrivs information
+  # till tabellen metadata
   
   tryCatch({
     
