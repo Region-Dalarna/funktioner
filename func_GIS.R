@@ -719,7 +719,7 @@ skapa_sf_fran_csv_eller_excel_supercross <- function(fil_med_sokvag,            
 
 
 uppkoppling_adm <- function(databas = "geodata") {
-  uppkoppling_db(service_name = "rd_geodata", db_name = databas)
+  uppkoppling_db(service_name = "databas_adm", db_name = databas)
 }
 
 uppkoppling_db <- function(
