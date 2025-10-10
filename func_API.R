@@ -6,6 +6,7 @@ p_load(git2r,
        pxweb,
        rKolada,
        httr,
+       farver,
        keyring,
        rvest,
        curl,
@@ -1080,53 +1081,55 @@ funktion_upprepa_forsok_om_fel <- function(funktion,
   }
 }
 
-skriptrader_upprepa_om_fel <- function(expr, 
-                                       max_forsok = 5, 
+skriptrader_upprepa_om_fel <- function(expr,
+                                       max_forsok = 5,
                                        vila_sek = 1,
                                        exportera_till_globalenv = TRUE,
                                        returnera_vid_fel = NULL,
-                                       upprepa_vid_felmeddelande_som_innehaller = "curl"       # NULL om man vill köra på alla felmeddelanden, skiftlägesokänslig just nu, går att skicka en vektor med flera sökord
-) {
-  expr <- substitute(expr)
+                                       upprepa_vid_felmeddelande_som_innehaller = c("recv failure", "connection was reset", "curl_fetch_memory", "timeout")
+                                       ) {
+  is_fun_input <- is.function(expr)
+  if (!is_fun_input) expr <- substitute(expr)
   
   for (i in seq_len(max_forsok)) {
-    env <- new.env(parent = globalenv())
-    resultat <- tryCatch(
+    env <- new.env(parent = parent.frame())
+    
+    out <- tryCatch(
       {
-        eval(expr, envir = env)
-        obj_namn <- ls(env, all.names = TRUE)
-        #message("✅ Följande objekt skapades: ", paste(obj_namn, collapse = ", "))
-        obj_lista <- mget(obj_namn, envir = env)
-        if (exportera_till_globalenv) {
-          list2env(obj_lista, envir = globalenv())
-          return(invisible(NULL))
+        if (is_fun_input) {
+          expr()                                   # returnerar funktionsvärdet
         } else {
-          return(list(result = obj_lista, error = NULL))
+          res <- eval(expr, envir = env)           # kör kod-rader
+          obj_namn <- ls(env, all.names = TRUE)
+          if (length(obj_namn)) {
+            obj_lista <- mget(obj_namn, envir = env)
+            if (exportera_till_globalenv) list2env(obj_lista, envir = globalenv())
+            obj_lista                              # returnera skapade objekt
+          } else {
+            res                                    # returnera uttryckets värde
+          }
         }
       },
       error = function(e) {
-        felmeddelande <- e$message
-        message("⚠️ Fel vid försök ", i, ": ", felmeddelande)
+        msg <- tolower(conditionMessage(e))
+        message("⚠️ Fel vid försök ", i, ": ", conditionMessage(e))
         
-        # om man skickat med upprepa_vid_felmeddelande_som_innehaller så ska vi kolla om felmeddelandet innehåller det som ska upprepas
         ska_forsoka_igen <- TRUE
         if (!is.null(upprepa_vid_felmeddelande_som_innehaller)) {
-          ska_forsoka_igen <- any(str_detect(tolower(felmeddelande), tolower(upprepa_vid_felmeddelande_som_innehaller)))
+          pats <- tolower(upprepa_vid_felmeddelande_som_innehaller)
+          ska_forsoka_igen <- any(vapply(pats, function(p) grepl(p, msg, fixed = TRUE), logical(1)))
         }
         
         if (i < max_forsok && ska_forsoka_igen) {
           Sys.sleep(vila_sek)
+          return(NULL)                              # försök igen
         } else {
-          if (exportera_till_globalenv) {
-            return(felmeddelande) 
-          } else { 
-            return(list(result = returnera_vid_fel, error = e))
-          }
+          if (is.null(returnera_vid_fel)) stop(e) else return(returnera_vid_fel)
         }
-        NULL
       }
     )
-    if (!is.null(resultat)) return(resultat)
+    
+    if (!is.null(out)) return(out)
   }
 }
 
@@ -1212,6 +1215,51 @@ skapa_intervaller <- function(skickad_kolumn, antal_intervaller = 5){
   
 }
 
+skalcirklar_skapa <- function(min_varde, max_varde, antal_skalcirklar) {
+  cirklar <- seq(from = sqrt(min_varde), to = sqrt(max_varde), length.out = antal_skalcirklar) ^ 2
+  cirklar <- round(cirklar, -floor(log10(max_varde)) + 1)  # avrundning till "lagom nivå"
+  unique(cirklar)
+}
+
+varden_jamnt_spridda_valj_ut <- function(skickad_vektor, antal_varden = 4) {
+  
+  # om man vill välja ut ett antal värden i en vektor, min, max + ett antal till jämnt fördelat
+  num_vec <- as.numeric(skickad_vektor)
+  n <- length(num_vec)
+  
+  if (antal_varden >= n) {
+    return(as.character(skickad_vektor))  # returnera allt i originalordning
+  }
+  
+  # välj index från den sorterade vektorn
+  indices <- round(seq(1, n, length.out = antal_varden))
+  valda <- sort(num_vec)[indices]
+  
+  # Bygg returvektor i originalordning
+  resultat <- ifelse(num_vec %in% valda, as.character(num_vec), "")
+  
+  return(resultat)
+}
+
+
+kontrastfarg_hitta <- function(farg_vektor_hex, cutoff = 0.6, justering = 0.3) {
+  # Funktion som väljer mörk eller ljus färg som kontrasterar mot de färger man skickad in som vektor
+  
+  # Hex → HCL (som numerisk matris)
+  col_hcl <- decode_colour(farg_vektor_hex, to = "hcl")
+  
+  # Luminans (0–100)
+  lum <- col_hcl[, "l"] / 100
+  
+  # Justera ljushet
+  col_hcl[, "l"] <- ifelse(lum < cutoff,
+                           pmin(col_hcl[, "l"] + justering*100, 100),
+                           pmax(col_hcl[, "l"] - justering*100, 0))
+  
+  # HCL → hex
+  encode_colour(col_hcl, from = "hcl")
+}
+
 
 avrundning_dynamisk <- function(x, gräns_stora = 10, gräns_medel = 1, dec_stora = 0, dec_medel = 1, dec_små = 2) {
   avrunda <- function(v) {
@@ -1242,6 +1290,12 @@ vektor_till_text <- function(skickad_vektor,
   }
   invisible(retur_text)
 }
+
+hamta_logga_path <- function(){
+  # sökväg till logga för att kunna lägga in den i diagrammen
+  tf <- "https://raw.githubusercontent.com/Region-Dalarna/depot/main/rd_logo_liggande_fri_svart.png"
+  return(tf)
+}   
 
 anv_anvandarkonto_hamta <- function(){
   Sys.info()["user"] %>% as.character()
@@ -1386,6 +1440,41 @@ sokvag_for_skript_hitta <- function() {
   # säkerställ att sökvägen slutar med snedstreck
   retur_varde <- if (str_sub(retur_varde, -1) == "/") retur_varde else paste0(retur_varde, "/")
   return(retur_varde)
+}
+
+urklipp <- function(x, sep = "\n") {
+  # Om clipr finns, använd det (bäst cross-platform, hanterar även data.frames snyggt)
+  if (requireNamespace("clipr", quietly = TRUE)) {
+    clipr::write_clip(x)
+    return(invisible(x))
+  }
+  
+  # Fallback: gör text
+  txt <- if (is.data.frame(x) || inherits(x, "tbl")) {
+    tc <- textConnection("..tmp", "w", local = TRUE)
+    utils::write.table(x, tc, sep = "\t", row.names = FALSE, col.names = TRUE, quote = FALSE)
+    close(tc)
+    paste(..tmp, collapse = "\n")
+  } else {
+    ch <- as.character(x)
+    if (length(ch) == 1) ch else paste(ch, collapse = sep)
+  }
+  
+  os <- Sys.info()[["sysname"]]
+  if (identical(os, "Windows")) {
+    utils::writeClipboard(enc2native(txt))
+  } else if (identical(os, "Darwin")) {
+    con <- pipe("pbcopy", "w"); writeChar(enc2utf8(txt), con, eos = , useBytes = TRUE); close(con)
+  } else {
+    if (nzchar(Sys.which("xclip"))) {
+      con <- pipe("xclip -selection clipboard", "w"); writeChar(enc2utf8(txt), con, eos = "", useBytes = TRUE); close(con)
+    } else if (nzchar(Sys.which("xsel"))) {
+      con <- pipe("xsel --clipboard --input", "w"); writeChar(enc2utf8(txt), con, eos = "", useBytes = TRUE); close(con)
+    } else {
+      stop("Ingen urklippsmetod hittades. Installera paketet 'clipr' eller xclip/xsel.")
+    }
+  }
+  invisible(x)
 }
 
 
@@ -1685,6 +1774,26 @@ gh_dia <- function(f = NA) {
                           repo = "diagram")
 }
 
+gh_ppt <- function(f = NA) {
+  github_lista_repo_filer(filtrera = f,
+                          repo = "diagram",
+                          till_urklipp = TRUE,
+                          skriv_source_konsol = FALSE,
+                          skriv_ppt_lista = TRUE)
+}
+
+ppt_lista_rader <- function(ppt_url = ""){
+  retur_txt <- 
+    paste0('ppt_lista <- ppt_lista_fyll_pa(\n',
+           '\tppt_lista = ppt_lista,\n',
+           '\tsource_url = "', ppt_url, '",\n',
+           '\tparameter_argument = list(output_mapp = utmapp_bilder),\n',
+           '\tregion_vekt = region_vekt,\n',
+           '\tutmapp_bilder = utmapp_bilder)\n\n')
+  cat(retur_txt)
+  writeLines(text = retur_txt %>% purrr::modify_at(length(.), stringr::str_remove, pattern = "\n"), con = "clipboard", sep = "")
+}
+
 github_lista_repo_filer <- function(owner = "Region-Dalarna",                     # användaren vars repos vi ska lista
                                     repo = "hamta_data",                          # repot vars filer vi ska lista
                                     url_vekt_enbart = TRUE,                       # om TRUE returneras en vektor med url:er, annars en dataframe med både filnamn och url
@@ -1693,6 +1802,8 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
                                     filtrera = NA,                                # om man vill filtrera filer på specifika sökord så gör man det här, kan vara ett eller en vektor med flera (som körs med OR och inte AND)
                                     keyring_github_token = "github_token",         # om man har sparat en github-token i keyring-paketet så anges service_name här (OBS! Det får bara finnas en användare för denna service i keyring om detta ska fungera)
                                     icke_source_repo = FALSE,                      # om TRUE så returneras bara filnamn och url och inte source-satser
+                                    skriv_ppt_lista = FALSE,                      # om TRUE så returneras kodrader för att skapa skript för att lägga in i ppt-lista
+                                    lista_ej_systemfiler = TRUE,                    # TRUE filtreras LICENSE och filer som börjar med punkt bort ur listan
                                     path = "") {                                  # path används för att hantera mappar
   # En funktion för att lista filer i ett repository som finns hos en github-användare
   
@@ -1737,10 +1848,19 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
       tibble::tibble(
         namn = paste0(path, item$name),
         url = item$download_url,
-        source = ifelse(icke_source_repo, item$download_url, paste0('source("', item$download_url, '")\n'))
-      )
+        source = ifelse(icke_source_repo, item$download_url, paste0('source("', item$download_url, '")\n')),
+        ppt_url = ifelse(icke_source_repo, item$download_url, paste0(item$download_url, '\n')), 
+        ppt_lista = ifelse(icke_source_repo, NA, paste0('ppt_lista <- ppt_lista_fyll_pa(\n', 
+                                                        'ppt_lista = ppt_lista,\n',
+                                                        'source_url = "', item$download_url, '",\n',
+                                                        'parameter_argument = list(output_mapp = utmapp_bilder),\n',
+                                                        'region_vekt = region_vekt,\n',
+                                                        'utmapp_bilder = utmapp_bilder)\n\n'
+                                                        )))
     }
   })
+  
+  if (lista_ej_systemfiler) retur_df <- retur_df %>% filter(namn != "LICENSE", str_sub(namn, 1, 1) != ".")
   
   # Filtrera baserat på sökord om filtrera inte är NA
   if (!any(is.na(filtrera))) {
@@ -1772,6 +1892,11 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
     cat(retur_df$source)
     if (till_urklipp) {
       writeLines(text = retur_df$source %>% purrr::modify_at(length(.), stringr::str_remove, pattern = "\n"), con = "clipboard", sep = "")
+    }
+  } else if (skriv_ppt_lista) {
+    cat(retur_df$ppt_url)
+    if (till_urklipp) {
+      writeLines(text = retur_df$ppt_lista %>% purrr::modify_at(length(.), stringr::str_remove, pattern = "\n"), con = "clipboard", sep = "")
     }
   } else if (url_vekt_enbart) {
     return(retur_df$url)
@@ -1878,9 +2003,9 @@ github_commit_push <- function(
                                                  skriv_source_konsol = FALSE)$namn
       
       # Filklassificering
-      filer_tillagda <- untracked_files[!untracked_files %in% github_fillista]
-      filer_andrade <- unstaged_modified
-      filer_borttagna <- unstaged_deleted
+      filer_tillagda  <- unique(c(staged_added, untracked_files[!untracked_files %in% github_fillista]))
+      filer_andrade   <- unique(c(staged_modified, unstaged_modified))
+      filer_borttagna <- unique(c(staged_deleted,  unstaged_deleted))
       
       # Sammanställningsmeddelanden
       konsolmeddelande <- paste0(
