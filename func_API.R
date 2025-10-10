@@ -1955,8 +1955,8 @@ github_commit_push <- function(
 
 
 github_pull_lokalt_repo_fran_github <- function(
-    sokvag_lokal_repo = "c:/gh/",
     repo = "hamta_data",
+    sokvag_lokal_repo = "c:/gh/",
     repo_org = "Region-Dalarna"
     ) {
 
