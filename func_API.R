@@ -2346,10 +2346,29 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
       varden_koder <- region_koder_bearbetad
     }
     
-    retur_txt <- case_when(str_detect(tolower(var_koder), "fodel") ~ paste0(tolower(var_koder) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_klartext = "*",\t\t\t# ', elim_info_txt, ' Finns: ', paste0('"', varden_klartext, '"', collapse = ", ")),
+    antal_alla_koder <- length(varden_koder)
+    # om det finns fler värden än 50 st så tas de 2 första och de 2 sista ut för 
+    # varje unik längd på värdet
+    varden_koder <- tibble(varden_koder) %>%
+      mutate(textlangd = nchar(varden_koder)) %>%          # beräkna längden per element
+      group_by(textlangd) %>%
+      filter(
+        n() <= 50 | row_number() <= 2 | row_number() > n() - 2
+      ) %>%
+      ungroup() %>%
+      dplyr::pull(varden_koder)
+    
+    # om värdena fortfarande är fler än 50 så behåller vi bara de 25 första
+    if (length(varden_koder) > 50) varden_koder <- varden_koder[1:25]
+    
+    # om vi har tagit ner antalet värden så skickar vi med "t.ex. " innan
+    # koderna så att användaren förstår att det inte är alla koder
+    koder_urval_txt <- if (length(varden_koder) != antal_alla_koder) "t.ex. " else ""
+    
+    retur_txt <- case_when(str_detect(tolower(var_koder), "fodel") ~ paste0(tolower(var_koder) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_klartext = "*",\t\t\t# ', elim_info_txt, ' Finns: ',koder_urval_txt, paste0('"', varden_klartext, '"', collapse = ", ")),
                            # gammal nedan, testar att alltid döpa variabeln till region_vekt
                            #str_detect(tolower(var_koder), "region|lan|län") ~ paste0(tolower(var_koder) %>% byt_ut_svenska_tecken(), '_vekt = "', default_region, '",\t\t\t# Val av region. Finns: ', paste0('"', varden_koder, '"', collapse = ", ")),
-                           str_detect(tolower(var_koder), "region|lan|län|kommun") ~ paste0('region_vekt = "', default_region, '",\t\t\t   # Val av region. Finns: ', paste0('"', varden_koder, '"', collapse = ", ")),
+                           str_detect(tolower(var_koder), "region|lan|län|kommun") ~ paste0('region_vekt = "', default_region, '",\t\t\t   # Val av region. Finns: ', koder_urval_txt, paste0('"', varden_koder, '"', collapse = ", ")),
                            # gammal nedan, testar att alltid döpa till tid_koder
                            #tolower(var_koder) %in% c("tid") ~ paste0(tolower(var_koder) %>% byt_ut_svenska_tecken(), '_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', varden_klartext, '"', collapse = ", ")),
                            tolower(var_koder) %in% c("tid") ~ paste0('tid_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', varden_klartext, '"', collapse = ", ")),
