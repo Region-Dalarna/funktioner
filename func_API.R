@@ -2346,6 +2346,8 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
       varden_koder <- region_koder_bearbetad
     }
     
+    # hantering av ett stort antal koder, som kan bli för mycket att skriva
+    # ut i parameterlistan efter "Finns: "
     antal_alla_koder <- length(varden_koder)
     # om det finns fler värden än 50 st så tas de 2 första och de 2 sista ut för 
     # varje unik längd på värdet
@@ -2365,17 +2367,31 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     # koderna så att användaren förstår att det inte är alla koder
     koder_urval_txt <- if (length(varden_koder) != antal_alla_koder) "t.ex. " else ""
     
-    retur_txt <- case_when(str_detect(tolower(var_koder), "fodel") ~ paste0(tolower(var_koder) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_klartext = "*",\t\t\t# ', elim_info_txt, ' Finns: ',koder_urval_txt, paste0('"', varden_klartext, '"', collapse = ", ")),
+    # hantering av ett för stort antal klartextvariabler på motsvarande sätt
+    # som koderna ovan, är det för många kortar vi ner antalet så det inte blir för många att lista efter "Finns: "
+    # hantering av ett stort antal koder, som kan bli för mycket att skriva
+    # ut i parameterlistan efter "Finns: "
+    antal_alla_klartext <- length(varden_klartext)
+
+    # om värdena fortfarande är fler än 50 så behåller vi bara de 20 första och de 20 sista
+    if (length(varden_klartext) > 50) varden_klartext <- c(head(varden_klartext, 10), tail(varden_klartext, 10))
+    
+    # om vi har tagit ner antalet värden så skickar vi med "t.ex. " innan
+    # koderna så att användaren förstår att det inte är alla koder
+    klartext_urval_txt <- if (length(varden_klartext) != antal_alla_klartext) "t.ex. " else ""
+    
+    # skapa parameterlistan
+    retur_txt <- case_when(str_detect(tolower(var_koder), "fodel") ~ paste0(tolower(var_koder) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_klartext = "*",\t\t\t# ', elim_info_txt, ' Finns: ', klartext_urval_txt, paste0('"', varden_klartext, '"', collapse = ", ")),
                            # gammal nedan, testar att alltid döpa variabeln till region_vekt
                            #str_detect(tolower(var_koder), "region|lan|län") ~ paste0(tolower(var_koder) %>% byt_ut_svenska_tecken(), '_vekt = "', default_region, '",\t\t\t# Val av region. Finns: ', paste0('"', varden_koder, '"', collapse = ", ")),
                            str_detect(tolower(var_koder), "region|lan|län|kommun") ~ paste0('region_vekt = "', default_region, '",\t\t\t   # Val av region. Finns: ', koder_urval_txt, paste0('"', varden_koder, '"', collapse = ", ")),
                            # gammal nedan, testar att alltid döpa till tid_koder
                            #tolower(var_koder) %in% c("tid") ~ paste0(tolower(var_koder) %>% byt_ut_svenska_tecken(), '_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', varden_klartext, '"', collapse = ", ")),
-                           tolower(var_koder) %in% c("tid") ~ paste0('tid_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', varden_klartext, '"', collapse = ", ")),
-                           tolower(var_koder) %in% c("år", "månader") & org_kortnamn == "fohm" ~ paste0('tid_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', varden_klartext, '"', collapse = ", ")),
+                           tolower(var_koder) %in% c("tid") ~ paste0('tid_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', klartext_urval_txt, paste0('"', varden_klartext, '"', collapse = ", ")),
+                           tolower(var_koder) %in% c("år", "månader") & org_kortnamn == "fohm" ~ paste0('tid_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', klartext_urval_txt, paste0('"', varden_klartext, '"', collapse = ", ")),
                            # Funktion för att ta lägsta och högsta värde i ålder är borttagen genom att jag satt length(varden_klartext) > 0, ska vara typ kanske 90. Större än 0 = alla så därför är den i praktiken avstängd. 
-                           tolower(var_koder) %in% c("alder", "ålder") ~ paste0(tolower(var_koder), alder_txt,' = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', if(alder_ar_klartext) varden_klartext else varden_koder , '"', collapse = ", ")),                                                 # gammalt: if (length(varden_klartext) < 0) paste0(tolower(var_koder), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', varden_klartext, '"', collapse = ", ")) else paste0(tolower(var_koder), '_koder = "*",\t\t\t # Finns: ', min(varden_klartext), " - ", max(varden_klartext)),
-                           TRUE ~ paste0(tolower(var_koder) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', varden_klartext %>% unique(), '"', collapse = ", ")) %>% str_replace("contentscode", "cont")) 
+                           tolower(var_koder) %in% c("alder", "ålder") ~ paste0(tolower(var_koder), alder_txt,' = "*",\t\t\t # ', elim_info_txt, ' Finns: ', if(alder_ar_klartext) klartext_urval_txt else koder_urval_txt, paste0('"', if(alder_ar_klartext) varden_klartext else varden_koder , '"', collapse = ", ")),                                                 # gammalt: if (length(varden_klartext) < 0) paste0(tolower(var_koder), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', varden_klartext, '"', collapse = ", ")) else paste0(tolower(var_koder), '_koder = "*",\t\t\t # Finns: ', min(varden_klartext), " - ", max(varden_klartext)),
+                           TRUE ~ paste0(tolower(var_koder) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', klartext_urval_txt, paste0('"', varden_klartext %>% unique(), '"', collapse = ", ")) %>% str_replace("contentscode", "cont")) 
     
   }) %>% 
     c(., if (antal_contvar > 1) 'long_format = TRUE,\t\t\t# TRUE = konvertera innehållsvariablerna i datasetet till long-format \n\t\t\twide_om_en_contvar = TRUE,\t\t\t# TRUE = om man vill behålla wide-format om det bara finns en innehållsvariabel, FALSE om man vill konvertera till long-format även om det bara finns en innehållsvariabel' else "") %>%
