@@ -815,31 +815,39 @@ skapa_aldersgrupper <- function(alder, aldergrupp_vekt, konv_fran_txt = TRUE) {
   # aldergrupp_vekt är en vektor där varje siffra är början på nästa åldersgrupp. 
   # så c(19, 35, 50, 65, 80) ovan blir till åldersgrupperna 0-18 år, 19-34 år, 35-49 år, 50-64 år, 65-79 år samt 80+ år
   
+  if (konv_fran_txt && is.character(alder)) alder <- readr::parse_number(alder)
+
+  # Bestäm faktisk min/max i datat
+  min_alder <- suppressWarnings(min(alder, na.rm = TRUE))
+  max_alder <- suppressWarnings(max(alder, na.rm = TRUE))
+  
   # Kontrollera och hantera öppna åldersgrupper
-  if (!is.infinite(aldergrupp_vekt[[1]])) {
-    aldergrupp_vekt <- c(-Inf, aldergrupp_vekt)
-  }
-  if (!is.infinite(tail(aldergrupp_vekt, n = 1))) {
-    aldergrupp_vekt <- c(aldergrupp_vekt, Inf)
-  }
+  if (!is.infinite(aldergrupp_vekt[[1]])) aldergrupp_vekt <- c(-Inf, aldergrupp_vekt)
+  if (!is.infinite(tail(aldergrupp_vekt, n = 1))) aldergrupp_vekt <- c(aldergrupp_vekt, Inf)
+
+  # Anpassa till faktisk data
+  aldergrupp_vekt[1] <- min(aldergrupp_vekt[1], min_alder)
+  aldergrupp_vekt[length(aldergrupp_vekt)] <- max(aldergrupp_vekt[length(aldergrupp_vekt)], max_alder + 1)
+  
   
   # Skapa etiketter för grupperna
   labels <- vector("character", length = length(aldergrupp_vekt) - 1)
-  for (i in 1:length(labels)) {
+  for (i in seq_along(labels)) {
     lower <- aldergrupp_vekt[i]
     upper <- aldergrupp_vekt[i + 1] - 1
     
-    if (is.infinite(lower)) {
-      labels[i] <- str_c("-", upper, " år")
-    } else if (is.infinite(upper + 1)) {
+    if (lower < min_alder) lower <- min_alder
+    if (upper > max_alder) upper <- max_alder
+    
+    if (i == length(labels) && max_alder > max(aldergrupp_vekt[is.finite(aldergrupp_vekt)])) {
       labels[i] <- str_c(lower, "+ år")
     } else if (lower == upper) {
-      labels[i] <- str_c(lower, " år")  # Hantera enstaka åldrar
+      labels[i] <- str_c(lower, " år")
     } else {
       labels[i] <- str_c(lower, "-", upper, " år")
     }
   }
-  if (konv_fran_txt & is.character(alder)) alder <- alder %>% readr::parse_number()
+
   # Dela in åldrarna i grupper
   cut(alder, breaks = aldergrupp_vekt, labels = labels, right = FALSE, include.lowest = TRUE)
 }
