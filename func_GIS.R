@@ -718,8 +718,20 @@ skapa_sf_fran_csv_eller_excel_supercross <- function(fil_med_sokvag,            
 # ============================== postgres-funktioner (för att hantera databaser) ============================================
 
 
-uppkoppling_adm <- function(databas = "geodata") {
-  uppkoppling_db(service_name = "databas_adm", db_name = databas)
+uppkoppling_adm <- function(
+    databas = "geodata",
+    db_host = "WFALMITVS526.ltdalarna.se",
+    db_port = 5432,
+    db_options = "-c search_path=public",
+    db_user = NA,
+    db_password = NA
+    ) {
+  
+  uppkoppling_db(service_name = "databas_adm", 
+                 db_name = databas,
+                 db_host = db_host,
+                 db_port = db_port,
+                 db_options = db_options)
 }
 
 uppkoppling_db <- function(
