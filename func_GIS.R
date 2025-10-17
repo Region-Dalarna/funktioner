@@ -4431,6 +4431,8 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
 
 
 pgrouting_skapa_ny_graf_nvdb_koppla_till_punkter <- function(
+    con_geodb = uppkoppling_adm("geodata"),
+    con_rutt = uppkoppling_adm("ruttanalyser"),
     natverkstyp = "bil",            # "bil" eller "alla", "alla" kör kortaste rutt på avstånd, "bil" på restid med bil (ofta men inte alltid samma rutter), planer på att skapa nätverk med bara vägar man kan cykla på (inte alla bilvägar)
     punkter_fran_schema = "adresser",
     punkter_fran_tabell = "dalarna",
@@ -4442,8 +4444,6 @@ pgrouting_skapa_ny_graf_nvdb_koppla_till_punkter <- function(
   # i Dalarna så att vi alltid har färdiga grafer att köra ruttanalyser
   # eller skapa isokroner utifrån.
   
-  con_geodb <- uppkoppling_adm("geodata")
-  con_rutt <- uppkoppling_adm("ruttanalyser")
   
   # 1. Kopiera nvdb till en ny tabell och bearbeta lagret så att det fungerar bra med adresser
   
