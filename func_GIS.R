@@ -2,6 +2,7 @@
 if (!require("pacman")) install.packages("pacman")
 p_load(sf,
        data.table,
+       tcltk,
        rio,
        glue,
        terra,
@@ -6077,6 +6078,158 @@ pendling_ruta <- function(version = c("PostGIS", "R"), # Måste välja mellan Po
 }
 
 # ================================= Övriga funktioner ================================================
+
+
+get_password_tk <- function(title = "Inloggning - lösenord", prompt = "Skriv lösenord:") {
+  tt <- tktoplevel()
+  tkwm.title(tt, title)
+  
+  # Fönsterstorlek
+  width <- 320
+  height <- 130
+  
+  # Beräkna position för centrering
+  screen_width  <- as.integer(tkwinfo("screenwidth", tt))
+  screen_height <- as.integer(tkwinfo("screenheight", tt))
+  xpos <- as.integer((screen_width - width) / 2)
+  ypos <- as.integer((screen_height - height) / 2)
+  tkwm.geometry(tt, sprintf("%dx%d+%d+%d", width, height, xpos, ypos))
+  
+  # Ram med marginaler
+  frame <- tkframe(tt, padx = 15, pady = 10)
+  tkpack(frame, expand = TRUE)
+  
+  # Etikett
+  label <- tklabel(frame, text = prompt)
+  tkpack(label, pady = 5)
+  
+  # Maskerad inmatning
+  pass_var <- tclVar("")
+  entry <- tkentry(frame, textvariable = pass_var, show = "*", width = 30)
+  tkpack(entry, pady = 5)
+  
+  # OK-knapp
+  ok_clicked <- FALSE
+  ok_button <- tkbutton(frame, text = "OK", command = function() {
+    ok_clicked <<- TRUE
+    tkdestroy(tt)
+  })
+  tkpack(ok_button, pady = 5)
+  
+  tkbind(entry, "<Return>", function() {
+    ok_clicked <<- TRUE
+    tkdestroy(tt)
+  })
+  
+  # Sätt fokus och markör i inmatningsfältet direkt
+  tkfocus(entry)
+  
+  # Vänta tills fönstret stängs
+  tkwait.window(tt)
+  
+  # Om användaren klickade på krysset – returnera tom sträng
+  if (!ok_clicked) {
+    return("")
+  }
+  
+  tclvalue(pass_var)
+}
+
+
+keyring_lagg_till_inloggning <- function(keyring_service) {
+  
+  # ============================================================================================
+  #
+  #  Skript för att lägga in inloggningsuppgifter i keyring. 
+  #  Lösenord som sparas i operativsystemets "credential store", vilket betyder att inga 
+  #  lösenord sparas som text på datorn. OBS! Skicka med lösenord med funktioner
+  #  men skriv inte ut dem i konsolen eller spara dem i variabler.
+  #
+  #  OBS! Funktionen get_password_tk() ovan krävs för att köra funktionen.
+  #
+  #  Författare: Peter Möller, Region Dalarna
+  #
+  # ============================================================================================
+  
+  
+  # --- Kontrollera att keyring är installerat ---
+  if (!requireNamespace("keyring", quietly = TRUE)) {
+    stop("Paketet 'keyring' måste installeras innan funktionen kan köras.")
+  }
+  if (!requireNamespace("svDialogs", quietly = TRUE)) {
+    stop("Paketet 'svDialogs' måste installeras innan funktionen kan köras.")
+  }
+  
+  library(keyring)
+  library(svDialogs)
+  
+  keyring_lista <- key_list()
+  avsluta <- FALSE
+  svar <- "tomt"
+  
+  # --- Kontrollera om inloggning redan finns ---
+  if (keyring_service %in% keyring_lista$service) {
+    svar <- dlg_message(
+      paste0("Det finns redan en inloggning som heter '", keyring_service,
+             "'. Vill du ta bort den och lägga in den på nytt?"),
+      type = "yesno"
+    )$res
+    
+    # om användar klickar på no så avslutas funktionen utan att göra något
+    if (tolower(svar) == "no") avsluta <- TRUE
+  }
+  
+  # --- Om användaren vill fortsätta ---
+  if (!avsluta) {
+    # Be om användarnamn (förifyllt)
+    username <- dlg_input(
+      "Skriv användarnamn:",
+      default = Sys.info()[["user"]],
+      title = "Inloggning geodatabasen"
+    )$res
+    
+    if (is.null(username) || username == "" || length(username) == 0) {
+      message("Ingen inloggning skapad (användarnamn saknas).")
+      return(invisible(NULL))
+    }
+    
+    # Be om lösenord (maskerat)
+    
+    # Exempel
+    password <- get_password_tk()               # vi använder ett tcltk-fönster för att kunna skriva lösenord med "*"
+    # password <- dlg_input(
+    #   "Skriv lösenord:",
+    #   hide = TRUE,
+    #   title = "Inloggning geodatabasen"
+    # )$res
+    
+    if (is.null(password) || password == "" || length(password) == 0) {
+      message("Ingen inloggning skapad (lösenord saknas).")
+      return(invisible(NULL))
+    }
+    
+    if (tolower(svar) == "yes") {
+      # ta bort de befintliga uppgifterna om det finns några
+      key_delete(
+        service = keyring_service,
+        username = key_list(service = keyring_service)$username[1]
+      )
+    }
+    
+    # Spara de nya till keyring
+    key_set_with_value(
+      service = keyring_service,
+      username = username,
+      password = password
+    )
+    
+    dlg_message(
+      paste0("Inloggning för '", keyring_service, "' har sparats i keyring."),
+      type = "ok"
+    )
+  }
+}
+
 
 
 adresser_inv_reg_folke_bearbeta <- function(skickad_df) {
