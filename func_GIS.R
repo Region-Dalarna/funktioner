@@ -2200,6 +2200,331 @@ postgres_databas_uppdatera_med_metadata <- function(
   )
 } # slut funktion postgres_databas_uppdatera_med_metadata
 
+
+postgres_grants_auto_skapa <- function(con, remove_old = TRUE, rattigheter_pa_befintliga = TRUE) {
+  # Skript för att skapa auto-grants som innebär att lasroll och skrivroll får läs- respektive skrivrättigheter
+  # när nya scheman, tabeller, vyer och materialiserade vyer skapas oavsett vem som skapar dem.
+  # Körs en gång per databas.
+  
+  message("🔍 Kontrollerar befintliga event triggers...")
+  
+  old_triggers <- DBI::dbGetQuery(con, "
+    SELECT evtname, evtevent, evtenabled, evtowner::regrole
+    FROM pg_event_trigger
+    ORDER BY evtname;
+  ")
+  
+  if (nrow(old_triggers) > 0) {
+    message("⚠️  Befintliga triggers hittades:\n")
+    print(old_triggers)
+    
+    if (remove_old) {
+      message("🧹 Tar bort gamla triggers...")
+      DBI::dbExecute(con, "DROP EVENT TRIGGER IF EXISTS auto_grant_tables;")
+      DBI::dbExecute(con, "DROP EVENT TRIGGER IF EXISTS auto_grant_schemas;")
+    }
+  } else {
+    message("✅ Inga gamla triggers hittades.")
+  }
+  
+  message("📦 Installerar ny universal auto_grant-funktion...")
+  
+  DBI::dbExecute(con, "
+    CREATE OR REPLACE FUNCTION public.auto_grant()
+    RETURNS event_trigger
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+        obj record;
+    BEGIN
+        FOR obj IN
+            SELECT * FROM pg_event_trigger_ddl_commands()
+        LOOP
+            -- Tabeller och vyer
+            IF obj.object_type IN ('table', 'view', 'materialized view') THEN
+                EXECUTE format('GRANT SELECT ON %s TO lasroll;', obj.object_identity);
+                EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %s TO skrivroll;', obj.object_identity);
+
+            -- Scheman
+            ELSIF obj.object_type = 'schema' THEN
+                EXECUTE format('GRANT USAGE ON SCHEMA %I TO lasroll;', obj.object_name);
+                EXECUTE format('GRANT USAGE, CREATE ON SCHEMA %I TO skrivroll;', obj.object_name);
+                EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT ON TABLES TO lasroll;', obj.object_name);
+                EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO skrivroll;', obj.object_name);
+            END IF;
+        END LOOP;
+    END;
+    $$;
+  ")
+  
+  message("⚙️ Skapar nya event triggers...")
+  
+  DBI::dbExecute(con, "DROP EVENT TRIGGER IF EXISTS auto_grant_tables;")
+  DBI::dbExecute(con, "
+    CREATE EVENT TRIGGER auto_grant_tables
+      ON ddl_command_end
+      WHEN TAG IN ('CREATE TABLE', 'CREATE VIEW', 'CREATE MATERIALIZED VIEW')
+      EXECUTE FUNCTION public.auto_grant();
+  ")
+  
+  DBI::dbExecute(con, "DROP EVENT TRIGGER IF EXISTS auto_grant_schemas;")
+  DBI::dbExecute(con, "
+    CREATE EVENT TRIGGER auto_grant_schemas
+      ON ddl_command_end
+      WHEN TAG IN ('CREATE SCHEMA')
+      EXECUTE FUNCTION public.auto_grant();
+  ")
+  
+  message("✅ Klart! Nya triggers och funktion är installerade.")
+  
+  if (rattigheter_pa_befintliga == TRUE) {
+    message("🔄 Uppdaterar även rättigheter på befintliga objekt...")
+    postgres_grants_pa_befintliga_objekt(con)
+  }
+}
+
+
+postgres_grants_pa_befintliga_objekt <- function(con) {
+  # skript för att ge lasroll och skrivroll  läs- respektive skrivrättigheter
+  # för befintliga scheman, tabeller, vyer och materialiserade vyer
+  
+  message("📦 Ger rättigheter till befintliga scheman, tabeller och vyer...")
+  
+  sql_statements <- c(
+    # 1️⃣ Ge rättigheter till alla scheman
+    "
+    DO $$
+    DECLARE
+        s RECORD;
+    BEGIN
+        FOR s IN
+            SELECT schema_name
+            FROM information_schema.schemata
+            WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+        LOOP
+            EXECUTE format('GRANT USAGE ON SCHEMA %I TO lasroll;', s.schema_name);
+            EXECUTE format('GRANT USAGE, CREATE ON SCHEMA %I TO skrivroll;', s.schema_name);
+        END LOOP;
+    END$$;
+    ",
+    
+    # 2️⃣ Ge rättigheter till alla tabeller och vyer
+    "
+    DO $$
+    DECLARE
+        t RECORD;
+    BEGIN
+        FOR t IN
+            SELECT table_schema, table_name
+            FROM information_schema.tables
+            WHERE table_schema NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+        LOOP
+            EXECUTE format('GRANT SELECT ON %I.%I TO lasroll;', t.table_schema, t.table_name);
+            EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %I.%I TO skrivroll;', t.table_schema, t.table_name);
+        END LOOP;
+    END$$;
+    ",
+    
+    # 3️⃣ Ge rättigheter till alla materialized views
+    "
+    DO $$
+    DECLARE
+        mv RECORD;
+    BEGIN
+        FOR mv IN
+            SELECT schemaname, matviewname
+            FROM pg_matviews
+            WHERE schemaname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+        LOOP
+            EXECUTE format('GRANT SELECT ON %I.%I TO lasroll;', mv.schemaname, mv.matviewname);
+            EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %I.%I TO skrivroll;', mv.schemaname, mv.matviewname);
+        END LOOP;
+    END$$;
+    "
+  )
+  
+  purrr::walk(sql_statements, ~DBI::dbExecute(con, .x))
+  message("✅ Rättigheter till befintliga objekt har uppdaterats.")
+}
+
+
+postgres_grants_auto_visa <- function(con) {
+  message("🔍 Hämtar befintliga event triggers...")
+  event_triggers <- DBI::dbGetQuery(con, "
+    SELECT 
+      evtname AS trigger_name,
+      evtevent AS event,
+      evtenabled AS enabled,
+      evtowner::regrole AS owner
+    FROM pg_event_trigger
+    ORDER BY evtname;
+  ")
+  
+  if (nrow(event_triggers) == 0) {
+    message("⚪ Inga event triggers hittades.")
+  } else {
+    message("✅ Följande event triggers finns:")
+    print(tibble::as_tibble(event_triggers))
+  }
+  
+  message("\n🔍 Hämtar befintliga default privileges...")
+  default_privs <- DBI::dbGetQuery(con, "
+    SELECT
+      defaclrole::regrole AS role_owner,
+      defaclnamespace::regnamespace AS schema,
+      defaclobjtype AS object_type,
+      defaclacl AS privileges
+    FROM pg_default_acl
+    ORDER BY defaclrole, defaclnamespace;
+  ")
+  
+  if (nrow(default_privs) == 0) {
+    message("⚪ Inga default privileges hittades.")
+  } else {
+    message("✅ Följande default privileges finns:")
+    default_parsed <- default_privs %>%
+      dplyr::mutate(
+        privileges = as.character(privileges)
+      ) %>%
+      tidyr::separate_rows(privileges, sep = ",") %>%
+      dplyr::mutate(
+        privileges = stringr::str_remove_all(privileges, "[{}\"]"),
+        grantee = stringr::str_extract(privileges, "^[^=]+"),
+        rights = stringr::str_extract(privileges, "(?<==)[^/]+"),
+        granted_by = stringr::str_extract(privileges, "(?<=/).*"),
+        rights_verbose = dplyr::case_when(
+          rights == "r" ~ "SELECT only",
+          rights == "arwd" ~ "ALL (SELECT, INSERT, UPDATE, DELETE)",
+          TRUE ~ rights
+        )
+      ) %>%
+      dplyr::select(role_owner, schema, object_type, grantee, rights_verbose, granted_by)
+    
+    print(tibble::as_tibble(default_parsed))
+  }
+  
+  message("\n📋 Sammanställning klar.")
+  invisible(list(
+    event_triggers = event_triggers,
+    default_privs = default_privs
+  ))
+}
+
+postgres_grants_auto_testa <- function(con) {
+  # testar om triggers för att skapa rättigheter för lasroll och skrivroll fungerar
+  
+  results <- tibble(
+    kontroll = character(),
+    status = character(),
+    kommentar = character()
+  )
+  
+  # 1️⃣ Kolla triggers
+  triggers <- dbGetQuery(con, "
+    SELECT evtname, evtenabled
+    FROM pg_event_trigger
+    WHERE evtname IN ('auto_grant_tables', 'auto_grant_schemas');
+  ")
+  
+  if (nrow(triggers) == 2 && all(triggers$evtenabled == "O")) {
+    results <- add_row(results,
+                       kontroll = "Event triggers aktiva",
+                       status = "OK",
+                       kommentar = "auto_grant_tables och auto_grant_schemas finns och är aktiva"
+    )
+  } else {
+    results <- add_row(results,
+                       kontroll = "Event triggers aktiva",
+                       status = "FAIL",
+                       kommentar = "En eller båda triggers saknas eller är inaktiva"
+    )
+  }
+  
+  # 2️⃣ Kolla default privileges
+  defaults <- dbGetQuery(con, "
+    SELECT defaclrole::regrole AS role_owner,
+           defaclnamespace::regnamespace AS schema,
+           defaclobjtype AS object_type,
+           defaclacl AS privileges
+    FROM pg_default_acl;
+  ")
+  
+  has_defaults <- any(grepl("lasroll", defaults$privileges)) &&
+    any(grepl("skrivroll", defaults$privileges))
+  
+  if (has_defaults) {
+    results <- add_row(results,
+                       kontroll = "Default privileges",
+                       status = "OK",
+                       kommentar = "ALTER DEFAULT PRIVILEGES inkluderar lasroll och skrivroll"
+    )
+  } else {
+    results <- add_row(results,
+                       kontroll = "Default privileges",
+                       status = "FAIL",
+                       kommentar = "Hittade inga default privileges för lasroll/skrivroll"
+    )
+  }
+  
+  # Namn på testschema
+  test_schema <- "test_auto_grant"
+  test_table <- "tabell_test"
+  test_view <- "vy_test"
+  test_matview <- "matvy_test"
+  
+  try({
+    dbExecute(con, glue("DROP SCHEMA IF EXISTS {test_schema} CASCADE;"))
+    dbExecute(con, glue("CREATE SCHEMA {test_schema};"))
+    
+    # 3️⃣ Skapa test-tabell
+    dbExecute(con, glue("CREATE TABLE {test_schema}.{test_table} (id serial, namn text);"))
+    
+    # 4️⃣ Skapa test-vy
+    dbExecute(con, glue("CREATE VIEW {test_schema}.{test_view} AS SELECT * FROM {test_schema}.{test_table};"))
+    
+    # 5️⃣ Skapa test-materialized view
+    dbExecute(con, glue("CREATE MATERIALIZED VIEW {test_schema}.{test_matview} AS SELECT * FROM {test_schema}.{test_table};"))
+    
+    # Kontrollera rättigheter för alla tre typer
+    grants <- dbGetQuery(con, glue("
+      SELECT table_name, grantee, privilege_type
+      FROM information_schema.role_table_grants
+      WHERE table_schema = '{test_schema}'
+        AND table_name IN ('{test_table}', '{test_view}', '{test_matview}')
+        AND grantee IN ('lasroll', 'skrivroll')
+      ORDER BY table_name, grantee, privilege_type;
+    "))
+    
+    check_grants <- function(obj) {
+      subset <- grants %>% filter(table_name == obj)
+      las_ok <- "lasroll" %in% subset$grantee && "SELECT" %in% subset$privilege_type[subset$grantee == "lasroll"]
+      skriv_ok <- "skrivroll" %in% subset$grantee &&
+        all(c("SELECT", "INSERT", "UPDATE", "DELETE") %in% subset$privilege_type[subset$grantee == "skrivroll"])
+      list(las_ok = las_ok, skriv_ok = skriv_ok)
+    }
+    
+    for (obj in c(test_table, test_view, test_matview)) {
+      res <- check_grants(obj)
+      status <- if (res$las_ok && res$skriv_ok) "OK" else "FAIL"
+      results <- add_row(
+        results,
+        kontroll = glue("Trigger-test ({obj})"),
+        status = status,
+        kommentar = if (status == "OK") "Rättigheter satta automatiskt" else "Rättigheter saknas eller felaktiga"
+      )
+    }
+    
+    # 6️⃣ Städar bort testschema
+    dbExecute(con, glue("DROP SCHEMA IF EXISTS {test_schema} CASCADE;"))
+  }, silent = TRUE)
+  
+  message("\n📋 Resultat från test:")
+  print(results)
+  invisible(results)
+}
+
+
+
 # ================================= postgis-funktioner ================================================
 
 # 
