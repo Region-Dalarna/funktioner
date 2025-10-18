@@ -1451,6 +1451,8 @@ sokvag_for_skript_hitta <- function() {
 }
 
 urklipp <- function(x, sep = "\n") {
+  # funktion för att lägga saker i urklippshanteraren, så att man bara kan klistra det därefter med ctrl + v
+  
   # Om clipr finns, använd det (bäst cross-platform, hanterar även data.frames snyggt)
   if (requireNamespace("clipr", quietly = TRUE)) {
     clipr::write_clip(x)
@@ -1485,6 +1487,11 @@ urklipp <- function(x, sep = "\n") {
   invisible(x)
 }
 
+source_utan_cache <- function(url) {
+  # använd istället för source för att säkerställa att den inte source:ar in en cache istället
+  # bra när man precis har commit:at och push:at till 
+  source(url(sprintf("%s?nocache=%s", url, as.integer(Sys.time()))))
+}
 
 # avrundning_dynamisk <- function(x, gräns_stora = 10, gräns_medel = 1, dec_stora = 0, dec_medel = 1, dec_små = 2) {
 #   avrunda <- function(v) {
