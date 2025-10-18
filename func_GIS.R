@@ -2201,10 +2201,18 @@ postgres_databas_uppdatera_med_metadata <- function(
 } # slut funktion postgres_databas_uppdatera_med_metadata
 
 
-postgres_grants_auto_skapa <- function(con, remove_old = TRUE, rattigheter_pa_befintliga = TRUE) {
+postgres_grants_auto_skapa <- function(con, 
+                                       remove_old = TRUE, 
+                                       rattigheter_pa_befintliga = TRUE,
+                                       lasroll_tilldela = NULL,
+                                       skrivroll_tilldela = NULL) {
   # Skript för att skapa auto-grants som innebär att lasroll och skrivroll får läs- respektive skrivrättigheter
   # när nya scheman, tabeller, vyer och materialiserade vyer skapas oavsett vem som skapar dem.
-  # Körs en gång per databas.
+  # Körs i regel en gång per databas.
+  #
+  # remove_old = tar bort gamla triggers
+  # rattigheter_pa_befintliga = lägger till dessa rättigheter på redan befintliga scheman, tabeller, vyer och materialiserade vyer
+  # lasroll_tilldela = tilldelar 
   
   message("🔍 Kontrollerar befintliga event triggers...")
   
@@ -2281,8 +2289,33 @@ postgres_grants_auto_skapa <- function(con, remove_old = TRUE, rattigheter_pa_be
     message("🔄 Uppdaterar även rättigheter på befintliga objekt...")
     postgres_grants_pa_befintliga_objekt(con)
   }
+  
+  # --- Tilldela användare till roller ---
+  if (!is.null(lasroll_tilldela) && length(lasroll_tilldela) > 0) {
+    purrr::walk(lasroll_tilldela, ~{
+      tryCatch({
+        DBI::dbExecute(con, glue::glue("GRANT lasroll TO {.x};"))
+        message(glue::glue("✅ Tilldelade lasroll till {.x}"))
+      },
+      error = function(e) {
+        message(glue::glue("⚠️  Kunde inte tilldela lasroll till {.x}: {e$message}"))
+      })
+    })
+  }
+  
+  if (!is.null(skrivroll_tilldela) && length(skrivroll_tilldela) > 0) {
+    purrr::walk(skrivroll_tilldela, ~{
+      tryCatch({
+        DBI::dbExecute(con, glue::glue("GRANT skrivroll TO {.x};"))
+        message(glue::glue("✅ Tilldelade skrivroll till {.x}"))
+      },
+      error = function(e) {
+        message(glue::glue("⚠️  Kunde inte tilldela skrivroll till {.x}: {e$message}"))
+      })
+    })
+  }
+  
 }
-
 
 postgres_grants_pa_befintliga_objekt <- function(con) {
   # skript för att ge lasroll och skrivroll  läs- respektive skrivrättigheter
