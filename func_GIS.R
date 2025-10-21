@@ -2809,14 +2809,14 @@ postgis_kopiera_tabell_mellan_databaser <- function(
       tid <- format(nu, "%H%M")
       frantabell_ver <- paste0(dag, manad_ar, "_", tid)
       
-      frantabell_ver_db <- glue("{schema_fran}.{tabell_fran} ver: {frantabell_ver}")
-      ver_datum <- format(nu, "%Y-%m-%d")
-      ver_tid <- format(nu, "%H:%M")
+      frantabell_ver_db <<- glue("{schema_fran}.{tabell_fran} ver: {frantabell_ver}")
+      ver_datum <<- format(nu, "%Y-%m-%d")
+      ver_tid <<- format(nu, "%H:%M")
     } else {
       # om det finns en rad i metadatatabellen används den
-      ver_datum <- meta_frantabell$version_datum
-      ver_tid <- meta_frantabell$version_tid
-      frantabell_ver_db <- meta_frantabell$kommentar
+      ver_datum <<- meta_frantabell$version_datum
+      ver_tid <<- meta_frantabell$version_tid
+      frantabell_ver_db <<- meta_frantabell$kommentar
     }
     lyckad_uppdatering <- TRUE
     
