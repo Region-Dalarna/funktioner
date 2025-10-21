@@ -5,6 +5,10 @@ p_load(tidyverse,
        scales,        # för att använda format_format-funktionen och fixa till format på etiketter
        httr,
        openxlsx,
+       sf,
+       ggimage,
+       ggrepel,
+       cowplot,
        ggtext,
        tidytext)     # för att sortera facet-diagram med funktionen reorder_within() och scale_x_reordered()
 #library(png)
@@ -1004,42 +1008,75 @@ SkapaLinjeDiagram <- function(skickad_df,
 } # slut funktion för att skriva linjediagram
 
 skapa_koropletkarta_ggplot <- function(
-    sf_objekt,
-    vardekolumn,
+    sf_objekt,                  # sf-objekt (polygondata) som ska plottas
+    vardekolumn,                 # Kolumnnamn i sf_objekt som innehåller värdet att färgsätta efter 
     klassindelning = NULL,       # "kvantil", "pretty", "natural" alternativt en vektor men gränser för klassindelningen
-    klasser_antal = 5,
-    legend_titel  = NULL,
-    legend_position = "right",     # "dala", "right", "left", "top", "bottom" eller "none" alternativt c(0,0) för nedre vänstra hörnet, c(1,0) för nedre högre hörnet, c(1,1) för övre högra hörnet och c(0,1) för övre vänstra hörnet, c(0.5, 0.5) i mitten
+    klasser_antal = 5,            # Antal klasser om klassindelning är automatisk
+    legend_titel  = NULL,         # Titel i legenden, NULL om inte vill ha någon
+    legend_position = "right",     # "dala", "right", "left", "top", "bottom" eller "none", "bottom-right", "top-left" etc. alternativt c(0,0) för nedre vänstra hörnet, c(1,0) för nedre högre hörnet, c(1,1) för övre högra hörnet och c(0,1) för övre vänstra hörnet, c(0.5, 0.5) i mitten
     legend_justification = "center",      # samma som ovan men gällande vilken del av legenden som avses med legend_position
-    karta_titel = NULL,
-    karta_titel_storlek = 20,
-    karta_caption = NULL,
-    karta_caption_storlek = 9,
-    karta_fargvektor = NULL,
-    filnamn = NULL,
-    output_mapp = NULL,
-    logga_url = NULL,
-    logga_storlek = 0.07,                        # procent av kartans bredd
+    karta_titel = NULL,              # Huvudtitel på kartan
+    karta_titel_storlek = 20,        # storlek på huvudtitel i kartan
+    karta_caption = NULL,            # caption för källa etc. 
+    karta_caption_storlek = 9,       # textstorlek på caption
+    karta_fargvektor = NULL,         # färgvektor om man vill skicka med någon 
+    karta_bakgrund = "white",        # "transparent" eller annan färg
+    karta_hojd = 7,                  # höjden på kartan
+    karta_bredd = "auto",            # kan vara en siffra, eller "auto" för att anpassa plotten till formen på gis-lagret som skickas in
+    karta_upplosning = 300,          # upplösning i dpi för ggsave()
+    filnamn = NULL,                  # filnamn och output_mapp om man vill spara kartan som en bildfil (.png)
+    output_mapp = NULL,              # filnamn och output_mapp om man vill spara kartan som en bildfil (.png)
+    logga_url = NULL,                # sökväg till logga, om man vill ha en logga med
+    logga_storlek = 0.06,                        # procent av kartans bredd
     logga_position = "bottom-right",             # Logga kan läggas i ett av fyra hörn: bottom-right, bottom-left, top-right, top-left
-    returnera_ggobj = TRUE,
-    mork_farg_hogre_varden = TRUE,
-    granser_farg = "darkgrey",
-    granser_tjocklek = 0.4
+    etiketter_kolumn = NULL,                     # kolumn som innehåller etiketter för polygonerna
+    etiketter_storlek = 2,                       # storlek på etiketter för polygonerna
+    etiketter_farg = "black",                    # färg på dataetiketterna för polygoner
+    etiketter_buffer_farg = NA,                  # en kant runt etiketterna för att de ska synas bättre
+    returnera_ggobj = TRUE,                      # om funktionen ska returnera ett ggplot-objekt med kartan 
+    mork_farg_hogre_varden = TRUE,               # om mörka färger ska vara för högre värden, FALSE för omvänt
+    granser_farg = "darkgrey",                   # gränser mellan polygonerna
+    granser_tjocklek = 0.4                       # tjocklek på gränser mellan polygonerna
 ) {
-  library(magick)
-  library(tidyverse)
-  library(sf)
-  library(ggtext)
-  library(ggimage)
-  library(cowplot)
+
   
   if (is.null(karta_fargvektor)) {
     karta_fargvektor <- "Blues"
   }
   
   fargskala_stegring <- if (mork_farg_hogre_varden) 1 else -1
-  if (any(tolower(legend_position) == "dala")) legend_justification <- c(0,0)
-  if (any(tolower(legend_position) == "dala")) legend_position <- c(0.01, 0.03)
+  
+  # hanteraing av legend
+  legend_position_inside_vals <- NULL   # inte panelplacerad
+  legend_box_margin <- margin(0, 0, 0, 0)
+  
+  if (tolower(legend_position) == "bottom-right") {
+    legend_position <- c(1, 0)
+    legend_justification <- c(1, 0)
+    
+  } else if (tolower(legend_position) == "bottom-left" | tolower(legend_position) == "dala") {
+    legend_position <- c(0, 0)
+    legend_justification <- c(0, 0)
+    
+  } else if (tolower(legend_position) == "top-right") {
+    legend_position <- c(1, 1)
+    legend_justification <- c(1, 1)
+    
+  } else if (tolower(legend_position) == "top-left") {
+    legend_position <- c(0, 1)
+    legend_justification <- c(0, 1)
+    
+  } else if (is.numeric(legend_position)) {
+    # Detta är för placering inne i panel (t.ex. c(0.8, 0.2))
+    legend_position_inside_vals <- legend_position
+    legend_position <- "inside"
+    legend_justification <- "center"
+    
+  } else {
+    # Standard: låt ggplot sköta det själv (t.ex. "right", "bottom")
+    legend_position_inside_vals <- NULL
+  }
+
   
   if (!is.null(logga_url)) if(logga_url == "dala") logga_url <- "https://raw.githubusercontent.com/Region-Dalarna/depot/main/rd_logo_liggande_fri_svart.png"
   
@@ -1056,6 +1093,30 @@ skapa_koropletkarta_ggplot <- function(
     } else {
       klassindelning <- match.arg(klassindelning, c("kvantil", "pretty", "natural"))
       
+      # Funktion som automatiskt bestämmer decimalprecision utifrån datan
+      bestam_accuracy <- function(values) {
+        values <- na.omit(values)
+        
+        # 1️⃣ Om alla värden är heltal → inga decimaler
+        if (all(values == round(values))) {
+          return(1)   # accuracy = 1 innebär heltal
+        }
+        
+        # 2️⃣ Annars: bestäm decimals utifrån minsta intervall
+        sorted_vals <- sort(unique(values))
+        min_diff <- min(diff(sorted_vals))
+        
+        if (min_diff >= 5) return(1)          # hela tal
+        if (min_diff >= 1) return(0.1)        # 1 decimal
+        if (min_diff >= 0.1) return(0.1)      # 1 decimal
+        if (min_diff >= 0.01) return(0.01)    # 2 decimaler
+        if (min_diff >= 0.001) return(0.001)  # 3 decimaler
+        
+        return(0.0001)
+      }
+      
+      acc <- bestam_accuracy(sf_objekt[[vardekolumn]])
+      
       if (klassindelning == "kvantil") {
         sf_plot <- sf_objekt %>%
           mutate(klass = cut(!!sym(vardekolumn),
@@ -1066,8 +1127,8 @@ skapa_koropletkarta_ggplot <- function(
                    function(levels_vec) {
                      sapply(levels_vec, function(lv) {
                        parts <- strsplit(gsub("\\[|\\]|\\(|\\)", "", lv), ",")[[1]]
-                       lower <- scales::number(as.numeric(parts[1]), accuracy = 1, big.mark = " ")
-                       upper <- scales::number(as.numeric(parts[2]), accuracy = 1, big.mark = " ")
+                       lower <- scales::number(as.numeric(parts[1]), accuracy = acc, big.mark = " ")
+                       upper <- scales::number(as.numeric(parts[2]), accuracy = acc, big.mark = " ")
                        paste0(lower, " – ", upper)
                      })
                    }
@@ -1084,8 +1145,8 @@ skapa_koropletkarta_ggplot <- function(
               function(levels_vec) {
                 sapply(levels_vec, function(lv) {
                   parts <- strsplit(gsub("\\[|\\]|\\(|\\)", "", lv), ",")[[1]]
-                  lower <- scales::number(as.numeric(parts[1]), accuracy = 1, big.mark = " ")
-                  upper <- scales::number(as.numeric(parts[2]), accuracy = 1, big.mark = " ")
+                  lower <- scales::number(as.numeric(parts[1]), accuracy = acc, big.mark = " ")
+                  upper <- scales::number(as.numeric(parts[2]), accuracy = acc, big.mark = " ")
                   paste0(lower, " – ", upper)
                 })
               }
@@ -1105,8 +1166,8 @@ skapa_koropletkarta_ggplot <- function(
               function(levels_vec) {
                 sapply(levels_vec, function(lv) {
                   parts <- strsplit(gsub("\\[|\\]|\\(|\\)", "", lv), ",")[[1]]
-                  lower <- scales::number(as.numeric(parts[1]), accuracy = 1, big.mark = " ")
-                  upper <- scales::number(as.numeric(parts[2]), accuracy = 1, big.mark = " ")
+                  lower <- scales::number(as.numeric(parts[1]), accuracy = acc, big.mark = " ")
+                  upper <- scales::number(as.numeric(parts[2]), accuracy = acc, big.mark = " ")
                   paste0(lower, " – ", upper)
                 })
               }
@@ -1116,11 +1177,27 @@ skapa_koropletkarta_ggplot <- function(
     }
   }
   
-  
   # --- Grundkarta ---
   p <- ggplot(sf_plot) +
     geom_sf(aes(fill = klass), color = granser_farg, size = granser_tjocklek) +
-    {
+    {                                       # =========== etiketter om det valts (med ggrepel)
+      if (!is.null(etiketter_kolumn)) {
+        ggrepel::geom_text_repel(
+          aes(label = .data[[etiketter_kolumn]], geometry = geometry),
+          stat = "sf_coordinates",          # använder sf-objekt för att hämta koordinater
+          size = etiketter_storlek,
+          color = etiketter_farg,
+          family = "sans",
+          bg.r = 0.15,
+          bg.color = etiketter_buffer_farg, # färg att ha runt etiketterna
+          box.padding = 0.3,                # avstånd runt text
+          point.padding = 0.2,              # avstånd till polygonkant
+          max.overlaps = Inf,               # visa alla, men sprid ut dem
+          min.segment.length = 0             # visa linjer om text flyttas
+        )
+      }
+    } +
+    {                                      # ============ hantering av färger
       if (length(karta_fargvektor) > 1) {
         # 🔹 Egen färgvektor
         if (is.numeric(sf_plot$klass)) {
@@ -1144,21 +1221,36 @@ skapa_koropletkarta_ggplot <- function(
       title   = if (exists("karta_titel")) karta_titel else NULL
     ) +
     theme(
-      #plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
-      plot.title = element_textbox_simple(
+      plot.title.position = "plot",
+      plot.title = ggtext::element_textbox(
         face = "bold",
         size = karta_titel_storlek,
-        width = unit(0.9, "npc"),  # Bredd som proportion av plottens område
+        width = unit(0.95, "npc"),  # Bredd som proportion av plottens område
         halign = 0.5,  # Centrera texten
-        margin = margin(7, 0, 7, 0)),
+        margin = margin(2, 0, 2, 0)),
       legend.position = legend_position,
+      legend.position.inside = legend_position_inside_vals,
       legend.justification = legend_justification,
+      legend.box.margin = legend_box_margin,
       plot.caption = element_text(face = "italic",
                                   hjust = 0, vjust = 0, size = karta_caption_storlek),
+      plot.caption.position = "plot",
       axis.text = element_blank(),
       axis.ticks = element_blank(),
-      panel.grid = element_blank()
-    )
+      axis.title.x = element_blank(),
+      axis.title.y = element_blank(),
+      axis.text.x  = element_blank(),
+      axis.text.y  = element_blank(),
+      panel.grid = element_blank(),
+      panel.background = element_rect(
+        fill = ifelse(karta_bakgrund == "transparent", NA, karta_bakgrund),
+        colour = NA),
+      plot.background = element_rect(
+        fill = ifelse(karta_bakgrund == "transparent", NA, karta_bakgrund),
+        colour = NA),
+      plot.margin = margin(5, 5, 5, 5)
+    ) +
+    coord_sf(expand = FALSE)
   
   # --- Lägg till logga (om angiven) ---
   if (!is.null(logga_url)) {
@@ -1168,7 +1260,8 @@ skapa_koropletkarta_ggplot <- function(
     logga_marginal <- 0.01         # till parametrar om det funkar
     
     pos <- list(
-      "bottom-right" = list(x = 1 - logga_marginal- logga_storlek, y = -0.5 + logga_marginal + logga_hojd, hjust = 1, vjust = 0),
+      #"bottom-right" = list(x = 1 - logga_marginal- logga_storlek, y = -0.5 + logga_marginal + logga_hojd, hjust = 1, vjust = 0),
+      "bottom-right" = list(x = 1 - logga_marginal, y = -0.5 + logga_marginal + (logga_hojd/2), hjust = 1, vjust = 0),
       "bottom-left"  = list(x = 0 + logga_marginal, y = -0.5 + logga_marginal, hjust = 0, vjust = 0),
       "top-right"    = list(x = 1 - logga_marginal, y = 0.5 - logga_marginal, hjust = 1, vjust = 1),
       "top-left"     = list(x = 0 + logga_marginal, y = 0.5 - logga_marginal, hjust = 0, vjust = 1)
@@ -1179,7 +1272,7 @@ skapa_koropletkarta_ggplot <- function(
       pos <- list(x = 1 - logga_marginal, y = 0 + logga_marginal, hjust = 1, vjust = 0)
     } 
     
-    p2 <- cowplot::ggdraw(p) +
+    p <- cowplot::ggdraw(p) +
       cowplot::draw_image(
         logga_url,
         x = pos$x, 
@@ -1199,8 +1292,16 @@ skapa_koropletkarta_ggplot <- function(
   
   # --- Spara bild ---
   if (!is.null(output_mapp) & !is.null(filnamn)) {
+    # anpassa kartans höjd efter den bredd som angetts i karta_bredd utifrån gis-lagrets form
+    if (karta_bredd == "auto") {
+      bbox <- sf::st_bbox(sf_objekt)
+      aspect_ratio <- (bbox$xmax - bbox$xmin) / (bbox$ymax - bbox$ymin)
+      karta_bredd <- karta_hojd * aspect_ratio          # Beräkna bredd utifrån karta_hojd
+    }
+    
     fil_sokvag <- paste0(output_mapp, filnamn)
-    ggsave(fil_sokvag, p, width = 8, height = 8, dpi = 300)
+    ggsave(fil_sokvag, p, width = karta_bredd, height = karta_hojd, dpi = karta_upplosning,
+           bg = ifelse(karta_bakgrund == "transparent", NA, karta_bakgrund))
     message(glue::glue("✅ Karta skapad: {fil_sokvag}"))
   }
   
