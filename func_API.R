@@ -1494,7 +1494,7 @@ source_utan_cache <- function(url, encoding = NA, echo = FALSE) {
   
   if (!is.na(encoding)) {
     source(full_url, encoding = encoding, echo = echo)  
-  } else
+  } else {
     source(full_url, echo = echo)
   }
 }
