@@ -1487,10 +1487,16 @@ urklipp <- function(x, sep = "\n") {
   invisible(x)
 }
 
-source_utan_cache <- function(url) {
+source_utan_cache <- function(url, encoding = NA, echo = FALSE) {
   # använd istället för source för att säkerställa att den inte source:ar in en cache istället
-  # bra när man precis har commit:at och push:at till 
-  source(url(sprintf("%s?nocache=%s", url, as.integer(Sys.time()))))
+  # bra när man precis har commit:at och push:at till
+  full_url <- sprintf("%s?nocache=%s", url, as.integer(Sys.time()))
+  
+  if (!is.na(encoding)) {
+    source(full_url, encoding = encoding, echo = echo)  
+  } else
+    source(full_url, echo = echo)
+  }
 }
 
 # avrundning_dynamisk <- function(x, gräns_stora = 10, gräns_medel = 1, dec_stora = 0, dec_medel = 1, dec_små = 2) {
