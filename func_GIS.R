@@ -3713,6 +3713,13 @@ pgrouting_hitta_narmaste_punkt_pa_natverk <- function(
   } 
   
   tabell_ny_natverk <- glue("{tabell_graf}_{tabell_punkter_fran}")
+  
+  # ge dem värden redan här utfall att fel uppstår innan de får värden i tryCatch()
+  ver_datum <- NA
+  ver_tid <- NA
+  frantabell_ver_db <- NA
+  lyckad_uppdatering <- FALSE
+  
   # här börjar vi körningen, vi kör med dbBegin() för att kunna rulla 
   dbBegin(con)
   tryCatch({
@@ -3857,6 +3864,7 @@ pgrouting_hitta_narmaste_punkt_pa_natverk <- function(
       select(version_datum, version_tid, kommentar)
     
     frantabell_ver_db <- meta_graf$kommentar
+    lyckad_uppdatering <- TRUE
     
   }, error = function(e) {
     dbRollback(con)
@@ -3867,7 +3875,7 @@ pgrouting_hitta_narmaste_punkt_pa_natverk <- function(
     
   }, finally = {
     # Stäng anslutningen om den var temporär
-    if (skapad_i_funktionen) dbDisconnect(con_till_databas)
+    if (skapad_i_funktionen) dbDisconnect(con)
     
     # huvudtabellen, tex. nvdb_bil_adresser
     postgres_metadata_uppdatera(
@@ -3985,7 +3993,7 @@ pgrouting_tabell_till_pgrgraf <- function(
     pgr_graf_ver <- paste0(dag, manad_ar, "_", tid)
     
     frantabell_ver_db <- glue("pgr_graf ver: {pgr_graf_ver}, {meta_graf$kommentar}") 
-    
+    lyckad_uppdatering <- TRUE
     
     #Om något fel skett i blocket, kör en rollback
   }, error = function(e) {
@@ -4066,13 +4074,13 @@ pgrouting_punkttabell_koppla_till_pgr_graf <- function(
   # kolla om id-kolum samt geometri-kolumn finns, prova andra namn om generella_namn_prova = TRUE 
   if (generella_namn_prova) {
     # prova om id-kolumn för punkter finns, om inte, testa "id" annars blir id_kol_finns = FALSE
-    if (!postgres_finns_schema_tabell_kolumner(con = con,
+    if (postgres_finns_schema_tabell_kolumner(con = con,
                                           schema = schema_punkter,
                                           tabell = tabell_punkter,
                                           kolumner = id_kol_punkter,
                                           stoppa_vid_fel = FALSE)$allt_finns) {
       
-    } else if (!postgres_finns_schema_tabell_kolumner(con = con,
+    } else if (postgres_finns_schema_tabell_kolumner(con = con,
                                                schema = schema_punkter,
                                                tabell = tabell_punkter,
                                                kolumner = "id",
@@ -4083,20 +4091,20 @@ pgrouting_punkttabell_koppla_till_pgr_graf <- function(
     
     # prova om geo-kolumn för punkter finns, om inte, testa "geom" och "geometry" annars blir geom_kol_finns = FALSE
     
-    if (!postgres_finns_schema_tabell_kolumner(con = con,
+    if (postgres_finns_schema_tabell_kolumner(con = con,
                                                schema = schema_punkter,
                                                tabell = tabell_punkter,
                                                kolumner = geom_kol_punkter,
                                                stoppa_vid_fel = FALSE)$allt_finns) {
       
-    } else if (!postgres_finns_schema_tabell_kolumner(con = con,
+    } else if (postgres_finns_schema_tabell_kolumner(con = con,
                                                       schema = schema_punkter,
                                                       tabell = tabell_punkter,
                                                       kolumner = "geometry",
                                                       stoppa_vid_fel = FALSE)$allt_finns) {
       geom_kol_punkter <- "geometry"
       
-    } else if (!postgres_finns_schema_tabell_kolumner(con = con,
+    } else if (postgres_finns_schema_tabell_kolumner(con = con,
                                                       schema = schema_punkter,
                                                       tabell = tabell_punkter,
                                                       kolumner = "geom",
@@ -4106,12 +4114,12 @@ pgrouting_punkttabell_koppla_till_pgr_graf <- function(
     } else geom_kol_finns <- FALSE
     
   } else {             # om generella_namn_prova = FALSE
-    if (!postgres_finns_schema_tabell_kolumner(con = con,
+    if (postgres_finns_schema_tabell_kolumner(con = con,
                                                schema = schema_punkter,
                                                tabell = tabell_punkter,
                                                kolumner = id_kol_punkter,
                                                stoppa_vid_fel = FALSE)$allt_finns) id_kol_finns <- FALSE
-    if (!postgres_finns_schema_tabell_kolumner(con = con,
+    if (postgres_finns_schema_tabell_kolumner(con = con,
                                                 schema = schema_punkter,
                                                tabell = tabell_punkter,
                                                kolumner = geom_kol_punkter,
