@@ -2015,7 +2015,10 @@ github_commit_push <- function(
   staged_modified <- repo_status$staged$modified
   staged_deleted <- repo_status$staged$deleted
   
-  if (length(untracked_files) + length(unstaged_modified) + length(unstaged_deleted) > 0) {
+  #if (length(untracked_files) + length(unstaged_modified) + length(unstaged_deleted) > 0) {
+  if (any(lengths(list(untracked_files, unstaged_modified, unstaged_deleted,
+                       staged_added, staged_modified, staged_deleted)) > 0)) {
+    
     if (!fran_rmarkdown) {
       # Hämta remote repository-filnamn
       github_fillista <- github_lista_repo_filer(owner = repo_org,
@@ -2024,7 +2027,7 @@ github_commit_push <- function(
                                                  skriv_source_konsol = FALSE)$namn
       
       # Filklassificering
-      filer_tillagda  <- unique(c(staged_added, untracked_files[!untracked_files %in% github_fillista]))
+      filer_tillagda  <- unique(c(staged_added, untracked_files))                 #[!untracked_files %in% github_fillista]))
       filer_andrade   <- unique(c(staged_modified, unstaged_modified))
       filer_borttagna <- unique(c(staged_deleted,  unstaged_deleted))
       
@@ -2061,13 +2064,13 @@ github_commit_push <- function(
       }
     }
     
-    # Kolla om det ligger filer stage:ade sedan tidigare (oftast gör det inte det) - och i så fall skriver vi det i konsolen
-    if (length(c(staged_added, staged_modified, staged_deleted)) > 0) {
-      cat("Filer som redan är staged för commit:\n")
-      if (length(staged_added) > 0) cat("Tillagda:\n", paste(staged_added, collapse = "\n"), "\n")
-      if (length(staged_modified) > 0) cat("Ändrade:\n", paste(staged_modified, collapse = "\n"), "\n")
-      if (length(staged_deleted) > 0) cat("Borttagna:\n", paste(staged_deleted, collapse = "\n"), "\n")
-    }
+    # # Kolla om det ligger filer stage:ade sedan tidigare (oftast gör det inte det) - och i så fall skriver vi det i konsolen
+    # if (length(c(staged_added, staged_modified, staged_deleted)) > 0) {
+    #   cat("Filer som redan är staged för commit:\n")
+    #   if (length(staged_added) > 0) cat("Tillagda:\n", paste(staged_added, collapse = "\n"), "\n")
+    #   if (length(staged_modified) > 0) cat("Ändrade:\n", paste(staged_modified, collapse = "\n"), "\n")
+    #   if (length(staged_deleted) > 0) cat("Borttagna:\n", paste(staged_deleted, collapse = "\n"), "\n")
+    # }
     
     # Lägg till och comitta alla ändrade filer
     if (exists("filer_tillagda")) {
