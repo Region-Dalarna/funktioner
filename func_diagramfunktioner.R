@@ -407,6 +407,10 @@ diagramfarger <- function(farg = "rus_sex"){
   
   rd_karta_gron <- c("#459079", "#54B798", "#93CEC1", "#D5EAE6")
   
+  rd_karta_gron_sex <- c("#3C7C69", "#459079", "#54B798", "#7FCAB5", "#BFE2DC", "#E3F3F1")
+  
+  rd_karta_gron_sju <- c("#356F5F", "#459079", "#54B798", "#7FCAB5", "#A9D9CE", "#D5EAE6", "#ECF7F6")
+  
   rd_primar_atta <- c("#F15060", "#FFD378", "#00B4E4", "#54B798", "#969696", "#F8AAB6", "#0074A2", "#459079")
   
   rd_primar_nio <- c("#F15060", "#00B4E4", "#54B798", "#AE2D3A", "#0074A2", "#459079", "#E2A855", "#F8AAB6", "#969696")
