@@ -1020,6 +1020,7 @@ skapa_koropletkarta_ggplot <- function(
     karta_caption = NULL,            # caption för källa etc. 
     karta_caption_storlek = 9,       # textstorlek på caption
     karta_fargvektor = NULL,         # färgvektor om man vill skicka med någon 
+    karta_farg_hogst = "mork",       # "mork" = mörk färg för höga värden, "ljus" = ljus färg för höga värden, NA = färgskalan ändras inte
     karta_bakgrund = "white",        # "transparent" eller annan färg
     karta_hojd = 7,                  # höjden på kartan
     karta_bredd = "auto",            # kan vara en siffra, eller "auto" för att anpassa plotten till formen på gis-lagret som skickas in
@@ -1092,10 +1093,11 @@ skapa_koropletkarta_ggplot <- function(
   
   # --- Klassindelning ---
   if (is.null(klassindelning)) {
-    sf_plot <- sf_objekt %>%
-      mutate(klass = !!sym(vardekolumn))
-    
+    # Kontinuerlig skala (ingen cut, ingen faktor)
+    sf_plot <- sf_objekt %>% mutate(klass = !!sym(vardekolumn))
+    diskret_skala <- FALSE
   } else {
+    diskret_skala <- TRUE
     
     if (is.numeric(klassindelning)) {
       sf_plot <- sf_objekt %>%
@@ -1103,101 +1105,182 @@ skapa_koropletkarta_ggplot <- function(
     } else {
       klassindelning <- match.arg(klassindelning, c("kvantil", "pretty", "natural"))
       
-      # Funktion som automatiskt bestämmer decimalprecision utifrån datan
+      # Automatisk bestämning av decimalprecision (som du redan hade)
       bestam_accuracy <- function(values) {
         values <- na.omit(values)
-        
-        # 1️⃣ Om alla värden är heltal → inga decimaler
-        if (all(values == round(values))) {
-          return(1)   # accuracy = 1 innebär heltal
-        }
-        
-        # 2️⃣ Annars: bestäm decimals utifrån minsta intervall
-        sorted_vals <- sort(unique(values))
-        min_diff <- min(diff(sorted_vals))
-        
-        if (min_diff >= 5) return(1)          # hela tal
-        if (min_diff >= 1) return(0.1)        # 1 decimal
-        if (min_diff >= 0.1) return(0.1)      # 1 decimal
-        if (min_diff >= 0.01) return(0.01)    # 2 decimaler
-        if (min_diff >= 0.001) return(0.001)  # 3 decimaler
-        
-        return(0.0001)
+        if (all(values == round(values))) return(1)
+        diffs <- diff(sort(unique(values)))
+        if (min(diffs) >= 1) return(0.1)
+        if (min(diffs) >= 0.1) return(0.1)
+        if (min(diffs) >= 0.01) return(0.01)
+        return(0.001)
       }
-      
       acc <- bestam_accuracy(sf_objekt[[vardekolumn]])
       
+      # Skapa diskreta klasser
       if (klassindelning == "kvantil") {
         sf_plot <- sf_objekt %>%
           mutate(klass = cut(!!sym(vardekolumn),
                              breaks = quantile(!!sym(vardekolumn), probs = seq(0, 1, length.out = klasser_antal + 1), na.rm = TRUE),
-                             include.lowest = TRUE),
-                 klass = forcats::fct_relabel(
-                   klass,
-                   function(levels_vec) {
-                     sapply(levels_vec, function(lv) {
-                       parts <- strsplit(gsub("\\[|\\]|\\(|\\)", "", lv), ",")[[1]]
-                       lower <- scales::number(as.numeric(parts[1]), accuracy = acc, big.mark = " ")
-                       upper <- scales::number(as.numeric(parts[2]), accuracy = acc, big.mark = " ")
-                       paste0(lower, " – ", upper)
-                     })
-                   }
-                 )
-          )
-      } else if (klassindelning == "pretty") {
+                             include.lowest = TRUE))
+      }
+      if (klassindelning == "pretty") {
         sf_plot <- sf_objekt %>%
-          mutate(
-            klass = cut(!!sym(vardekolumn),
-                        breaks = pretty(range(!!sym(vardekolumn), na.rm = TRUE), n = klasser_antal),
-                        include.lowest = TRUE),
-            klass = forcats::fct_relabel(
-              klass,
-              function(levels_vec) {
-                sapply(levels_vec, function(lv) {
-                  parts <- strsplit(gsub("\\[|\\]|\\(|\\)", "", lv), ",")[[1]]
-                  lower <- scales::number(as.numeric(parts[1]), accuracy = acc, big.mark = " ")
-                  upper <- scales::number(as.numeric(parts[2]), accuracy = acc, big.mark = " ")
-                  paste0(lower, " – ", upper)
-                })
-              }
-            )
-          )
-      } else if (klassindelning == "natural") {
+          mutate(klass = cut(!!sym(vardekolumn),
+                             breaks = pretty(range(!!sym(vardekolumn), na.rm = TRUE), n = klasser_antal),
+                             include.lowest = TRUE))
+      }
+      if (klassindelning == "natural") {
         values <- sf_objekt |> dplyr::pull(!!sym(vardekolumn))
         sf_plot <- sf_objekt %>%
-          mutate(
-            klass = cut(
-              !!sym(vardekolumn),
-              breaks = classInt::classIntervals(values, n = klasser_antal, style = "jenks")$brks,
-              include.lowest = TRUE
-            ),
-            klass = forcats::fct_relabel(
-              klass,
-              function(levels_vec) {
-                sapply(levels_vec, function(lv) {
-                  parts <- strsplit(gsub("\\[|\\]|\\(|\\)", "", lv), ",")[[1]]
-                  lower <- scales::number(as.numeric(parts[1]), accuracy = acc, big.mark = " ")
-                  upper <- scales::number(as.numeric(parts[2]), accuracy = acc, big.mark = " ")
-                  paste0(lower, " – ", upper)
-                })
-              }
-            )
-          )
+          mutate(klass = cut(!!sym(vardekolumn),
+                             breaks = classInt::classIntervals(values, n = klasser_antal, style = "jenks")$brks,
+                             include.lowest = TRUE))
       }
+      
+      # ✅ Formatera intervall-etiketter (gäller bara faktor)
+      sf_plot$klass <- forcats::fct_relabel(sf_plot$klass, function(lv) {
+        sapply(lv, function(x) {
+          parts <- strsplit(gsub("\\[|\\]|\\(|\\)", "", x), ",")[[1]]
+          lower <- as.numeric(parts[1]); upper <- as.numeric(parts[2])
+          if (!is.na(lower) && !is.na(upper) && lower == round(lower) && upper == round(upper)) {
+            paste0(round(lower), " – ", round(upper))
+          } else {
+            paste0(scales::number(lower, accuracy = acc), " – ", scales::number(upper, accuracy = acc))
+          }
+        })
+      })
     }
   }
+  
+  
+  
+  # # --- Klassindelning ---
+  # if (is.null(klassindelning)) {
+  #   sf_plot <- sf_objekt %>%
+  #     mutate(klass = !!sym(vardekolumn))
+  #   
+  # } else {
+  #   
+  #   if (is.numeric(klassindelning)) {
+  #     sf_plot <- sf_objekt %>%
+  #       mutate(klass = cut(!!sym(vardekolumn), breaks = klassindelning, include.lowest = TRUE))
+  #   } else {
+  #     klassindelning <- match.arg(klassindelning, c("kvantil", "pretty", "natural"))
+  #     
+  #     # Funktion som automatiskt bestämmer decimalprecision utifrån datan
+  #     bestam_accuracy <- function(values) {
+  #       values <- na.omit(values)
+  #       
+  #       # 1️⃣ Om alla värden är heltal → inga decimaler
+  #       if (all(values == round(values))) {
+  #         return(1)   # accuracy = 1 innebär heltal
+  #       }
+  #       
+  #       # 2️⃣ Annars: bestäm decimals utifrån minsta intervall
+  #       sorted_vals <- sort(unique(values))
+  #       min_diff <- min(diff(sorted_vals))
+  #       
+  #       if (min_diff >= 5) return(1)          # hela tal
+  #       if (min_diff >= 1) return(0.1)        # 1 decimal
+  #       if (min_diff >= 0.1) return(0.1)      # 1 decimal
+  #       if (min_diff >= 0.01) return(0.01)    # 2 decimaler
+  #       if (min_diff >= 0.001) return(0.001)  # 3 decimaler
+  #       
+  #       return(0.0001)
+  #     }
+  #     
+  #     acc <- bestam_accuracy(sf_objekt[[vardekolumn]])
+  #     
+  #     if (klassindelning == "kvantil") {
+  #       sf_plot <- sf_objekt %>%
+  #         mutate(klass = cut(!!sym(vardekolumn),
+  #                            breaks = quantile(!!sym(vardekolumn), probs = seq(0, 1, length.out = klasser_antal + 1), na.rm = TRUE),
+  #                            include.lowest = TRUE),
+  #                klass = forcats::fct_relabel(
+  #                  klass,
+  #                  function(levels_vec) {
+  #                    sapply(levels_vec, function(lv) {
+  #                      parts <- strsplit(gsub("\\[|\\]|\\(|\\)", "", lv), ",")[[1]]
+  #                      lower <- scales::number(as.numeric(parts[1]), accuracy = acc, big.mark = " ")
+  #                      upper <- scales::number(as.numeric(parts[2]), accuracy = acc, big.mark = " ")
+  #                      paste0(lower, " – ", upper)
+  #                    })
+  #                  }
+  #                )
+  #         )
+  #     } else if (klassindelning == "pretty") {
+  #       sf_plot <- sf_objekt %>%
+  #         mutate(
+  #           klass = cut(!!sym(vardekolumn),
+  #                       breaks = pretty(range(!!sym(vardekolumn), na.rm = TRUE), n = klasser_antal),
+  #                       include.lowest = TRUE),
+  #           klass = forcats::fct_relabel(
+  #             klass,
+  #             function(levels_vec) {
+  #               sapply(levels_vec, function(lv) {
+  #                 parts <- strsplit(gsub("\\[|\\]|\\(|\\)", "", lv), ",")[[1]]
+  #                 lower <- scales::number(as.numeric(parts[1]), accuracy = acc, big.mark = " ")
+  #                 upper <- scales::number(as.numeric(parts[2]), accuracy = acc, big.mark = " ")
+  #                 paste0(lower, " – ", upper)
+  #               })
+  #             }
+  #           )
+  #         )
+  #     } else if (klassindelning == "natural") {
+  #       values <- sf_objekt |> dplyr::pull(!!sym(vardekolumn))
+  #       sf_plot <- sf_objekt %>%
+  #         mutate(
+  #           klass = cut(
+  #             !!sym(vardekolumn),
+  #             breaks = classInt::classIntervals(values, n = klasser_antal, style = "jenks")$brks,
+  #             include.lowest = TRUE
+  #           ),
+  #           klass = forcats::fct_relabel(
+  #             klass,
+  #             function(levels_vec) {
+  #               sapply(levels_vec, function(lv) {
+  #                 parts <- strsplit(gsub("\\[|\\]|\\(|\\)", "", lv), ",")[[1]]
+  #                 lower <- scales::number(as.numeric(parts[1]), accuracy = acc, big.mark = " ")
+  #                 upper <- scales::number(as.numeric(parts[2]), accuracy = acc, big.mark = " ")
+  #                 paste0(lower, " – ", upper)
+  #               })
+  #             }
+  #           )
+  #         )
+  #     }
+  #   }
+  # }
+  
+
+  
   
   # hantera färger - vilket kan bero på antalet klasser
   if (is.null(karta_fargvektor)) {
     if (exists("diagramfarger")) {
-      if (length(unique(sf_plot$klasser)) < 5) karta_fargvektor <- diagramfarger("rd_karta_gron")
-      if (length(unique(sf_plot$klasser)) < 7) karta_fargvektor <- diagramfarger("rd_karta_gron_sex")
-      if (length(unique(sf_plot$klasser)) == 7) karta_fargvektor <- diagramfarger("rd_karta_gron_sju")
-      if (length(unique(sf_plot$klasser)) > 7) karta_fargvektor <- diagramfarger("rd_karta_gron")
+      if (length(unique(sf_plot$klass)) < 5) karta_fargvektor <- diagramfarger("rd_karta_gron")
+      if (length(unique(sf_plot$klass)) < 7) karta_fargvektor <- diagramfarger("rd_karta_gron_sex")
+      if (length(unique(sf_plot$klass)) == 7) karta_fargvektor <- diagramfarger("rd_karta_gron_sju")
+      if (length(unique(sf_plot$klass)) > 7) karta_fargvektor <- diagramfarger("rd_karta_gron")
     } else {
       karta_fargvektor <- "Blues"  
     }
   }
+  
+  if (!is.na(karta_farg_hogst)) {
+    # Räkna ut luminans (ljushet) för första och sista färgen i paletten
+    rgb_start <- grDevices::col2rgb(karta_fargvektor[1])
+    rgb_slut  <- grDevices::col2rgb(karta_fargvektor[length(karta_fargvektor)])
+    
+    lum_start <- 0.2126 * rgb_start[1] + 0.7152 * rgb_start[2] + 0.0722 * rgb_start[3]
+    lum_slut  <- 0.2126 * rgb_slut[1]  + 0.7152 * rgb_slut[2]  + 0.0722 * rgb_slut[3]
+    
+    # Om första färgen är mörkare än sista → vänd färgvektorn (så ljus låg → mörk hög)
+    if (lum_start < lum_slut) {
+      karta_fargvektor <- if (karta_farg_hogst == "mork") rev(karta_fargvektor) else karta_fargvektor
+    }
+  }
+  
   
   # --- Grundkarta ---
   p <- ggplot(sf_plot) +
@@ -1220,21 +1303,33 @@ skapa_koropletkarta_ggplot <- function(
       }
     } +
     {                                      # ============ hantering av färger
-      if (length(karta_fargvektor) > 1) {
-        # 🔹 Egen färgvektor
-        if (is.numeric(sf_plot$klass)) {
-          scale_fill_gradientn(colours = karta_fargvektor, name = legend_titel, na.value = "grey90")
-        } else {
-          scale_fill_manual(values = karta_fargvektor, name = legend_titel, na.value = "grey90")
-        }
+      if (!diskret_skala) {
+        # Kontinuerlig färgskala
+        scale_fill_gradientn(colours = karta_fargvektor, name = legend_titel, na.value = "grey90")
       } else {
-        # 🔹 Namngiven Brewer-palett
-        if (is.numeric(sf_plot$klass)) {
-          scale_fill_distiller(palette = karta_fargvektor, name = legend_titel, na.value = "grey90")
+        # Diskret färgskala
+        if (length(karta_fargvektor) > 1) {
+          scale_fill_manual(values = karta_fargvektor, name = legend_titel, na.value = "grey90")
         } else {
-          scale_fill_brewer(palette = karta_fargvektor, name = legend_titel, na.value = "grey90")
+          scale_fill_distiller(palette = karta_fargvektor, name = legend_titel, na.value = "grey90")
         }
       }
+      
+      # if (length(karta_fargvektor) > 1) {
+      #   # 🔹 Egen färgvektor
+      #   if (is.numeric(sf_plot$klass)) {
+      #     scale_fill_gradientn(colours = karta_fargvektor, name = legend_titel, na.value = "grey90")
+      #   } else {
+      #     scale_fill_manual(values = karta_fargvektor, name = legend_titel, na.value = "grey90")
+      #   }
+      # } else {
+      #   # 🔹 Namngiven Brewer-palett
+      #   if (is.numeric(sf_plot$klass)) {
+      #     scale_fill_distiller(palette = karta_fargvektor, name = legend_titel, na.value = "grey90")
+      #   } else {
+      #     scale_fill_brewer(palette = karta_fargvektor, name = legend_titel, na.value = "grey90")
+      #   }
+      # }
     } +
     theme_minimal(base_size = 12) +
     labs(
