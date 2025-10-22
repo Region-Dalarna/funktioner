@@ -1034,48 +1034,58 @@ skapa_koropletkarta_ggplot <- function(
     etiketter_farg = "black",                    # färg på dataetiketterna för polygoner
     etiketter_buffer_farg = NA,                  # en kant runt etiketterna för att de ska synas bättre
     returnera_ggobj = TRUE,                      # om funktionen ska returnera ett ggplot-objekt med kartan 
-    mork_farg_hogre_varden = TRUE,               # om mörka färger ska vara för högre värden, FALSE för omvänt
     granser_farg = "darkgrey",                   # gränser mellan polygonerna
     granser_tjocklek = 0.4                       # tjocklek på gränser mellan polygonerna
 ) {
 
+
+  # --- Säkerställ att geometrikolumnen heter "geometry" och inte krockar med andra kolumner ---
+  # Hämta sf-geometrikolumnens riktiga namn
+  geom_kol <- attr(sf_objekt, "sf_column")
   
-  if (is.null(karta_fargvektor)) {
-    karta_fargvektor <- "Blues"
+  # Om det redan finns en BORTA kolumn som heter "geometry" men som inte är geometri → döp om den
+  if ("geometry" %in% names(sf_objekt) && geom_kol != "geometry") {
+    sf_objekt <- sf_objekt %>%
+      dplyr::rename(geometry_attr = geometry)
   }
   
-  fargskala_stegring <- if (mork_farg_hogre_varden) 1 else -1
+  # Om geometri-kolumnen inte heter "geometry" → döp om den och uppdatera sf-attribut
+  if (geom_kol != "geometry") {
+    sf_objekt <- sf_objekt %>%
+      dplyr::rename(geometry = !!sym(geom_kol)) %>%
+      sf::st_set_geometry("geometry")
+  }
   
-  # hanteraing av legend
-  legend_position_inside_vals <- NULL   # inte panelplacerad
+  # hantering av legend
+  legend_position_inside_vals <- NULL
   legend_box_margin <- margin(0, 0, 0, 0)
   
-  if (tolower(legend_position) == "bottom-right") {
-    legend_position <- c(1, 0)
-    legend_justification <- c(1, 0)
+  if (tolower(legend_position) %in% c("bottom-right", "bottom-left", "top-right", "top-left", "dala")) {
     
-  } else if (tolower(legend_position) == "bottom-left" | tolower(legend_position) == "dala") {
-    legend_position <- c(0, 0)
-    legend_justification <- c(0, 0)
+    # Mappa hörn till koordinater
+    corner_map <- list(
+      "bottom-right" = c(1, 0),
+      "bottom-left"  = c(0, 0),
+      "top-right"    = c(1, 1),
+      "top-left"     = c(0, 1),
+      "dala"         = c(0, 0)  # samma som bottom-left
+    )
     
-  } else if (tolower(legend_position) == "top-right") {
-    legend_position <- c(1, 1)
-    legend_justification <- c(1, 1)
-    
-  } else if (tolower(legend_position) == "top-left") {
-    legend_position <- c(0, 1)
-    legend_justification <- c(0, 1)
+    legend_position_inside_vals <- corner_map[[tolower(legend_position)]]
+    legend_position <- "inside"
+    legend_justification <- legend_position_inside_vals
     
   } else if (is.numeric(legend_position)) {
-    # Detta är för placering inne i panel (t.ex. c(0.8, 0.2))
+    # Om användaren skickar egna koordinater, t.ex. c(0.8, 0.2)
     legend_position_inside_vals <- legend_position
     legend_position <- "inside"
     legend_justification <- "center"
     
   } else {
-    # Standard: låt ggplot sköta det själv (t.ex. "right", "bottom")
+    # Standard ("right", "bottom", etc.)
     legend_position_inside_vals <- NULL
   }
+  
 
   
   if (!is.null(logga_url)) if(logga_url == "dala") logga_url <- "https://raw.githubusercontent.com/Region-Dalarna/depot/main/rd_logo_liggande_fri_svart.png"
@@ -1177,6 +1187,18 @@ skapa_koropletkarta_ggplot <- function(
     }
   }
   
+  # hantera färger - vilket kan bero på antalet klasser
+  if (is.null(karta_fargvektor)) {
+    if (exists("diagramfarger")) {
+      if (length(unique(sf_plot$klasser)) < 5) karta_fargvektor <- diagramfarger("rd_karta_gron")
+      if (length(unique(sf_plot$klasser)) < 7) karta_fargvektor <- diagramfarger("rd_karta_gron_sex")
+      if (length(unique(sf_plot$klasser)) == 7) karta_fargvektor <- diagramfarger("rd_karta_gron_sju")
+      if (length(unique(sf_plot$klasser)) > 7) karta_fargvektor <- diagramfarger("rd_karta_gron")
+    } else {
+      karta_fargvektor <- "Blues"  
+    }
+  }
+  
   # --- Grundkarta ---
   p <- ggplot(sf_plot) +
     geom_sf(aes(fill = klass), color = granser_farg, size = granser_tjocklek) +
@@ -1208,9 +1230,9 @@ skapa_koropletkarta_ggplot <- function(
       } else {
         # 🔹 Namngiven Brewer-palett
         if (is.numeric(sf_plot$klass)) {
-          scale_fill_distiller(palette = karta_fargvektor, name = legend_titel, na.value = "grey90", direction = fargskala_stegring)
+          scale_fill_distiller(palette = karta_fargvektor, name = legend_titel, na.value = "grey90")
         } else {
-          scale_fill_brewer(palette = karta_fargvektor, name = legend_titel, na.value = "grey90", direction = fargskala_stegring)
+          scale_fill_brewer(palette = karta_fargvektor, name = legend_titel, na.value = "grey90")
         }
       }
     } +
