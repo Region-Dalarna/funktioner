@@ -1022,6 +1022,7 @@ skapa_koropletkarta_ggplot <- function(
     karta_caption_storlek = 9,       # textstorlek på caption
     karta_fargvektor = NULL,         # färgvektor om man vill skicka med någon 
     karta_farg_hogst = "mork",       # "mork" = mörk färg för höga värden, "ljus" = ljus färg för höga värden, NA = färgskalan ändras inte
+    na_farg = "grey90",              # färg för na-värden, "transparent" för genomskinliga polygoner
     karta_bakgrund = "white",        # "transparent" eller annan färg
     karta_hojd = 7,                  # höjden på kartan
     karta_bredd = "auto",            # kan vara en siffra, eller "auto" för att anpassa plotten till formen på gis-lagret som skickas in
@@ -1224,31 +1225,17 @@ skapa_koropletkarta_ggplot <- function(
       }
     } +
     {                                      # ============ hantering av färger
-      
       if (!diskret_skala) {
         # Kontinuerlig färgskala
-        scale_fill_gradientn(colours = karta_fargvektor, name = legend_titel, na.value = "grey90")
+        scale_fill_gradientn(colours = karta_fargvektor, name = legend_titel, na.value = na_farg)
       } else {
         # Diskret färgskala
         if (length(karta_fargvektor) > 1) {
-          scale_fill_manual(values = karta_fargvektor, name = legend_titel, na.value = "grey90")
+          scale_fill_manual(values = karta_fargvektor, name = legend_titel, na.value = na_farg)
         } else {
-          scale_fill_brewer(palette = karta_fargvektor, name = legend_titel, na.value = "grey90")
+          scale_fill_brewer(palette = karta_fargvektor, name = legend_titel, na.value = na_farg)
         }
       }
-      
-      # if (!diskret_skala) {
-      #   # Kontinuerlig färgskala
-      #   scale_fill_gradientn(colours = karta_fargvektor, name = legend_titel, na.value = "grey90")
-      # } else {
-      #   # Diskret färgskala
-      #   if (length(karta_fargvektor) > 1) {
-      #     scale_fill_manual(values = karta_fargvektor, name = legend_titel, na.value = "grey90")
-      #   } else {
-      #     scale_fill_distiller(palette = karta_fargvektor, name = legend_titel, na.value = "grey90")
-      #   }
-      # }
-      
     } +
     theme_minimal(base_size = 12) +
     labs(
