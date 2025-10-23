@@ -1012,6 +1012,7 @@ skapa_koropletkarta_ggplot <- function(
     vardekolumn,                 # Kolumnnamn i sf_objekt som innehåller värdet att färgsätta efter 
     klassindelning = NULL,       # "kvantil", "pretty", "natural" alternativt en vektor men gränser för klassindelningen
     klasser_antal = 5,            # Antal klasser om klassindelning är automatisk
+    klasser_kontinuerlig_skala_oavsett = FALSE,    # väljer kontinuerlig skala oavsett hur värdena ser ut i datasetet
     legend_titel  = NULL,         # Titel i legenden, NULL om inte vill ha någon
     legend_position = "right",     # "dala", "right", "left", "top", "bottom" eller "none", "bottom-right", "top-left" etc. alternativt c(0,0) för nedre vänstra hörnet, c(1,0) för nedre högre hörnet, c(1,1) för övre högra hörnet och c(0,1) för övre vänstra hörnet, c(0.5, 0.5) i mitten
     legend_justification = "center",      # samma som ovan men gällande vilken del av legenden som avses med legend_position
@@ -1087,17 +1088,39 @@ skapa_koropletkarta_ggplot <- function(
     legend_position_inside_vals <- NULL
   }
   
-
-  
   if (!is.null(logga_url)) if(logga_url == "dala") logga_url <- "https://raw.githubusercontent.com/Region-Dalarna/depot/main/rd_logo_liggande_fri_svart.png"
+  
+  # --- Anpassa klasser_antal om för få unika värden finns (för att undvika varning vid klassindelning) ---
+  antal_unika <- length(unique(na.omit(sf_objekt[[vardekolumn]])))
+  
+  if (!is.null(klassindelning) && antal_unika < klasser_antal) {
+    message(glue::glue("ℹ Justerar antal klasser från {klasser_antal} till {antal_unika} (så många unika värden finns)."))
+    klasser_antal <- antal_unika
+  }
   
   # --- Klassindelning ---
   if (is.null(klassindelning)) {
-    # Kontinuerlig skala (ingen cut, ingen faktor)
-    sf_plot <- sf_objekt %>% mutate(klass = !!sym(vardekolumn))
-    diskret_skala <- FALSE
+    # Räknar antal unika värden
+    antal_unika <- length(unique(na.omit(sf_objekt[[vardekolumn]])))
+    
+    if (klasser_kontinuerlig_skala_oavsett) {
+      # Använd kontinuerlig färg även om få värden
+      sf_plot <- sf_objekt %>% mutate(klass = !!sym(vardekolumn))
+      diskret_skala <- FALSE
+      
+    } else if (antal_unika < 7) {
+      # Automatiskt diskret om få värden
+      sf_plot <- sf_objekt %>% mutate(klass = factor(!!sym(vardekolumn)))
+      diskret_skala <- TRUE
+      
+    } else {
+      # Normal kontinuerlig logik
+      sf_plot <- sf_objekt %>% mutate(klass = !!sym(vardekolumn))
+      diskret_skala <- FALSE
+    }
+    
   } else {
-    diskret_skala <- TRUE
+    diskret_skala <- TRUE  # Klassindelning = diskret skala
     
     if (is.numeric(klassindelning)) {
       sf_plot <- sf_objekt %>%
@@ -1134,7 +1157,7 @@ skapa_koropletkarta_ggplot <- function(
         values <- sf_objekt |> dplyr::pull(!!sym(vardekolumn))
         sf_plot <- sf_objekt %>%
           mutate(klass = cut(!!sym(vardekolumn),
-                             breaks = classInt::classIntervals(values, n = klasser_antal, style = "jenks")$brks,
+                             breaks = suppressWarnings(classInt::classIntervals(values, n = klasser_antal, style = "jenks")$brks),
                              include.lowest = TRUE))
       }
       
@@ -1152,108 +1175,6 @@ skapa_koropletkarta_ggplot <- function(
       })
     }
   }
-  
-  
-  
-  # # --- Klassindelning ---
-  # if (is.null(klassindelning)) {
-  #   sf_plot <- sf_objekt %>%
-  #     mutate(klass = !!sym(vardekolumn))
-  #   
-  # } else {
-  #   
-  #   if (is.numeric(klassindelning)) {
-  #     sf_plot <- sf_objekt %>%
-  #       mutate(klass = cut(!!sym(vardekolumn), breaks = klassindelning, include.lowest = TRUE))
-  #   } else {
-  #     klassindelning <- match.arg(klassindelning, c("kvantil", "pretty", "natural"))
-  #     
-  #     # Funktion som automatiskt bestämmer decimalprecision utifrån datan
-  #     bestam_accuracy <- function(values) {
-  #       values <- na.omit(values)
-  #       
-  #       # 1️⃣ Om alla värden är heltal → inga decimaler
-  #       if (all(values == round(values))) {
-  #         return(1)   # accuracy = 1 innebär heltal
-  #       }
-  #       
-  #       # 2️⃣ Annars: bestäm decimals utifrån minsta intervall
-  #       sorted_vals <- sort(unique(values))
-  #       min_diff <- min(diff(sorted_vals))
-  #       
-  #       if (min_diff >= 5) return(1)          # hela tal
-  #       if (min_diff >= 1) return(0.1)        # 1 decimal
-  #       if (min_diff >= 0.1) return(0.1)      # 1 decimal
-  #       if (min_diff >= 0.01) return(0.01)    # 2 decimaler
-  #       if (min_diff >= 0.001) return(0.001)  # 3 decimaler
-  #       
-  #       return(0.0001)
-  #     }
-  #     
-  #     acc <- bestam_accuracy(sf_objekt[[vardekolumn]])
-  #     
-  #     if (klassindelning == "kvantil") {
-  #       sf_plot <- sf_objekt %>%
-  #         mutate(klass = cut(!!sym(vardekolumn),
-  #                            breaks = quantile(!!sym(vardekolumn), probs = seq(0, 1, length.out = klasser_antal + 1), na.rm = TRUE),
-  #                            include.lowest = TRUE),
-  #                klass = forcats::fct_relabel(
-  #                  klass,
-  #                  function(levels_vec) {
-  #                    sapply(levels_vec, function(lv) {
-  #                      parts <- strsplit(gsub("\\[|\\]|\\(|\\)", "", lv), ",")[[1]]
-  #                      lower <- scales::number(as.numeric(parts[1]), accuracy = acc, big.mark = " ")
-  #                      upper <- scales::number(as.numeric(parts[2]), accuracy = acc, big.mark = " ")
-  #                      paste0(lower, " – ", upper)
-  #                    })
-  #                  }
-  #                )
-  #         )
-  #     } else if (klassindelning == "pretty") {
-  #       sf_plot <- sf_objekt %>%
-  #         mutate(
-  #           klass = cut(!!sym(vardekolumn),
-  #                       breaks = pretty(range(!!sym(vardekolumn), na.rm = TRUE), n = klasser_antal),
-  #                       include.lowest = TRUE),
-  #           klass = forcats::fct_relabel(
-  #             klass,
-  #             function(levels_vec) {
-  #               sapply(levels_vec, function(lv) {
-  #                 parts <- strsplit(gsub("\\[|\\]|\\(|\\)", "", lv), ",")[[1]]
-  #                 lower <- scales::number(as.numeric(parts[1]), accuracy = acc, big.mark = " ")
-  #                 upper <- scales::number(as.numeric(parts[2]), accuracy = acc, big.mark = " ")
-  #                 paste0(lower, " – ", upper)
-  #               })
-  #             }
-  #           )
-  #         )
-  #     } else if (klassindelning == "natural") {
-  #       values <- sf_objekt |> dplyr::pull(!!sym(vardekolumn))
-  #       sf_plot <- sf_objekt %>%
-  #         mutate(
-  #           klass = cut(
-  #             !!sym(vardekolumn),
-  #             breaks = classInt::classIntervals(values, n = klasser_antal, style = "jenks")$brks,
-  #             include.lowest = TRUE
-  #           ),
-  #           klass = forcats::fct_relabel(
-  #             klass,
-  #             function(levels_vec) {
-  #               sapply(levels_vec, function(lv) {
-  #                 parts <- strsplit(gsub("\\[|\\]|\\(|\\)", "", lv), ",")[[1]]
-  #                 lower <- scales::number(as.numeric(parts[1]), accuracy = acc, big.mark = " ")
-  #                 upper <- scales::number(as.numeric(parts[2]), accuracy = acc, big.mark = " ")
-  #                 paste0(lower, " – ", upper)
-  #               })
-  #             }
-  #           )
-  #         )
-  #     }
-  #   }
-  # }
-  
-
-  
   
   # hantera färger - vilket kan bero på antalet klasser
   if (is.null(karta_fargvektor)) {
@@ -1303,6 +1224,7 @@ skapa_koropletkarta_ggplot <- function(
       }
     } +
     {                                      # ============ hantering av färger
+      
       if (!diskret_skala) {
         # Kontinuerlig färgskala
         scale_fill_gradientn(colours = karta_fargvektor, name = legend_titel, na.value = "grey90")
@@ -1311,25 +1233,22 @@ skapa_koropletkarta_ggplot <- function(
         if (length(karta_fargvektor) > 1) {
           scale_fill_manual(values = karta_fargvektor, name = legend_titel, na.value = "grey90")
         } else {
-          scale_fill_distiller(palette = karta_fargvektor, name = legend_titel, na.value = "grey90")
+          scale_fill_brewer(palette = karta_fargvektor, name = legend_titel, na.value = "grey90")
         }
       }
       
-      # if (length(karta_fargvektor) > 1) {
-      #   # 🔹 Egen färgvektor
-      #   if (is.numeric(sf_plot$klass)) {
-      #     scale_fill_gradientn(colours = karta_fargvektor, name = legend_titel, na.value = "grey90")
-      #   } else {
-      #     scale_fill_manual(values = karta_fargvektor, name = legend_titel, na.value = "grey90")
-      #   }
+      # if (!diskret_skala) {
+      #   # Kontinuerlig färgskala
+      #   scale_fill_gradientn(colours = karta_fargvektor, name = legend_titel, na.value = "grey90")
       # } else {
-      #   # 🔹 Namngiven Brewer-palett
-      #   if (is.numeric(sf_plot$klass)) {
-      #     scale_fill_distiller(palette = karta_fargvektor, name = legend_titel, na.value = "grey90")
+      #   # Diskret färgskala
+      #   if (length(karta_fargvektor) > 1) {
+      #     scale_fill_manual(values = karta_fargvektor, name = legend_titel, na.value = "grey90")
       #   } else {
-      #     scale_fill_brewer(palette = karta_fargvektor, name = legend_titel, na.value = "grey90")
+      #     scale_fill_distiller(palette = karta_fargvektor, name = legend_titel, na.value = "grey90")
       #   }
       # }
+      
     } +
     theme_minimal(base_size = 12) +
     labs(
