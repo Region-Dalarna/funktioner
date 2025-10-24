@@ -1008,14 +1008,17 @@ SkapaLinjeDiagram <- function(skickad_df,
 } # slut funktion för att skriva linjediagram
 
 skapa_koropletkarta_ggplot <- function(
-    sf_objekt,                  # sf-objekt (polygondata) som ska plottas
-    vardekolumn,                 # Kolumnnamn i sf_objekt som innehåller värdet att färgsätta efter 
-    klassindelning = NULL,       # "kvantil", "pretty", "natural" alternativt en vektor men gränser för klassindelningen
-    klasser_antal = 5,            # Antal klasser om klassindelning är automatisk
+    sf_objekt,                        # sf-objekt (polygondata) som ska plottas
+    vardekolumn,                      # Kolumnnamn i sf_objekt som innehåller värdet att färgsätta efter 
+    klassindelning = NULL,            # "kvantil", "pretty", "natural" alternativt en vektor men gränser för klassindelningen
+    klasser_antal = 5,                # Antal klasser om klassindelning är automatisk
     klasser_kontinuerlig_skala_oavsett = FALSE,    # väljer kontinuerlig skala oavsett hur värdena ser ut i datasetet
-    legend_titel  = NULL,         # Titel i legenden, NULL om inte vill ha någon
-    legend_position = "right",     # "dala", "right", "left", "top", "bottom" eller "none", "bottom-right", "top-left" etc. alternativt c(0,0) för nedre vänstra hörnet, c(1,0) för nedre högre hörnet, c(1,1) för övre högra hörnet och c(0,1) för övre vänstra hörnet, c(0.5, 0.5) i mitten
-    legend_justification = "center",      # samma som ovan men gällande vilken del av legenden som avses med legend_position
+    legend_titel  = NULL,            # Titel i legenden, NULL om inte vill ha någon
+    legend_titel_storlek = 12,       # Storlek på texten i legendtiteln
+    legend_text_storlek = 9,         # Storlek på texten i legenden
+    legend_objekt_storlek = 1.2,       # Storlek på själva objekten i legenden (oftast kvadrater), standardvärde är 1
+    legend_position = "right",       # "dala", "right", "left", "top", "bottom" eller "none", "bottom-right", "top-left" etc. alternativt c(0,0) för nedre vänstra hörnet, c(1,0) för nedre högre hörnet, c(1,1) för övre högra hörnet och c(0,1) för övre vänstra hörnet, c(0.5, 0.5) i mitten
+    legend_justification = "center", # samma som ovan men gällande vilken del av legenden som avses med legend_position
     karta_titel = NULL,              # Huvudtitel på kartan
     karta_titel_storlek = 20,        # storlek på huvudtitel i kartan
     karta_caption = NULL,            # caption för källa etc. 
@@ -1255,6 +1258,9 @@ skapa_koropletkarta_ggplot <- function(
       legend.position.inside = legend_position_inside_vals,
       legend.justification = legend_justification,
       legend.box.margin = legend_box_margin,
+      legend.title = element_text(size = legend_titel_storlek),
+      legend.text  = element_text(size = legend_text_storlek),
+      legend.key.size = unit(legend_objekt_storlek, "lines"),
       plot.caption = element_text(face = "italic",
                                   hjust = 0, vjust = 0, size = karta_caption_storlek),
       plot.caption.position = "plot",
