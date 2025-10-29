@@ -1772,7 +1772,6 @@ github_lista_repos_analytikernatverket <- function(owner = "Analytikernatverket"
   )
 }
 
-
 github_lista_repos <- function(owner = "Region-Dalarna", skriv_ut_reponamn_i_konsol = TRUE) {
   # En funktion för att lista alla repositories som finns hos en github-användare
   # Användaren "Region-Dalarna" är standardinställing så körs funktionen utan 
