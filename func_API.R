@@ -1853,8 +1853,6 @@ github_lista_repo_filer_analytikernatverket <- function(
   )
 }
 
-
-
 github_lista_repo_filer <- function(repo = "hamta_data",                          # repot vars filer vi ska lista
                                     owner = "Region-Dalarna",                     # användaren vars repos vi ska lista
                                     url_vekt_enbart = TRUE,                       # om TRUE returneras en vektor med url:er, annars en dataframe med både filnamn och url
@@ -2177,6 +2175,21 @@ github_commit_push <- function(
     print("Inga nya eller uppdaterade filer att ladda upp till Github.")
   }
 }
+
+github_pull_lokalt_repo_fran_github_analytikernatverket <- function(
+    repo = "hamta_data",
+    sokvag_lokal_repo = "c:/gh_an/",
+    repo_org = "Analytikernatverket"
+) {
+  # wrapper runt github_pull_lokalt_repo_fran_github för att slippa ändra uppgifter till analytikernätverkets
+  # default-sökväg lokalt är "c:/gh_an/"
+  github_pull_lokalt_repo_fran_github(
+    repo = repo,
+    sokvag_lokal_repo = sokvag_lokal_repo,
+    repo_org = repo_org
+  )
+}
+
 
 
 github_pull_lokalt_repo_fran_github <- function(
