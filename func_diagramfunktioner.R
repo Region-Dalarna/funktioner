@@ -136,6 +136,7 @@ hitta_div_for_jamn_intervall <- function(
 
 Berakna_varden_stodlinjer <- function(min_varde, max_varde, y_borjar_pa_noll = TRUE, 
                                       procent_0_100_10intervaller = FALSE, 
+                                      max_antal_stodlinjer = 8,
                                       avrunda_fem = FALSE,
                                       minus_plus_samma = FALSE) {
   # om både min- och maxvärde är mindre än noll (dvs. bara negativa tal)
@@ -169,6 +170,20 @@ Berakna_varden_stodlinjer <- function(min_varde, max_varde, y_borjar_pa_noll = T
       # värdena sträcker sig över 0-linjen (både pos och neg tal)
       if (min_varde < 0 & max_varde > 0){
         
+        # beräkna intervall baserat på hela spannet
+        total_spann <- abs(min_varde) + abs(max_varde)
+        maj_by_yvar <- round(total_spann / 6, (nchar(trunc(total_spann / 6)) - 1) * -1)
+        
+        # begränsa antal stödlinjer
+        antal_linjer <- ceiling(total_spann / maj_by_yvar)
+        if (antal_linjer > max_antal_stodlinjer) {
+          maj_by_yvar <- ceiling(total_spann / max_antal_stodlinjer)
+        }
+        
+        # gör stödlinsintervallen "snyggt avrundade" till närmaste 5-multipel
+        maj_by_yvar <- plyr::round_any(maj_by_yvar, 5, f = ceiling)
+        min_by_yvar <- maj_by_yvar / 5
+        
         # vi börjar med positiva maxvärdet
         test_varde <- 0
         while(test_varde < max_varde) test_varde <- test_varde + maj_by_yvar
@@ -178,6 +193,11 @@ Berakna_varden_stodlinjer <- function(min_varde, max_varde, y_borjar_pa_noll = T
         test_varde <- 0
         while(test_varde > min_varde) test_varde <- test_varde - maj_by_yvar
         min_yvar <- test_varde
+        
+        # Avrunda stödlinjernas ändpunkter till närmaste multipel av 5 eller 10
+        max_yvar <- plyr::round_any(max_yvar, 5, f = ceiling)
+        min_yvar <- plyr::round_any(min_yvar, 5, f = floor)
+        
       }
       
       if (min_varde < 0 & max_varde < 0) max_yvar <- 0
