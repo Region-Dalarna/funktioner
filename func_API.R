@@ -1764,6 +1764,15 @@ hamta_excel_dataset_med_url <- function(url_excel,
 
 # ================================================= github-funktioner ========================================================
 
+github_lista_repos_analytikernatverket <- function(owner = "Analytikernatverket", skriv_ut_reponamn_i_konsol = TRUE){
+  # wrapper för att snabbt lista repos i Analytikernätverkets github
+  github_lista_repos(
+    owner = owner,
+    skriv_ut_reponamn_i_konsol = skriv_ut_reponamn_i_konsol
+  )
+}
+
+
 github_lista_repos <- function(owner = "Region-Dalarna", skriv_ut_reponamn_i_konsol = TRUE) {
   # En funktion för att lista alla repositories som finns hos en github-användare
   # Användaren "Region-Dalarna" är standardinställing så körs funktionen utan 
