@@ -2191,7 +2191,6 @@ github_pull_lokalt_repo_fran_github_analytikernatverket <- function(
 }
 
 
-
 github_pull_lokalt_repo_fran_github <- function(
     repo = "hamta_data",
     sokvag_lokal_repo = "c:/gh/",
