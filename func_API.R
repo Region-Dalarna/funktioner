@@ -1815,8 +1815,40 @@ ppt_lista_rader <- function(ppt_url = ""){
   writeLines(text = retur_txt %>% purrr::modify_at(length(.), stringr::str_remove, pattern = "\n"), con = "clipboard", sep = "")
 }
 
-github_lista_repo_filer <- function(owner = "Region-Dalarna",                     # användaren vars repos vi ska lista
-                                    repo = "hamta_data",                          # repot vars filer vi ska lista
+github_lista_repo_filer_analytikernatverket <- function(
+    repo = "hamta_data",
+    owner = "Analytikernatverket",
+    url_vekt_enbart = TRUE,
+    skriv_source_konsol = TRUE,
+    till_urklipp = TRUE,
+    filtrera = NA,
+    keyring_github_token = "github_token",
+    icke_source_repo = FALSE,
+    skriv_ppt_lista = FALSE,
+    lista_ej_systemfiler = TRUE,
+    path = ""
+) {
+  # wrapper runt github_lista_repo_filer för att slippa ändra uppgifter till analytikernätverkets
+  # default-organisation är "Analytikernatverket"
+  github_lista_repo_filer(
+    owner = owner,
+    repo = repo,
+    url_vekt_enbart = url_vekt_enbart,
+    skriv_source_konsol = skriv_source_konsol,
+    till_urklipp = till_urklipp,
+    filtrera = filtrera,
+    keyring_github_token = keyring_github_token,
+    icke_source_repo = icke_source_repo,
+    skriv_ppt_lista = skriv_ppt_lista,
+    lista_ej_systemfiler = lista_ej_systemfiler,
+    path = path
+  )
+}
+
+
+
+github_lista_repo_filer <- function(repo = "hamta_data",                          # repot vars filer vi ska lista
+                                    owner = "Region-Dalarna",                     # användaren vars repos vi ska lista
                                     url_vekt_enbart = TRUE,                       # om TRUE returneras en vektor med url:er, annars en dataframe med både filnamn och url
                                     skriv_source_konsol = TRUE,                   # om TRUE returneras färdiga source-satser som man kan klistra in i sin kod
                                     till_urklipp = TRUE,                          # om TRUE skrivs source-satserna till urklipp om skriv_source_konsol är TRUE
@@ -1931,8 +1963,22 @@ github_lista_repo_filer <- function(owner = "Region-Dalarna",                   
   }
 }
 
-github_status_filer_lokalt_repo <- function(sokvag_lokal_repo = "c:/gh/",
-                                            repo = "hamta_data"                          # repot vars filer vi ska lista
+github_status_filer_lokalt_repo_analytikernatverket <- function(
+    repo = "hamta_data",
+    sokvag_lokal_repo = "c:/gh_an/"
+) {
+  # wrapper runt github_status_filer_lokalt_repo för att slippa ändra uppgifter till analytikernätverkets
+  # default-sökväg lokalt är "c:/gh_an/"
+  github_status_filer_lokalt_repo(
+    repo = repo,
+    sokvag_lokal_repo = sokvag_lokal_repo
+  )
+}
+
+
+github_status_filer_lokalt_repo <- function(
+    repo = "hamta_data",                          # repot vars filer vi ska lista
+    sokvag_lokal_repo = "c:/gh/"
                                             ) {
  
   # En funktion för att lista status på filer i ett repository som finns hos en github-användare
@@ -1987,11 +2033,33 @@ github_status_filer_lokalt_repo <- function(sokvag_lokal_repo = "c:/gh/",
     
 } # slut funktion
 
-github_commit_push <- function(
-    sokvag_lokal_repo = "c:/gh/",
+
+github_commit_push_analytikernatverket <- function(
     repo = "hamta_data",
-    repo_org = "Region-Dalarna",
     commit_txt = NA,
+    sokvag_lokal_repo = "c:/gh_an/",
+    repo_org = "Analytikernatverket",
+    fran_rmarkdown = FALSE,
+    pull_forst = TRUE
+) {
+  # wrapper runt github_commit_push för att slippa ändra uppgifter till analytikernätverkets
+  # default-sökväg lokalt är "c:/gh_an/"
+  github_commit_push(
+    repo = repo,
+    commit_txt = commit_txt,
+    sokvag_lokal_repo = sokvag_lokal_repo,
+    repo_org = repo_org,
+    fran_rmarkdown = fran_rmarkdown,
+    pull_forst = pull_forst
+  )
+  
+}
+
+github_commit_push <- function(
+    repo = "hamta_data",
+    commit_txt = NA,
+    sokvag_lokal_repo = "c:/gh/",
+    repo_org = "Region-Dalarna",
     fran_rmarkdown = FALSE,
     pull_forst = TRUE) {
   
@@ -2092,7 +2160,7 @@ github_commit_push <- function(
     #   
     
     
-    cat(paste0("Commit och push till ", repo, " på Github är klar.\n\n", konsolmeddelande))
+    cat(paste0("Commit och push till ", repo, " på ", repo_org ,"s Github för är klar.\n\n", konsolmeddelande))
     
   } else {
     print("Inga nya eller uppdaterade filer att ladda upp till Github.")
@@ -2163,6 +2231,15 @@ github_lagg_till_repo_fran_github <- function(repo_namn,   # bara själva namnet
                                               repo_lokalt_mapp = "c:/gh/",
                                               rprojekt_oppna = FALSE) {
 
+  # Skript för att lägga till ett repo från Github lokalt på en dator
+  # Parametrar:
+  # - repo_namn:        Namnet på det repository som ska hämtas (t.ex. "hamta_data").
+  # - repo_org:         Organisation på GitHub (default = "Region-Dalarna").
+  # - repo_lokalt_mapp: Lokal sökväg där repos lagras (default = "c:/gh/").
+  # - rprojekt_oppna:   Om TRUE öppnas det som ett R-projekt efter nedladdning,
+  #                     annars fortsätter det som vanligt i R-instansen.
+  # ---------------------------------------------------------------------------
+  
   # kontrollera att git är installerat och finns i PATH  
   if (Sys.which("git") == "") stop("❌ Git finns inte tillgängligt i PATH. Kontrollera Git-installationen.")
   
@@ -2232,6 +2309,24 @@ github_lagg_till_repo_fran_github <- function(repo_namn,   # bara själva namnet
   }
   
   return(invisible(lokal_sokvag))
+}
+
+github_lagg_till_repo_fran_github_analytikernatverket <- function(
+    repo_namn,                      # Endast själva namnet, t.ex. "hamta_data" eller "kartor"
+    repo_org = "Analytikernatverket",
+    repo_lokalt_mapp = "c:/gh_an/",
+    rprojekt_oppna = FALSE
+) {
+  # ---------------------------------------------------------------------------
+  # Wrapper runt github_lagg_till_repo_fran_github() med standardinställningar 
+  # som pekar mot Analytikernätverkets Github och lokal sökväg "c:/gh_an/".
+  
+  github_lagg_till_repo_fran_github(
+    repo_namn       = repo_namn,
+    repo_org        = repo_org,
+    repo_lokalt_mapp = repo_lokalt_mapp,
+    rprojekt_oppna  = rprojekt_oppna
+  )
 }
 
 
