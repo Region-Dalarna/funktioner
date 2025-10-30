@@ -2175,30 +2175,32 @@ postgres_finns_schema_tabell_kolumner <- function(con = "default",        # uppk
 } # slut funktion postgres_finns_schema_tabell_kolumner()
 
 
-postgres_databas_uppdatera_med_metadata <- function(
+postgres_databas_skriv_med_metadata <- function(
     con,
     inlas_df,
     schema,
     tabell, 
     id_kol = NA,
+    postgis_addera_data = FALSE,          # om TRUE töms ej tabellen innan ny data skrivs
     felmeddelande_medskickat = NA,
     kommentar_metadata = NA
 ) {
-  # Det här är egentligen bara en wrapper kring funktionen postgis_databas_uppdatera_med_metadata() som
+  # Det här är egentligen bara en wrapper kring funktionen postgis_databas_skriv_med_metadata() som
   # kom först pga att vi skapade geodatabasen först. Men geokolumnen är NA per default och går inte att 
   # ändra. Även id-kolumnen är NA som default. Bra om man har en id-kolumn men inget större måste (tror jag)
   
-  postgis_databas_uppdatera_med_metadata(
+  postgis_databas_skriv_med_metadata(
     con = con,
     inlas_sf = inlas_df,
     schema = schema,
     tabell = tabell, 
     postgistabell_geo_kol = NA,
     postgistabell_id_kol = id_kol,
+    postgis_addera_data = postgis_addera_data,
     felmeddelande_medskickat = felmeddelande_medskickat,
     kommentar_metadata = kommentar_metadata
   )
-} # slut funktion postgres_databas_uppdatera_med_metadata
+} # slut funktion postgres_databas_skriv_med_metadata
 
 
 postgres_grants_auto_skapa <- function(con, 
@@ -2567,19 +2569,20 @@ postgis_installera_i_postgres_db <- function(con) {
   DBI::dbExecute(con, installera_postgis_query)
 }
 
+# Skript för att läsa in ett sf-objekt till en postgis-tabell 
 postgis_sf_till_postgistabell <- 
   function(con = "default",
            inlas_sf,
-           schema = "karta",
-           tabell,   # de tabellnamn de nya filerna ska få i postgis
-           postgistabell_id_kol = NA,
-           postgistabell_geo_kol = NA,
+           schema = "karta",                            # det schema i postgis-databasen som målpunktstabellen ska ligga under
+           tabell,                                      # det tabellnamn den nya filen ska få i postgis
+           postgistabell_id_kol = NA,                   # den kolumn som innehåller ett unikt ID och görs till primärnyckelkolumn
+           postgistabell_geo_kol = NA,                  # geometry-kolumnens namn
            skapa_spatialt_index = TRUE,
-           nytt_schema_oppet_for_geodata_las = TRUE,             # om TRUE så öppnas läsrättigheter för användaren geodata_las (vilket är det som ska användas om det inte finns mycket goda skäl att låta bli)
+           nytt_schema_oppet_for_geodata_las = TRUE,    # om TRUE så öppnas läsrättigheter för användaren geodata_las (vilket är det som ska användas om det inte finns mycket goda skäl att låta bli)
+           addera_data = FALSE,                         # om TRUE så läggs rader till i en tabell, annars skrivs den över (om den finns, annars skrivs en ny tabell)
            #postgistabell_till_crs,
            meddelande_tid = FALSE
   ) {
-    # Skript för att läsa in ett sf-objekt till en postgistabell 
     #
     # Följande parametrar skickas med funktionen:
     # inlas_mapp = mapp i vilken tabellen finns som innehåller målpunkterna, måste innehålla kolumner
@@ -2613,7 +2616,7 @@ postgis_sf_till_postgistabell <-
       dbExecute(con, paste0("create schema if not exists ", schema, ";"))
       
       if (nytt_schema_oppet_for_geodata_las) {
-        sql_command <- sprintf("                                          # skapa sql-kommando för att öppna schemat och framtida tabeller för geodata_las
+        sql_command <- sprintf("                                  # skapa sql-kommando för att öppna schemat och framtida tabeller för geodata_las
         ALTER DEFAULT PRIVILEGES IN SCHEMA %s
         GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %s;
         ", schema, "geodata_las")
@@ -2624,30 +2627,30 @@ postgis_sf_till_postgistabell <-
     # Kontrollera om tabellen redan finns
     tabell_finns <- DBI::dbExistsTable(con, DBI::Id(schema = schema, table = tabell))
     
-    if (tabell_finns) { 
-      # Töm tabellen men behåll struktur och behörigheter
-      dbExecute(con, paste0("TRUNCATE TABLE ", schema, ".", tabell, ";"))
+    system.time({
+      if (!tabell_finns) {
+        # Om tabellen inte finns
+        append_mode <- FALSE
+        
+      } else if (addera_data) {
+        # Om rader ska adderas till befintlig tabell
+        append_mode <- TRUE
+        
+      } else {
+        # Om tabellen finns, töm tabellen men behåll struktur och behörigheter
+        dbExecute(con, sprintf("TRUNCATE TABLE %s.%s;", schema, tabell))
+        append_mode <- FALSE
+        
+      }
       
-      # Infoga ny data
-      system.time({
-        st_write(
-          obj = inlas_sf,
-          dsn = con,
-          layer = DBI::Id(schema = schema, table = tabell),
-          append = FALSE)                  # här har jag ändrat till FALSE pga uppstod problem då vi ju vill skriva över och inte bara lägga till rader
-      }) # slut system.time
-      
-    } else { 
-      
-      # Skriv data och skapa ny tabell
-      system.time({
-        st_write(
-          obj = inlas_sf,
-          dsn = con,
-          layer = DBI::Id(schema = schema, table = tabell),
-          append = FALSE)
-      }) # slut system.time
-    }
+      # Skriv rader till angiven tabell
+      st_write(
+        obj   = inlas_sf,
+        dsn   = con,
+        layer = DBI::Id(schema = schema, table = tabell),
+        append = append_mode
+      )
+    })
     
     # # skriv rut-lagren till postgis 
     # starttid = Sys.time()
@@ -3395,14 +3398,14 @@ postgis_isokroner_dela_upp_polygoner <- function(
 postgis_kopiera_punkttabell_koppla_till_pgr_graf <- function(
     con_fran_databas = uppkoppling_db(),                   # databas från vilket punktlagret kopieras, default är geodatabasen
     con_till_databas = uppkoppling_adm("ruttanalyser"),    # databas till vilket punktlagret kopieras, default är ruttanalyser
-    schema_fran,                     # schema i geodatabasen där adresserna finns
-    tabell_fran,                     # tabell i geodatabasen där adresserna finns
-    schema_till,                     # schema i ruttanalyser-databasen där adresserna ska kopieras till
-    tabell_till,                     # tabell i ruttanalyser-databasen där adresserna ska kopieras till
-    geom_kol_punkter = "geom",             # geometri-kolumnen i punkttabellen som ska kopieras, default är geom
-    id_kol_punkter = "id",             # id-kolumnen i punkttabellen, default är id
-    schema_natverk = "grafer",             # schema där grafen finns, ska normalt inte ändras
-    lagg_till_metadata_i_till_databas = TRUE,        # punkttabellen läggs till i 
+    schema_fran,                                        # schema i geodatabasen där adresserna finns
+    tabell_fran,                                       # tabell i geodatabasen där adresserna finns
+    schema_till,                                      # schema i ruttanalyser-databasen där adresserna ska kopieras till
+    tabell_till,                                     # tabell i ruttanalyser-databasen där adresserna ska kopieras till
+    geom_kol_punkter = "geom",                      # geometri-kolumnen i punkttabellen som ska kopieras, default är geom
+    id_kol_punkter = "id",                         # id-kolumnen i punkttabellen, default är id
+    schema_natverk = "grafer",                    # schema där grafen finns, ska normalt inte ändras
+    lagg_till_metadata_i_till_databas = TRUE,    # punkttabellen läggs till i 
     stang_db_anslutningar = TRUE
 ) {
   
@@ -3411,12 +3414,12 @@ postgis_kopiera_punkttabell_koppla_till_pgr_graf <- function(
   
   # först kopierar vi tabellen från en databas till en annan
   postgis_kopiera_tabell_mellan_databaser(
-    con_fran_databas = con_fran_databas,                # från geodatabasen
-    con_till_databas = con_till_databas,                 # till ruttanalyser-databasen
-    schema_fran = schema_fran,                    # schema i geodatabasen där adresserna finns
-    tabell_fran = tabell_fran,                     # tabell i geodatabasen där adresserna finns
-    schema_till = schema_till,                  # schema i ruttanalyser-databasen där adresserna ska kopieras till
-    tabell_till = tabell_till,            # tabell i ruttanalyser-databasen där adresserna ska kopieras till
+    con_fran_databas = con_fran_databas,        # från geodatabasen
+    con_till_databas = con_till_databas,        # till ruttanalyser-databasen
+    schema_fran = schema_fran,                 # schema i geodatabasen där adresserna finns
+    tabell_fran = tabell_fran,                # tabell i geodatabasen där adresserna finns
+    schema_till = schema_till,                # schema i ruttanalyser-databasen där adresserna ska kopieras till
+    tabell_till = tabell_till,                # tabell i ruttanalyser-databasen där adresserna ska kopieras till
     lagg_till_metadata_i_till_databas = lagg_till_metadata_i_till_databas
   )
   
@@ -3428,12 +3431,12 @@ postgis_kopiera_punkttabell_koppla_till_pgr_graf <- function(
   # därefter kopplar vi punkttabellen till samtliga grafer som finns i ruttanalyser i schemat grafer 
   walk(natverkstyper, ~ {
     pgrouting_punkttabell_koppla_till_pgr_graf(
-      con = con_rutt,                           # databas där punkterna finns, default är ruttanalyser (dvs. Region Dalarnas databas för ruttanalyser)
-      schema_punkter = schema_till,                  # schema där punkterna finns, default är punktlager
+      con = con_rutt,                        # databas där punkterna finns, default är ruttanalyser (dvs. Region Dalarnas databas för ruttanalyser)
+      schema_punkter = schema_till,           # schema där punkterna finns, default är punktlager
       tabell_punkter = tabell_till,            # tabell med punkter som ska kopplas till grafen, default är adresser_dalarna
-      geom_kol_punkter = geom_kol_punkter,                      # geometri-kolumnen i punkttabellen, default är geom
-      id_kol_punkter = id_kol_punkter,                      # id-kolumnen i punkttabellen, default är gml_id
-      schema_natverk = schema_natverk,                        # schema där grafen finns, default är nvdb
+      geom_kol_punkter = geom_kol_punkter,      # geometri-kolumnen i punkttabellen, default är geom
+      id_kol_punkter = id_kol_punkter,         # id-kolumnen i punkttabellen, default är gml_id
+      schema_natverk = schema_natverk,        # schema där grafen finns, default är nvdb
       tabell_natverk = .x                    # tabell med grafen som ska användas, default är graf_nvdb_adresser_dalarna
     )
   })
@@ -3446,13 +3449,14 @@ postgis_kopiera_punkttabell_koppla_till_pgr_graf <- function(
   
 } # slut funktion
 
-postgis_databas_uppdatera_med_metadata <- function(
+postgis_databas_skriv_med_metadata <- function(
     con,
     inlas_sf,
     schema,
     tabell, 
     postgistabell_geo_kol = "geometry",
     postgistabell_id_kol = "id",
+    postgis_addera_data = FALSE,          # om TRUE töms ej tabellen innan ny data skrivs
     felmeddelande_medskickat = NA,
     kommentar_metadata = NA
 ) {
@@ -3468,7 +3472,7 @@ postgis_databas_uppdatera_med_metadata <- function(
       geo_db_resultat <<- felmeddelande_medskickat
       lyckad_uppdatering <<- FALSE
     } else {
-      suppress_specific_warning(
+      suppress_specific_warning(                                               # döljer specifika varningsmeddelande genom parametern warn_text
         postgis_sf_till_postgistabell(con = con,
                                       inlas_sf = inlas_sf,
                                       schema = schema,
@@ -3476,8 +3480,9 @@ postgis_databas_uppdatera_med_metadata <- function(
                                       postgistabell_geo_kol = postgistabell_geo_kol,
                                       postgistabell_id_kol = postgistabell_id_kol,
                                       skapa_spatialt_index = ifelse(is.na(postgistabell_geo_kol), FALSE, TRUE)
+                                      addera_data = postgis_addera_data,
                                       ),
-        "Invalid time zone 'UTC', falling back to local time.")
+        warn_text = "Invalid time zone 'UTC', falling back to local time.")    # detta specifika varningsmeddelande skrivs inte ut i konsolen
       
       geo_db_resultat <<- NA
       lyckad_uppdatering <<- TRUE
@@ -3497,7 +3502,7 @@ postgis_databas_uppdatera_med_metadata <- function(
       kommentar = geo_db_resultat
     )
   })
-}
+} # slut funktion
 
 
 # ======================================= pgrouting-funktioner ================================================
