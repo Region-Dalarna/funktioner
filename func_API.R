@@ -552,7 +552,7 @@ hamta_kolada_giltiga_ar <- function(kpi_id, vald_region = "2080"){
     period = 1900:2060
   )
   
-  alla_ar <- hamtade_varden$year %>% as.character()
+  alla_ar <- hamtade_varden$year %>% as.character() %>% unique()
   return(alla_ar)
 }
 
