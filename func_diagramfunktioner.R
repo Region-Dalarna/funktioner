@@ -93,52 +93,26 @@ hitta_div_for_jamn_intervall <- function(
   return(retur_varde)
 }
 
-### gammal version av beräkning av antalet tjocka stödlinjer
 
-# hitta_div_for_jamn_intervall <- function(
-#     max_varde,
-#     multipel,
-#     #div_varden = c(5,6,7,8,9),
-#     div_varden = c(5:15)
-#     ) {
-#   
-#   blir_inf <- TRUE
-#   
-#   while (blir_inf) {
-#     x <- 0            # vi börjar med 0
-#     
-#     res1 <- ((abs(max_varde) / div_varden)/5)/5
-#     #res_div <- ifelse(nchar(trunc(res1)) < 2, 1, nchar(trunc((res1)))-1)
-#     
-#     while (all(res1< 1)){
-#       x <- x+1
-#       nytt_max_varde <- max_varde * (10 ^ x)
-#       res1 <- ((abs(nytt_max_varde) / div_varden)/5)/5
-#     }
-#     
-#     # ny test
-#     res_div <- nchar(trunc((res1)))-1
-#     
-#     # här beräknar vi vilken av talen i div_varden som ger ett jämnt delbart tal med 5 så att vi får fina intervaller
-#     div_res <- res1 / (10 ^ res_div)
-#     
-#     # returnera det (första) div-värde som i beräkningen ovan blir 2 
-#     #retur_varde <- div_varden[which(div_res == 2 | which(div_res == 1))][1]
-#     div_minsta_heltal <- suppressWarnings(min(div_res[(div_res - round(div_res)) == 0]))
-#   
-#     if (!is.infinite(div_minsta_heltal)) blir_inf <- FALSE else max_varde <- max_varde + multipel
-#   } # slut på test om div_minsta_heltal blir inf
-#   
-#   retur_varde <- list(slut_div = div_varden[which(div_res == div_minsta_heltal)],
-#                       resultat = max_varde)
-#   return(retur_varde)
-# }
+nice_breaks <- function(spann, antal_optimala_intervall = 5) {
+  # Ny metod för att hitta "snygga" intervall (1-2-5-serien)
+  exp10 <- 10 ^ floor(log10(spann / antal_optimala_intervall))  # uppskatta skala (runt 5-8 intervall brukar vara bra)
+  steg  <- spann / (antal_optimala_intervall * exp10)
+  #multipel <- if (steg < 2) 1 else if (steg < 3.5) 2.5 else if (steg < 7.5) 5 else 10
+  multipel <- if (steg < 1.5) 1 else if (steg < 7.5) 2.5 else if (steg < 15) 5 else 10
+  maj_by <- exp10 * multipel
+  return(maj_by)
+}
 
-Berakna_varden_stodlinjer <- function(min_varde, max_varde, y_borjar_pa_noll = TRUE, 
+
+Berakna_varden_stodlinjer <- function(min_varde, 
+                                      max_varde, 
+                                      y_borjar_pa_noll = TRUE, 
                                       procent_0_100_10intervaller = FALSE, 
                                       max_antal_stodlinjer = 8,
                                       avrunda_fem = FALSE,
                                       minus_plus_samma = FALSE) {
+  
   # om både min- och maxvärde är mindre än noll (dvs. bara negativa tal)
   if (min_varde < 0 & max_varde < 0) min_och_max_mindre_an_noll <- TRUE else min_och_max_mindre_an_noll <- FALSE
   if (min_och_max_mindre_an_noll) {
@@ -159,51 +133,75 @@ Berakna_varden_stodlinjer <- function(min_varde, max_varde, y_borjar_pa_noll = T
     modifierat_varde <- FALSE
     
     if (avrunda_fem) {
-      avrund_list <- avrunda_till_multipel(max_varde)
 
-      min_yvar <- ifelse(min_varde > 0 & y_borjar_pa_noll, 0, round(min_varde,(nchar(trunc(min_varde))-2)*-1))
-      max_yvar <- avrund_list$max_varde
-      maj_by_yvar <- avrund_list$maj_by_var
-      min_by_yvar <- avrund_list$min_by_var
+      spann <- abs(max_varde - min_varde)
       
-      # anpassa maxvärdet för stödlinjen om den inte är jämn med noll och
-      # värdena sträcker sig över 0-linjen (både pos och neg tal)
-      if (min_varde < 0 & max_varde > 0){
-        
-        # beräkna intervall baserat på hela spannet
-        total_spann <- abs(min_varde) + abs(max_varde)
-        maj_by_yvar <- round(total_spann / 6, (nchar(trunc(total_spann / 6)) - 1) * -1)
-        
-        # begränsa antal stödlinjer
-        antal_linjer <- ceiling(total_spann / maj_by_yvar)
-        if (antal_linjer > max_antal_stodlinjer) {
-          maj_by_yvar <- ceiling(total_spann / max_antal_stodlinjer)
-        }
-        
-        # gör stödlinsintervallen "snyggt avrundade" till närmaste 5-multipel
-        maj_by_yvar <- plyr::round_any(maj_by_yvar, 5, f = ceiling)
-        min_by_yvar <- maj_by_yvar / 5
-        
-        # vi börjar med positiva maxvärdet
-        test_varde <- 0
-        while(test_varde < max_varde) test_varde <- test_varde + maj_by_yvar
-        max_yvar <- test_varde
-        
-        # och så kör vi negativa minvärdet också
-        test_varde <- 0
-        while(test_varde > min_varde) test_varde <- test_varde - maj_by_yvar
-        min_yvar <- test_varde
-        
-        # Avrunda stödlinjernas ändpunkter till närmaste multipel av 5 eller 10
-        max_yvar <- plyr::round_any(max_yvar, 5, f = ceiling)
-        min_yvar <- plyr::round_any(min_yvar, 5, f = floor)
-        
-      }
+      # # 🔹 Om små värden (t.ex. procent), använd 5-baserad logik direkt
+      # if (spann < 50) {
+      #   
+      #   maj_by_yvar <- 5
+      #   if (spann <= 10) maj_by_yvar <- 2
+      #   if (spann <= 5) maj_by_yvar <- 1
+      #   
+      #   # tunna linjer
+      #   min_by_yvar <- maj_by_yvar / 5
+      #   
+      #   # sätt gränser så 0 alltid inkluderas
+      #   max_yvar <- ceiling(max_varde / maj_by_yvar) * maj_by_yvar
+      #   min_yvar <- floor(min_varde / maj_by_yvar) * maj_by_yvar
+      #   if (min_varde < 0 & max_varde > 0) {
+      #     test_varde <- 0
+      #     while (test_varde < max_varde) test_varde <- test_varde + maj_by_yvar
+      #     max_yvar <- test_varde
+      #     test_varde <- 0
+      #     while (test_varde > min_varde) test_varde <- test_varde - maj_by_yvar
+      #     min_yvar <- test_varde
+      #   }
+      #   
+      # } else {
+      #   
+      #   # 🔹 Annars – använd normal 1-2-5-metod
+      #   maj_by_yvar <- nice_breaks(spann)
+      #   
+      #   # max ca 8 stödlinjer
+      #   antal_linjer <- ceiling(spann / maj_by_yvar)
+      #   if (antal_linjer > max_antal_stodlinjer) maj_by_yvar <- maj_by_yvar * 2
+      #   
+      #   min_by_yvar <- maj_by_yvar / 5
+      #   max_yvar <- ceiling(max_varde / maj_by_yvar) * maj_by_yvar
+      #   min_yvar <- floor(min_varde / maj_by_yvar) * maj_by_yvar
+      # }
       
+      # 🔹 Beräkna "snyggt" steg utifrån 1–2.5–5–10-serien
+      maj_by_yvar <- nice_breaks(spann)
+      
+      # 🔹 Om spannet är mycket litet, justera manuellt
+      if (spann < 10 & maj_by_yvar < 1) maj_by_yvar <- 1
+      if (spann < 5 & maj_by_yvar < 0.5) maj_by_yvar <- 0.5
+      
+      # 🔹 Begränsa antal stödlinjer (max 8)
+      antal_linjer <- ceiling(spann / maj_by_yvar)
+      if (antal_linjer > max_antal_stodlinjer) maj_by_yvar <- maj_by_yvar * 2
+      
+      # 🔹 Tunna linjer – alltid 4 mellan varje tjock
+      min_by_yvar <- maj_by_yvar / 5
+      
+      # 🔹 Gränser (avrunda till hela steg)
+      max_yvar <- ceiling(max_varde / maj_by_yvar) * maj_by_yvar
+      min_yvar <- floor(min_varde / maj_by_yvar) * maj_by_yvar
+      
+      # 🔹 Säkerställ att hela datan täcks
+      if (max_yvar < max_varde) max_yvar <- max_yvar + maj_by_yvar
+      if (min_yvar > min_varde) min_yvar <- min_yvar - maj_by_yvar
+      
+      # 🔹 Börja vid noll om flaggan säger så
+      if (y_borjar_pa_noll & min_yvar > 0) min_yvar <- 0
+      
+      # 🔹 Allt negativt → max = 0
       if (min_varde < 0 & max_varde < 0) max_yvar <- 0
-      
-      
+
     } else {
+      
       if (max_varde < 1) {
         max_varde <- max_varde * 100
         min_varde <- min_varde * 100
