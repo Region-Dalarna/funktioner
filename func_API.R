@@ -1799,12 +1799,12 @@ github_lista_repos <- function(owner = "Region-Dalarna", skriv_ut_reponamn_i_kon
 }
 
 gh_dia <- function(f = NA) {
-  github_lista_repo_filer(filtrera = f,
+  github_lista_repo_filer(filter = f,
                           repo = "diagram")
 }
 
 gh_ppt <- function(f = NA) {
-  github_lista_repo_filer(filtrera = f,
+  github_lista_repo_filer(filter = f,
                           repo = "diagram",
                           till_urklipp = TRUE,
                           skriv_source_konsol = FALSE,
@@ -1829,7 +1829,7 @@ github_lista_repo_filer_analytikernatverket <- function(
     url_vekt_enbart = TRUE,
     skriv_source_konsol = TRUE,
     till_urklipp = TRUE,
-    filtrera = NA,
+    filter = NA,
     keyring_github_token = "github_token",
     icke_source_repo = FALSE,
     skriv_ppt_lista = FALSE,
@@ -1844,7 +1844,7 @@ github_lista_repo_filer_analytikernatverket <- function(
     url_vekt_enbart = url_vekt_enbart,
     skriv_source_konsol = skriv_source_konsol,
     till_urklipp = till_urklipp,
-    filtrera = filtrera,
+    filter = filter,
     keyring_github_token = keyring_github_token,
     icke_source_repo = icke_source_repo,
     skriv_ppt_lista = skriv_ppt_lista,
