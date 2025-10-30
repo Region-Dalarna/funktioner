@@ -69,6 +69,7 @@ SkapaStapelDiagram <- function(skickad_df,
                                inkludera_sista_vardet_var_xe_etikett = TRUE,              # om man vill ha med sista värdet när man kör x_axis_visa_var_xe_etikett
                                x_axis_var_xe_etikett_ta_bort_nast_sista_vardet = FALSE, # tar bort näst sista värdet i visa_var_xe_etikett
                                procent_0_100_10intervaller = FALSE,  # om TRUE, så går y-axeln mellan 0 och 100, med tjocka stödlinjer med 10 enheters mellanrum, passar bra med procent 
+                               noll_linje_betona = "grey40",      # NA = ingen tjockare linje alls för nollvärde, om det finns ett nollvärde så är nollinjen lite mörkare än övriga linjer, man väljer färg själv som man skickar med
                                legend_titel = NA,                 # om man vill ha en titel på teckenförklaringen kan man skicka med det som text här
                                legend_storlek = 12,               # storlekt på text i legend
                                legend_tabort = FALSE,             # om man vill tvinga bort legenden så kan man göra det här med TRUE
@@ -513,6 +514,20 @@ SkapaStapelDiagram <- function(skickad_df,
     } else {  
       theme(strip.text = element_blank())
     }}
+  
+    # 0-linje lite synligare
+  if (!is.na(noll_linje_betona)) {
+    # Kolla om 0 finns inom den beräknade skalan
+    if (min_yvar <= 0 && max_yvar >= 0) {
+      
+      #if (diagram_liggande) {
+        p <- p + geom_hline(yintercept = 0, colour = noll_linje_betona, linewidth = 0.8)
+      #} else {
+       # p <- p + geom_vline(xintercept = 0, colour = noll_linje_betona, linewidth = 0.8)
+      #}
+    }
+  }
+  
   
   #p
   # här kan man lägga in en rektangel som markerar ett område, ex. de värden som är jämställda (40-60 %)
