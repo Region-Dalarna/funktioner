@@ -1858,7 +1858,7 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
                                     url_vekt_enbart = TRUE,                       # om TRUE returneras en vektor med url:er, annars en dataframe med både filnamn och url
                                     skriv_source_konsol = TRUE,                   # om TRUE returneras färdiga source-satser som man kan klistra in i sin kod
                                     till_urklipp = TRUE,                          # om TRUE skrivs source-satserna till urklipp om skriv_source_konsol är TRUE
-                                    filtrera = NA,                                # om man vill filtrera filer på specifika sökord så gör man det här, kan vara ett eller en vektor med flera (som körs med OR och inte AND)
+                                    filter = NA,                                  # om man vill filtrera filer på specifika sökord så gör man det här, kan vara ett eller en vektor med flera (som körs med OR och inte AND)
                                     keyring_github_token = "github_token",         # om man har sparat en github-token i keyring-paketet så anges service_name här (OBS! Det får bara finnas en användare för denna service i keyring om detta ska fungera)
                                     icke_source_repo = FALSE,                      # om TRUE så returneras bara filnamn och url och inte source-satser
                                     skriv_ppt_lista = FALSE,                      # om TRUE så returneras kodrader för att skapa skript för att lägga in i ppt-lista
@@ -1901,7 +1901,7 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
   retur_df <- purrr::map_df(content, function(item) {
     if (item$type == "dir") {
       # Om det är en mapp, rekursera genom att kalla funktionen igen
-      github_lista_repo_filer(owner, repo, url_vekt_enbart = FALSE, skriv_source_konsol = FALSE, till_urklipp = FALSE, filtrera = filtrera, path = paste0(path, item$name, "/"))
+      github_lista_repo_filer(owner, repo, url_vekt_enbart = FALSE, skriv_source_konsol = FALSE, till_urklipp = FALSE, filter = filter, path = paste0(path, item$name, "/"))
     } else {
       # Om det är en fil, returnera dess namn och URL
       tibble::tibble(
@@ -1921,12 +1921,12 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
   
   if (lista_ej_systemfiler) retur_df <- retur_df %>% filter(namn != "LICENSE", str_sub(namn, 1, 1) != ".")
   
-  # Filtrera baserat på sökord om filtrera inte är NA
-  if (!any(is.na(filtrera))) {
-    if (length(filtrera) > 1) filtrera <- paste0(filtrera, collapse = "|")
+  # Filtrera baserat på sökord om filter inte är NA
+  if (!any(is.na(filter))) {
+    if (length(filter) > 1) filter <- paste0(filter, collapse = "|")
     
-    if (length(filtrera) > 0 & stringr::str_detect(filtrera, "\\&")) {
-      sok_vekt <- stringr::str_split(filtrera, "\\&") %>% unlist()
+    if (length(filter) > 0 & stringr::str_detect(filter, "\\&")) {
+      sok_vekt <- stringr::str_split(filter, "\\&") %>% unlist()
       retur_df <- retur_df %>% 
         dplyr::filter(purrr::reduce(sok_vekt, ~ .x & {
           if (stringr::str_detect(.y, "^!")) {
@@ -1936,10 +1936,10 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
           }
         }, .init = TRUE))
     } else {
-      if (stringr::str_detect(filtrera, "^!")) {
-        retur_df <- retur_df %>% dplyr::filter(!stringr::str_detect(tolower(namn), tolower(stringr::str_remove(filtrera, "^!"))))
+      if (stringr::str_detect(filter, "^!")) {
+        retur_df <- retur_df %>% dplyr::filter(!stringr::str_detect(tolower(namn), tolower(stringr::str_remove(filter, "^!"))))
       } else {
-        retur_df <- retur_df %>% dplyr::filter(stringr::str_detect(tolower(namn), tolower(filtrera)))
+        retur_df <- retur_df %>% dplyr::filter(stringr::str_detect(tolower(namn), tolower(filter)))
       }
     }
     
