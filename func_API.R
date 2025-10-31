@@ -1803,6 +1803,11 @@ gh_dia <- function(f = NA) {
                           repo = "diagram")
 }
 
+gh_hamta_analytikernatverket <- function(f = NA) {
+  github_lista_repo_filer_analytikernatverket(filter = f,
+                          repo = "hamta_data")
+}
+
 gh_ppt <- function(f = NA) {
   github_lista_repo_filer(filter = f,
                           repo = "diagram",
