@@ -3479,7 +3479,7 @@ postgis_databas_skriv_med_metadata <- function(
                                       tabell = tabell,
                                       postgistabell_geo_kol = postgistabell_geo_kol,
                                       postgistabell_id_kol = postgistabell_id_kol,
-                                      skapa_spatialt_index = ifelse(is.na(postgistabell_geo_kol), FALSE, TRUE)
+                                      skapa_spatialt_index = ifelse(is.na(postgistabell_geo_kol), FALSE, TRUE),
                                       addera_data = postgis_addera_data,
                                       ),
         warn_text = "Invalid time zone 'UTC', falling back to local time.")    # detta specifika varningsmeddelande skrivs inte ut i konsolen
