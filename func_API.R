@@ -431,8 +431,9 @@ region_kolumn_splitta_kod_klartext <- function(skickad_df, regionkolumn, tabortg
 
 svenska_tecken_byt_ut <- function(textstrang){
   # funktion för att ta bort prickar över svenska tecken
-  
-  if (!require("stringi")) install.packages("stringi")
+  suppress_specific_warning(
+    if (!require("stringi")) install.packages("stringi")
+  ,"built under R version")
   retur_strang <- stri_trans_general(textstrang, "Latin-ASCII")
   return(retur_strang)
 }
