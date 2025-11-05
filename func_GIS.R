@@ -2202,7 +2202,6 @@ postgres_databas_skriv_med_metadata <- function(
   )
 } # slut funktion postgres_databas_skriv_med_metadata
 
-
 postgres_grants_auto_skapa <- function(con, 
                                        remove_old = TRUE, 
                                        rattigheter_pa_befintliga = TRUE,
@@ -2214,7 +2213,8 @@ postgres_grants_auto_skapa <- function(con,
   #
   # remove_old = tar bort gamla triggers
   # rattigheter_pa_befintliga = lägger till dessa rättigheter på redan befintliga scheman, tabeller, vyer och materialiserade vyer
-  # lasroll_tilldela = tilldelar 
+  # lasroll_tilldela = tilldelar användare till lasroll
+  # skrivroll_tilldela = tilldelar användare till skrivroll
   
   message("🔍 Kontrollerar befintliga event triggers...")
   
@@ -2246,22 +2246,33 @@ postgres_grants_auto_skapa <- function(con,
     AS $$
     DECLARE
         obj record;
+        schema_name text;
     BEGIN
         FOR obj IN
             SELECT * FROM pg_event_trigger_ddl_commands()
         LOOP
-            -- Tabeller och vyer
-            IF obj.object_type IN ('table', 'view', 'materialized view') THEN
-                EXECUTE format('GRANT SELECT ON %s TO lasroll;', obj.object_identity);
-                EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %s TO skrivroll;', obj.object_identity);
+            BEGIN  -- Inre exception block för varje objekt
+                -- Tabeller och vyer
+                IF obj.object_type IN ('table', 'view', 'materialized view') THEN
+                    RAISE NOTICE 'Ger rättigheter på %: %', obj.object_type, obj.object_identity;
+                    EXECUTE format('GRANT SELECT ON %s TO lasroll;', obj.object_identity);
+                    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %s TO skrivroll;', obj.object_identity);
 
-            -- Scheman
-            ELSIF obj.object_type = 'schema' THEN
-                EXECUTE format('GRANT USAGE ON SCHEMA %I TO lasroll;', obj.object_name);
-                EXECUTE format('GRANT USAGE, CREATE ON SCHEMA %I TO skrivroll;', obj.object_name);
-                EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT ON TABLES TO lasroll;', obj.object_name);
-                EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO skrivroll;', obj.object_name);
-            END IF;
+                -- Scheman
+                ELSIF obj.object_type = 'schema' THEN
+                    schema_name := obj.object_identity;
+                    RAISE NOTICE 'Ger rättigheter på schema: %', schema_name;
+                    
+                    EXECUTE format('GRANT USAGE ON SCHEMA %I TO lasroll;', schema_name);
+                    EXECUTE format('GRANT USAGE, CREATE ON SCHEMA %I TO skrivroll;', schema_name);
+                    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT ON TABLES TO lasroll;', schema_name);
+                    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO skrivroll;', schema_name);
+                END IF;
+            EXCEPTION
+                WHEN OTHERS THEN
+                    RAISE WARNING 'Fel vid grant för % (type: %): %', obj.object_identity, obj.object_type, SQLERRM;
+                    -- Fortsätt ändå istället för att krascha hela transaktionen
+            END;
         END LOOP;
     END;
     $$;
@@ -2578,7 +2589,7 @@ postgis_sf_till_postgistabell <-
            postgistabell_id_kol = NA,                   # den kolumn som innehåller ett unikt ID och görs till primärnyckelkolumn
            postgistabell_geo_kol = NA,                  # geometry-kolumnens namn
            skapa_spatialt_index = TRUE,
-           nytt_schema_oppet_for_geodata_las = TRUE,    # om TRUE så öppnas läsrättigheter för användaren geodata_las (vilket är det som ska användas om det inte finns mycket goda skäl att låta bli)
+           #nytt_schema_oppet_for_geodata_las = TRUE,    # om TRUE så öppnas läsrättigheter för användaren geodata_las (vilket är det som ska användas om det inte finns mycket goda skäl att låta bli)
            addera_data = FALSE,                         # om TRUE så läggs rader till i en tabell, annars skrivs den över (om den finns, annars skrivs en ny tabell)
            #postgistabell_till_crs,
            meddelande_tid = FALSE
@@ -2612,18 +2623,8 @@ postgis_sf_till_postgistabell <-
     # kör sql-kod för att skapa ett nytt schema med namn definierat ovan om det inte redan finns
     schema_finns <- postgres_schema_finns(con, schema)
     
-    if (!schema_finns) {
-      dbExecute(con, paste0("create schema if not exists ", schema, ";"))
-      
-      if (nytt_schema_oppet_for_geodata_las) {
-        sql_command <- sprintf("                                  # skapa sql-kommando för att öppna schemat och framtida tabeller för geodata_las
-        ALTER DEFAULT PRIVILEGES IN SCHEMA %s
-        GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %s;
-        ", schema, "geodata_las")
-        dbExecute(con, sql_command)                               # kör sql-kommandot som skapats ovan
-      } 
-    }
-    
+    if (!schema_finns) dbExecute(con, paste0("create schema if not exists ", schema, ";"))
+  
     # Kontrollera om tabellen redan finns
     tabell_finns <- DBI::dbExistsTable(con, DBI::Id(schema = schema, table = tabell))
     
@@ -3487,10 +3488,17 @@ postgis_databas_skriv_med_metadata <- function(
       geo_db_resultat <<- NA
       lyckad_uppdatering <<- TRUE
     }
+    
   }, error = function(e) {
     # Skriv ett felmeddelande om något går fel
     geo_db_resultat <<- glue("{e$message}")
     lyckad_uppdatering <<- FALSE
+    
+    if (geo_db_resultat == ""){
+      message("Data kunde inte läggas till i databasen. Felmeddelande saknas.")
+    } else {
+      message(glue("Data kunde inte läggas till i databasen. Felmeddelande: {geo_db_resultat}"))
+    }
     
   }, finally = {
     # kod som körs oavsett om skriptet fungerade att köra eller inte
