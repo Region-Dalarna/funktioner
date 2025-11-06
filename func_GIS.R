@@ -3083,7 +3083,7 @@ postgis_isokroner_skapa <- function(
     punkter_sf = NULL,               # om man vill skicka med ett sf-objekt istället för en punkttabell i postgis
     schema_punkt = NULL,             # tex "punktlager",
     tabell_punkt = NULL,             # tex "akutmottagningar",
-    idkol_punkt = "id",
+    idkol_punkt,
     nodkolumn_punkt = "nid_nvdb_alla_adresser",    # NULL, eller om man har ett punktlager som redan är kopplat till en graf kan kolumnen för noderna läggas till här
     namnkol_punkt = "namn",
     schema_graf = "grafer",
@@ -3123,6 +3123,12 @@ postgis_isokroner_skapa <- function(
   
   # skriv punkter_sf till ett temporär tabell i postgis eller använd den som skickats med
   if (!is.null(punkter_sf)) {
+    
+    # döp om geometri-kolumn till geom (som är det namn som används nedan)
+    geometri_kolumn <- punkter_sf %>% attr("sf_column")
+    punkter_sf <- punkter_sf %>% 
+      rename(geom = !!geometri_kolumn)
+    
     postgres_schema_skapa_om_inte_finns(con = con, schema_namn = "temp")
     sf::st_write(punkter_sf, con, DBI::Id(schema = "temp", table = "franpunkter"), delete_layer = TRUE)
     temptabell <- "temp.franpunkter"
@@ -3156,7 +3162,7 @@ postgis_isokroner_skapa <- function(
     UPDATE {temptabell} p
     SET toponode = g.target
     FROM (
-      SELECT p.id,
+      SELECT p.{idkol_punkt},
              g.target
       FROM {temptabell} p
       JOIN LATERAL (
@@ -3166,7 +3172,7 @@ postgis_isokroner_skapa <- function(
         LIMIT 1
       ) g ON true
     ) AS g
-    WHERE p.id = g.id;
+    WHERE p.{idkol_punkt} = g.{idkol_punkt};
   "))
     nodkolumn_punkt <- "toponode"
   } 
@@ -3223,7 +3229,7 @@ postgis_isokroner_skapa <- function(
   sql_per_punkt <- purrr::map_chr(noder[[idkol_punkt]], function(pid) {
     node <- noder$node[noder[[idkol_punkt]] == pid]
     glue::glue("
-    SELECT {pid} AS punkt_id, d.*, {case_when_uttryck}, e.*
+    SELECT '{pid}' AS punkt_id, d.*, {case_when_uttryck}, e.*
     FROM pgr_drivingDistance(
       'SELECT {idkol_graf} AS id, source, target,
         CASE 
@@ -3266,7 +3272,7 @@ postgis_isokroner_skapa <- function(
              e.kostnadsintervall,
              ST_ConcaveHull(ST_Collect(geom), 0.5) AS geom
       FROM isokron_edges AS e
-      LEFT JOIN noder_start n ON e.punkt_id = n.id
+      LEFT JOIN noder_start n ON e.punkt_id = n.{idkol_punkt}
       GROUP BY punkt_id{namnkol_punkt_sql}, e.kostnadsintervall;"))
   } else if (polygon_metod == "buffer") {
     DBI::dbExecute(con, glue::glue("
@@ -3275,7 +3281,7 @@ postgis_isokroner_skapa <- function(
              kostnadsintervall,
              ST_Buffer(ST_Union(ST_Simplify(geom, {simplify_tol})), {buffer_m}) AS geom
       FROM isokron_edges AS e
-      LEFT JOIN noder_start n ON e.punkt_id = n.id
+      LEFT JOIN noder_start n ON e.punkt_id = n.{idkol_punkt}
       GROUP BY punkt_id{namnkol_punkt_sql}, kostnadsintervall
     "))
     # gamla: ST_Simplify(ST_Buffer(ST_Union(geom), {buffer_m}), {simplify_tol}) AS geom
@@ -3286,7 +3292,7 @@ postgis_isokroner_skapa <- function(
              kostnadsintervall,
              ST_ConvexHull(ST_Collect(geom)) AS geom
       FROM isokron_edges AS e
-      LEFT JOIN noder_start n ON e.punkt_id = n.id
+      LEFT JOIN noder_start n ON e.punkt_id = n.{idkol_punkt}
       GROUP BY punkt_id{namnkol_punkt_sql}, kostnadsintervall;"))
   }
   
