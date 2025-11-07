@@ -3503,7 +3503,7 @@ postgis_databas_skriv_med_metadata <- function(
                                       ),
         warn_text = "Invalid time zone 'UTC', falling back to local time.")    # detta specifika varningsmeddelande skrivs inte ut i konsolen
       
-      geo_db_resultat <<- NA
+      geo_db_resultat <<- if (!is.na(kommentar_metadata)) kommentar_metadata else NA
       lyckad_uppdatering <<- TRUE
     }
     
