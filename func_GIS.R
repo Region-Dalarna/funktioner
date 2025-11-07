@@ -1809,8 +1809,8 @@ postgres_tabell_till_df <- function(con = "default",
 }
 
 
-postgres_meta <- function(tabell = "aktuell_version",
-                          con = "default",
+postgres_meta <- function(con = "default",
+                          tabell = "aktuell_version",
                           schema = "metadata",
                           query = NA,
                           meddelande_info = FALSE,
@@ -2930,6 +2930,7 @@ postgis_isokroner_bil <- function(
     kostnadskol_graf_b = "kostnad_bil_b_min",
     intervall_varden = intervall_varden,
     kostnad_enhet = "auto",
+    restyp = "bil",
     spara_schema = spara_schema,        # om man vill spara i databasen, ange schema här
     spara_tabell = spara_tabell,        # om man vill spara i databasen, ange tabell här
     returnera_sf = returnera_sf,        # om man vill returnera ett sf-objekt
@@ -2965,6 +2966,7 @@ postgis_isokroner_meter <- function(
     kostnadskol_graf_b = NULL,
     intervall_varden = intervall_varden,
     kostnad_enhet = "auto",
+    restyp = "meter",
     spara_schema = spara_schema,        # om man vill spara i databasen, ange schema här
     spara_tabell = spara_tabell,        # om man vill spara i databasen, ange tabell här
     returnera_sf = returnera_sf,        # om man vill returnera ett sf-objekt
@@ -3000,6 +3002,7 @@ postgis_isokroner_gang <- function(
     kostnadskol_graf_b = NULL,
     intervall_varden = intervall_varden,
     kostnad_enhet = "auto",
+    restyp = "till fots",
     spara_schema = spara_schema,        # om man vill spara i databasen, ange schema här
     spara_tabell = spara_tabell,        # om man vill spara i databasen, ange tabell här
     returnera_sf = returnera_sf,        # om man vill returnera ett sf-objekt
@@ -3035,6 +3038,7 @@ postgis_isokroner_cykel <- function(
     kostnadskol_graf_b = NULL,
     intervall_varden = intervall_varden,
     kostnad_enhet = "auto",
+    restyp = "cykel",
     spara_schema = spara_schema,        # om man vill spara i databasen, ange schema här
     spara_tabell = spara_tabell,        # om man vill spara i databasen, ange tabell här
     returnera_sf = returnera_sf,        # om man vill returnera ett sf-objekt
@@ -3070,6 +3074,7 @@ postgis_isokroner_elcykel <- function(
     kostnadskol_graf_b = NULL,
     intervall_varden = intervall_varden,
     kostnad_enhet = "auto",
+    restyp = "elcykel",
     spara_schema = spara_schema,        # om man vill spara i databasen, ange schema här
     spara_tabell = spara_tabell,        # om man vill spara i databasen, ange tabell här
     returnera_sf = returnera_sf,        # om man vill returnera ett sf-objekt
@@ -3093,6 +3098,7 @@ postgis_isokroner_skapa <- function(
     kostnadskol_graf_b = NULL,
     intervall_varden = c(5000, 10000, 20000, 30000),
     kostnad_enhet = "auto",     # avgörs av om "meter", "min" etc. ingår i kostnadskol_graf_f
+    restyp = "meter",           # skickar med en kolumn med restyp, kan vara "bil", "gång", längd meter", "cykel"
     spara_schema = NULL,        # om man vill spara i databasen, ange schema här
     spara_tabell = NULL,        # om man vill spara i databasen, ange tabell här
     returnera_sf = TRUE,        # om man vill returnera ett sf-objekt
@@ -3329,6 +3335,12 @@ postgis_isokroner_skapa <- function(
       layer = DBI::Id(schema = spara_schema, table = spara_tabell),
       delete_layer = TRUE
     )
+  }
+  
+  # Lägg till en kolumn 
+  if (restyp != "meter") {
+    iso_polys <- iso_polys %>% 
+      mutate(restyp = restyp)
   }
   
   # ta bort temptabell och tempschema om de finns
