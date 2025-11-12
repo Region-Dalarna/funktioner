@@ -225,7 +225,7 @@ SkapaStapelDiagram <- function(skickad_df,
     #if (!is.na(skickad_x_grupp) | !is.na(x_var_fokus)){             # om man har skickat med en x-grupp
     if (length(grupp_var) > 1){
       
-        # om det bara finns en 
+      # om det bara finns en 
       #chart_col <- ifelse(nrow(unique(plot_df[x_grupp])) > 1 | !is.na(x_var_fokus), manual_color, manual_color[1])
       chart_col <- manual_color
       
@@ -300,8 +300,8 @@ SkapaStapelDiagram <- function(skickad_df,
     } else {  # samma övning men för icke liggande diagram
       if (is.na(x_axis_sort_grp)){
         # detta är om man sorterar som vanligt, dvs. på totalen (sortera omvänt om vi valt vand_sortering)
-      if (!vand_sortering) plot_df[x_var] <- reorder(plot_df[[x_var]], desc(plot_df$total)) else plot_df[x_var] <- reorder(plot_df[[x_var]], plot_df$total)
-      
+        if (!vand_sortering) plot_df[x_var] <- reorder(plot_df[[x_var]], desc(plot_df$total)) else plot_df[x_var] <- reorder(plot_df[[x_var]], plot_df$total)
+        
       } else {
         # sortera om df:n och lägg till en sorteringskolumn som vi använder för att sortera rätt
         plot_df <- plot_df %>% 
@@ -325,28 +325,28 @@ SkapaStapelDiagram <- function(skickad_df,
     }  
   }
   
-    if (!all(is.na(farg_variabler))) {
-      ny_variabel <- names(farg_variabler)
-      plot_df <- plot_df %>% 
-        mutate(
-          !!ny_variabel := map_chr(as.character(plot_df[[x_var]]), ~ {
-            # Iterera över alla värden i farg_variabler[[1]] och kontrollera matchning
-            match <- farg_variabler[[1]][str_detect(.x, regex(farg_variabler[[1]], ignore_case = TRUE))]
-            if (length(match) > 0) {
-              match[1]  # Returnera första matchande värdet
-            } else {
-              NA_character_  # Om inget matchar
-            }
-          }),
-          !!ny_variabel := factor(!!sym(ny_variabel), levels = farg_variabler[[1]])
-        )
-      legend_kategorier <- levels(interaction(plot_df[[names(farg_variabler)]], plot_df[[x_grupp]])) %>% str_replace_all("\\.", " ")
-      if (legend_kategorier_tabort_xgrupp) {
-        legend_kategorier <- legend_kategorier %>% 
-          str_remove(str_c("\\b", unique(plot_df[[names(farg_variabler)]]), "\\b", collapse = "|")) %>% 
-          str_squish()
-      } 
-    }
+  if (!all(is.na(farg_variabler))) {
+    ny_variabel <- names(farg_variabler)
+    plot_df <- plot_df %>% 
+      mutate(
+        !!ny_variabel := map_chr(as.character(plot_df[[x_var]]), ~ {
+          # Iterera över alla värden i farg_variabler[[1]] och kontrollera matchning
+          match <- farg_variabler[[1]][str_detect(.x, regex(farg_variabler[[1]], ignore_case = TRUE))]
+          if (length(match) > 0) {
+            match[1]  # Returnera första matchande värdet
+          } else {
+            NA_character_  # Om inget matchar
+          }
+        }),
+        !!ny_variabel := factor(!!sym(ny_variabel), levels = farg_variabler[[1]])
+      )
+    legend_kategorier <- levels(interaction(plot_df[[names(farg_variabler)]], plot_df[[x_grupp]])) %>% str_replace_all("\\.", " ")
+    if (legend_kategorier_tabort_xgrupp) {
+      legend_kategorier <- legend_kategorier %>% 
+        str_remove(str_c("\\b", unique(plot_df[[names(farg_variabler)]]), "\\b", collapse = "|")) %>% 
+        str_squish()
+    } 
+  }
   
   # Här börjar vi rita ut diagrammet
   if (!is.na(x_var_fokus)) {
@@ -356,7 +356,7 @@ SkapaStapelDiagram <- function(skickad_df,
     p <- plot_df %>% 
       ggplot(aes(x=!!x_var, y=total)) + 
       geom_bar(position = geom_bar_position, stat="identity", aes(fill = !!x_var_fokus_asname))
-  # om vi skickat med en namngiven färgvektor 
+    # om vi skickat med en namngiven färgvektor 
   } else if (!all(is.na(skickad_namngiven_fargvektor)) & !all(is.na(farg_variabler))) {
     p <- plot_df %>% 
       ggplot(aes(x=!!x_var, y=total, fill = interaction(!!sym(names(farg_variabler)), !!x_grupp)))
@@ -393,13 +393,13 @@ SkapaStapelDiagram <- function(skickad_df,
         # och så ytterligare ett test om det är stacked eller dodge-diagram
         if (geom_position_stack) {
           geom_text(aes(y=total+sign(total), x=!!x_var, label=ifelse(total == 0, "", round(total,dataetiketter_antal_dec)),
-                                                           vjust = ifelse(total >= 0, -0.5-dataetiketter_justering_hojdled, 1+dataetiketter_justering_hojdled)),
-                  color = dataetiketter_farg,
-                  size=dataetikett_storlek,
-                  position = position_stack(vjust = 0.5))
+                        vjust = ifelse(total >= 0, -0.5-dataetiketter_justering_hojdled, 1+dataetiketter_justering_hojdled)),
+                    color = dataetiketter_farg,
+                    size=dataetikett_storlek,
+                    position = position_stack(vjust = 0.5))
         } else {
           geom_text(aes(y=total+sign(total), x=!!x_var, label=ifelse(total == 0, "", round(total,dataetiketter_antal_dec)),
-                                                             vjust = ifelse(total >= 0, -0.5-dataetiketter_justering_hojdled, 1+dataetiketter_justering_hojdled)),
+                        vjust = ifelse(total >= 0, -0.5-dataetiketter_justering_hojdled, 1+dataetiketter_justering_hojdled)),
                     color = dataetiketter_farg,
                     size=dataetikett_storlek,
                     position = position_dodge(width = stapel_bredd))
@@ -409,16 +409,16 @@ SkapaStapelDiagram <- function(skickad_df,
         # och så ytterligare ett test om det är stacked eller dodge-diagram
         if (geom_position_stack) {
           geom_text(aes(y=total+sign(total), x=!!x_var, label=round(total,dataetiketter_antal_dec)),
-                        vjust = ifelse(plot_df$total >= 0, -0.5-dataetiketter_justering_hojdled, 1+dataetiketter_justering_hojdled),
+                    vjust = ifelse(plot_df$total >= 0, -0.5-dataetiketter_justering_hojdled, 1+dataetiketter_justering_hojdled),
                     color = dataetiketter_farg,
                     size=dataetikett_storlek,
                     position = position_stack(vjust = 0.5))
         } else {
           geom_text(aes(y=total+sign(total), x=!!x_var, label=round(total,dataetiketter_antal_dec)),
-                     vjust = ifelse(plot_df$total >= 0, -0.5-dataetiketter_justering_hojdled, 1+dataetiketter_justering_hojdled),
-                  color = dataetiketter_farg,
-                  size=dataetikett_storlek,
-                  position = position_dodge(width = stapel_bredd))
+                    vjust = ifelse(plot_df$total >= 0, -0.5-dataetiketter_justering_hojdled, 1+dataetiketter_justering_hojdled),
+                    color = dataetiketter_farg,
+                    size=dataetikett_storlek,
+                    position = position_dodge(width = stapel_bredd))
         }
       }
     }} +
@@ -466,12 +466,12 @@ SkapaStapelDiagram <- function(skickad_df,
          x = manual_x_axis_title,
          y = y_titel,
          fill = legend_titel) +
-      guides(fill = guide_legend(title.position = "top",
-                                 title.hjust = 0.5, 
-                                 reverse = legend_vand_ordning,
-                                 ncol = legend_kolumner,
-                                 nrow = legend_rader,
-                                 byrow = legend_byrow)) +
+    guides(fill = guide_legend(title.position = "top",
+                               title.hjust = 0.5, 
+                               reverse = legend_vand_ordning,
+                               ncol = legend_kolumner,
+                               nrow = legend_rader,
+                               byrow = legend_byrow)) +
     { if (!all(is.na(skickad_namngiven_fargvektor)) & !all(is.na(farg_variabler))){
       scale_fill_manual(values = skickad_namngiven_fargvektor,
                         labels = legend_kategorier
@@ -500,7 +500,7 @@ SkapaStapelDiagram <- function(skickad_df,
     } else {                        # om det fuckar med facet-diagram, ta bort denna else-sats då. Den gör att procentformatet funkar även på free-scale facetdiagram men jag är inte säker att det funkar för övriga diagram
       scale_y_continuous(labels = etikett_format,
                          expand = c(0,0))
-      }} +
+    }} +
     
     {if (diagram_facet) facet_wrap(as.formula(paste("~",facet_grp)), scales = facet_scale,
                                    ncol = facet_kolumner,
@@ -510,20 +510,20 @@ SkapaStapelDiagram <- function(skickad_df,
       theme(strip.text = element_text(color = "black", size = facet_rubrik_storlek),
             strip.background = element_blank(),
             axis.text.x = element_text(size = facet_x_axis_storlek))
-        
+      
     } else {  
       theme(strip.text = element_blank())
     }}
   
-    # 0-linje lite synligare
+  # 0-linje lite synligare
   if (!is.na(noll_linje_betona)) {
     # Kolla om 0 finns inom den beräknade skalan
     if (min_yvar <= 0 && max_yvar >= 0) {
       
       #if (diagram_liggande) {
-        p <- p + geom_hline(yintercept = 0, colour = noll_linje_betona, linewidth = 0.8)
+      p <- p + geom_hline(yintercept = 0, colour = noll_linje_betona, linewidth = 0.8)
       #} else {
-       # p <- p + geom_vline(xintercept = 0, colour = noll_linje_betona, linewidth = 0.8)
+      # p <- p + geom_vline(xintercept = 0, colour = noll_linje_betona, linewidth = 0.8)
       #}
     }
   }
@@ -536,29 +536,29 @@ SkapaStapelDiagram <- function(skickad_df,
     if (is.null(names(fokusera_varden)[1])){          # ett sätt att göra skriptet bakåtkompatibelt. Om första elementet i listan är en lista, då kör vi på nya sättet, annars på det gamla (där det bara går att ha en lista)
       # här kör vi på det nya sättet där vi kan skicka med flera annoteringar
       for (ann_nr in 1:length(fokusera_varden)){
-          if (fokusera_varden[[ann_nr]]$geom == "rect"){    # om geom är rect kör denna kod
-            p <- p +
-               annotate(
-                 geom = fokusera_varden[[ann_nr]]$geom,          # måste vara "rect" här
-                 ymin = fokusera_varden[[ann_nr]]$ymin,          # var rektangeln börjar på y-axeln
-                 ymax = fokusera_varden[[ann_nr]]$ymax,          # var rektangeln slutar på y-axeln
-                 xmin = fokusera_varden[[ann_nr]]$xmin,          # var rektangeln börjar på x-axeln
-                 xmax = fokusera_varden[[ann_nr]]$xmax,          # var rektangeln slutar på x-axeln
-                 alpha = fokusera_varden[[ann_nr]]$alpha,        # genomskinlighet, 1 är inte genomskinligt, 0 är helt genomskinligt
-                 fill = fokusera_varden[[ann_nr]]$fill)          # färg på fyllningen i rektangeln
-          } else if (fokusera_varden[[ann_nr]]$geom == "text") { 
-            p <- p +
-                annotate(
-                  geom = fokusera_varden[[ann_nr]]$geom,          # måste vara "text" här.
-                  x = fokusera_varden[[ann_nr]]$x,                # kan anges i siffror eller kateogri
-                  y = fokusera_varden[[ann_nr]]$y,                # siffror, var på y-axeln läggs texten
-                  label = fokusera_varden[[ann_nr]]$label,        # självaste texten
-                  color = fokusera_varden[[ann_nr]]$color,        # färg på texten
-                  size = fokusera_varden[[ann_nr]]$size,          # storlek på texten, runt 2-2.5 brukar vara lagom
-                  fontface = fokusera_varden[[ann_nr]]$fontface,  # det finns "plain" som är vanlig text, "bold" och "italic" samt "bold.italic"
-                  angle = fokusera_varden[[ann_nr]]$angle)        # vinkel på texten
-          } # slut if-sats som pröver vilken typ av annotering det rör sig om
-            
+        if (fokusera_varden[[ann_nr]]$geom == "rect"){    # om geom är rect kör denna kod
+          p <- p +
+            annotate(
+              geom = fokusera_varden[[ann_nr]]$geom,          # måste vara "rect" här
+              ymin = fokusera_varden[[ann_nr]]$ymin,          # var rektangeln börjar på y-axeln
+              ymax = fokusera_varden[[ann_nr]]$ymax,          # var rektangeln slutar på y-axeln
+              xmin = fokusera_varden[[ann_nr]]$xmin,          # var rektangeln börjar på x-axeln
+              xmax = fokusera_varden[[ann_nr]]$xmax,          # var rektangeln slutar på x-axeln
+              alpha = fokusera_varden[[ann_nr]]$alpha,        # genomskinlighet, 1 är inte genomskinligt, 0 är helt genomskinligt
+              fill = fokusera_varden[[ann_nr]]$fill)          # färg på fyllningen i rektangeln
+        } else if (fokusera_varden[[ann_nr]]$geom == "text") { 
+          p <- p +
+            annotate(
+              geom = fokusera_varden[[ann_nr]]$geom,          # måste vara "text" här.
+              x = fokusera_varden[[ann_nr]]$x,                # kan anges i siffror eller kateogri
+              y = fokusera_varden[[ann_nr]]$y,                # siffror, var på y-axeln läggs texten
+              label = fokusera_varden[[ann_nr]]$label,        # självaste texten
+              color = fokusera_varden[[ann_nr]]$color,        # färg på texten
+              size = fokusera_varden[[ann_nr]]$size,          # storlek på texten, runt 2-2.5 brukar vara lagom
+              fontface = fokusera_varden[[ann_nr]]$fontface,  # det finns "plain" som är vanlig text, "bold" och "italic" samt "bold.italic"
+              angle = fokusera_varden[[ann_nr]]$angle)        # vinkel på texten
+        } # slut if-sats som pröver vilken typ av annotering det rör sig om
+        
       } # slut på for-loop där vi loopar igenom listan med listor som innehåller annoteringar
     } else {
       # här kör vi på det gamla sättet då man bara kunde ha en annotering per diagram
@@ -700,7 +700,7 @@ SkapaLinjeDiagram <- function(skickad_df,
     linjetyp_kolumn <- sym(linjetyp_kolumn)
     linjetyp_gruppvar <- TRUE 
   } else linjetyp_gruppvar <- FALSE
-
+  
   if (linjetyp_gruppvar) grupp_var <- as.character(c(grupp_var, linjetyp_kolumn)) %>% unique()
   
   y_var <- as.name(skickad_y_var)
@@ -776,7 +776,7 @@ SkapaLinjeDiagram <- function(skickad_df,
   # max_yvar <- stodlinjer_list$max_yvar
   # min_by_yvar <- stodlinjer_list$min_by_yvar
   # maj_by_yvar <- stodlinjer_list$maj_by_yvar
-
+  
   
   # Ändrat 14 aug 2024:
   # if (y_axis_100proc) max_varde_plot_df <- 100 else max_varde_plot_df <- max(plot_df["total"])    # om vi skickat med att vi vill ha låsa y-axelns maxvärde till 100 så fixar vi det här
@@ -791,16 +791,16 @@ SkapaLinjeDiagram <- function(skickad_df,
   if (y_axis_100proc) max_varde_plot_df <- 100 else max_varde_plot_df <- max(plot_df["total"])    # om vi skickat med att vi vill ha låsa y-axelns maxvärde till 100 så fixar vi det här - slice(1) utfall att det finns flera grupper som uppnår maxvärde (då tar vi bara en av dem)
   if (diagram_facet) {
     variabel_vekt <- c(as.character(skickad_x_var), as.character(facet_grp), as.character(skickad_x_grupp)) %>% .[!is.na(.)]
-
+    
     max_varde_plot_df <- plot_df %>% group_by(across(any_of(variabel_vekt))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == max(summ)) %>% slice(1) %>% dplyr::pull()
     min_varde_plot_df <- plot_df %>% group_by(across(any_of(variabel_vekt))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == min(summ)) %>% slice(1) %>% dplyr::pull()
-
+    
   } else {
     min_varde_plot_df <- min(plot_df["total"])
   }
   if (min_varde_plot_df < 0 & max_varde_plot_df < 0) min_och_max_negativa <- TRUE else min_och_max_negativa <- FALSE
   stodlinjer_list <- Berakna_varden_stodlinjer(min_varde =  min_varde_plot_df, max_varde = max_varde_plot_df, y_borjar_pa_noll = y_axis_borjar_pa_noll, procent_0_100_10intervaller = procent_0_100_10intervaller, avrunda_fem = stodlinjer_avrunda_fem, minus_plus_samma = y_axis_minus_plus_samma_axel)
-
+  
   min_yvar <- stodlinjer_list$min_yvar
   max_yvar <- stodlinjer_list$max_yvar
   min_by_yvar <- stodlinjer_list$min_by_yvar
@@ -875,8 +875,8 @@ SkapaLinjeDiagram <- function(skickad_df,
         if (berakna_index) geom_hline(yintercept = 100, color = "grey32", linewidth = 1.2),
         geom_line(aes(color = chart_col), linewidth = 1.5)
       )
-      # {if (berakna_index) geom_hline(yintercept = 100, color = "grey32", linewidth = 1.2)} +
-      # geom_line(aes(color = chart_col), linewidth = 1.5)
+    # {if (berakna_index) geom_hline(yintercept = 100, color = "grey32", linewidth = 1.2)} +
+    # geom_line(aes(color = chart_col), linewidth = 1.5)
   } else {
     p<-plot_df %>% ggplot(aes(x=!!x_var, y=total, group = !!x_grupp, linetype = !!x_grupp)) +
       {if (berakna_index) geom_hline(yintercept = 100, color = "grey32", linewidth = 1.2)} +
@@ -925,11 +925,11 @@ SkapaLinjeDiagram <- function(skickad_df,
          color = legend_titel,
          linetype = NULL) +
     guides(color = guide_legend(title.position = "top",
-                               title.hjust = 0.5, 
-                               reverse = legend_vand_ordning,
-                               ncol = legend_kolumner,
-                               nrow = legend_rader,
-                               byrow = legend_byrow)) +
+                                title.hjust = 0.5, 
+                                reverse = legend_vand_ordning,
+                                ncol = legend_kolumner,
+                                nrow = legend_rader,
+                                byrow = legend_byrow)) +
     scale_color_manual(values = chart_col) +  
     { if (AF_special) {  
       scale_x_continuous(expand = c(0,.3), breaks = seq(1,53, by = 1))
@@ -971,14 +971,14 @@ SkapaLinjeDiagram <- function(skickad_df,
     #                    expand = c(0,0)) +
     # 
     
-    
-    #labels = function(x) format(x, big.mark = " ")) +
-    #{if (diagram_facet & x_grupp != "NA") facet_wrap(as.formula(paste("~",facet_grp)), scales = facet_scale) } +
-    #{if (diagram_facet) facet_wrap(as.formula(paste("~",facet_grp)), scales = facet_scale) } +
   
-    {if (diagram_facet) facet_wrap(as.formula(paste("~",facet_grp)), scales = "free",
-                                   ncol = facet_kolumner,
-                                   nrow = facet_rader) } +
+  #labels = function(x) format(x, big.mark = " ")) +
+  #{if (diagram_facet & x_grupp != "NA") facet_wrap(as.formula(paste("~",facet_grp)), scales = facet_scale) } +
+  #{if (diagram_facet) facet_wrap(as.formula(paste("~",facet_grp)), scales = facet_scale) } +
+  
+  {if (diagram_facet) facet_wrap(as.formula(paste("~",facet_grp)), scales = "free",
+                                 ncol = facet_kolumner,
+                                 nrow = facet_rader) } +
     
     #{if (diagram_facet & x_grupp != "NA"){               # gammal, om det krånglar kan man lägga till x_grupp-delen igen
     {if (diagram_facet & facet_sort) scale_x_reordered()} +                 # sorterar varje facetgrupp för sig om man kör facet_sort
@@ -987,7 +987,7 @@ SkapaLinjeDiagram <- function(skickad_df,
             strip.background = element_blank(),
             axis.text.x = element_text(size = facet_x_axis_storlek),
             axis.text.y = element_text(size = facet_y_axis_storlek)
-            )  
+      )  
     } else {  
       theme(strip.text = element_blank())
     }}
