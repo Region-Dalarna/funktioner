@@ -3474,7 +3474,7 @@ postgis_databas_skriv_med_metadata <- function(
     schema,
     tabell, 
     postgistabell_geo_kol = "geometry",
-    postgistabell_id_kol = "id",
+    postgistabell_id_kol = NA,            # default är att inte skicka med id-kolumn, om det görs så indexeras id-kolumnen
     postgis_addera_data = FALSE,          # om TRUE töms ej tabellen innan ny data skrivs
     felmeddelande_medskickat = NA,
     kommentar_metadata = NA
