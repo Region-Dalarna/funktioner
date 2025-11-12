@@ -1056,10 +1056,10 @@ skapa_koropletkarta_ggplot <- function(
     etiketter_buffer_farg = NA,                  # en kant runt etiketterna för att de ska synas bättre
     returnera_ggobj = TRUE,                      # om funktionen ska returnera ett ggplot-objekt med kartan 
     granser_farg = "darkgrey",                   # gränser mellan polygonerna
-    granser_tjocklek = 0.4                       # tjocklek på gränser mellan polygonerna
+    granser_tjocklek = 0.2                       # tjocklek på gränser mellan polygonerna
 ) {
-
-
+  
+  
   # --- Säkerställ att geometrikolumnen heter "geometry" och inte krockar med andra kolumner ---
   # Hämta sf-geometrikolumnens riktiga namn
   geom_kol <- attr(sf_objekt, "sf_column")
@@ -1141,22 +1141,26 @@ skapa_koropletkarta_ggplot <- function(
   } else {
     diskret_skala <- TRUE  # Klassindelning = diskret skala
     
+    # Funktion som används nedan
+    bestam_accuracy <- function(values) {
+      values <- na.omit(values)
+      if (all(values == round(values))) return(1)
+      diffs <- diff(sort(unique(values)))
+      if (min(diffs) >= 1) return(0.1)
+      if (min(diffs) >= 0.1) return(0.1)
+      if (min(diffs) >= 0.01) return(0.01)
+      return(0.001)
+    }
+    
     if (is.numeric(klassindelning)) {
       sf_plot <- sf_objekt %>%
         mutate(klass = cut(!!sym(vardekolumn), breaks = klassindelning, include.lowest = TRUE))
+      
+      acc <- bestam_accuracy(klassindelning)
+      
     } else {
       klassindelning <- match.arg(klassindelning, c("kvantil", "pretty", "natural"))
       
-      # Automatisk bestämning av decimalprecision (som du redan hade)
-      bestam_accuracy <- function(values) {
-        values <- na.omit(values)
-        if (all(values == round(values))) return(1)
-        diffs <- diff(sort(unique(values)))
-        if (min(diffs) >= 1) return(0.1)
-        if (min(diffs) >= 0.1) return(0.1)
-        if (min(diffs) >= 0.01) return(0.01)
-        return(0.001)
-      }
       acc <- bestam_accuracy(sf_objekt[[vardekolumn]])
       
       # Skapa diskreta klasser
@@ -1179,17 +1183,37 @@ skapa_koropletkarta_ggplot <- function(
                              breaks = suppressWarnings(classInt::classIntervals(values, n = klasser_antal, style = "jenks")$brks),
                              include.lowest = TRUE))
       }
-      
-      # ✅ Formatera intervall-etiketter (gäller bara faktor)
+    }
+    
+    # ✅ Formatera intervall-etiketter (gäller bara faktor)
+    # --- Snygga till etiketter för cut-klasser utan parenteser ---
+    if (is.factor(sf_plot$klass)) {
       sf_plot$klass <- forcats::fct_relabel(sf_plot$klass, function(lv) {
-        sapply(lv, function(x) {
-          parts <- strsplit(gsub("\\[|\\]|\\(|\\)", "", x), ",")[[1]]
-          lower <- as.numeric(parts[1]); upper <- as.numeric(parts[2])
-          if (!is.na(lower) && !is.na(upper) && lower == round(lower) && upper == round(upper)) {
-            paste0(round(lower), " – ", round(upper))
+        sapply(lv, function(interval) {
+          
+          # Remove ( ) [ ]
+          interval <- gsub("\\(|\\)|\\[|\\]", "", interval)
+          
+          # Split
+          parts <- trimws(strsplit(interval, ",")[[1]])
+          lower <- as.numeric(parts[1])
+          upper <- as.numeric(parts[2])
+          
+          # Format: a - b
+          if (is.infinite(lower) && is.infinite(upper)) {
+            "Alla värden"  # Om både är oändliga (osannolikt)
+          } else if (is.infinite(lower)) {
+            paste0("< ", scales::number(upper, accuracy = acc))
+          } else if (is.infinite(upper)) {
+            paste0("> ", scales::number(lower, accuracy = acc))
           } else {
-            paste0(scales::number(lower, accuracy = acc), " – ", scales::number(upper, accuracy = acc))
-          }
+            paste0(
+              scales::number(lower, accuracy = acc),
+              " – ",
+              scales::number(upper, accuracy = acc)
+            )
+          } # slut test om -Inf eller Inf är medskickat
+          
         })
       })
     }
@@ -1249,9 +1273,11 @@ skapa_koropletkarta_ggplot <- function(
       } else {
         # Diskret färgskala
         if (length(karta_fargvektor) > 1) {
-          scale_fill_manual(values = karta_fargvektor, name = legend_titel, na.value = na_farg)
+          scale_fill_manual(values = karta_fargvektor, name = legend_titel, 
+                            na.value = na_farg, labels = levels(sf_plot$klass))
         } else {
-          scale_fill_brewer(palette = karta_fargvektor, name = legend_titel, na.value = na_farg)
+          scale_fill_brewer(palette = karta_fargvektor, name = legend_titel, 
+                            na.value = na_farg, labels = levels(sf_plot$klass))
         }
       }
     } +
