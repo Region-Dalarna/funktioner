@@ -1502,7 +1502,7 @@ source_utan_cache <- function(url, encoding = NA, echo = FALSE) {
 
 excelfil_spara_formaterad <- function(
     indata,
-    output_mapp,
+    output_mapp = utskriftsmapp(),
     namn = NA
 ) {
   
