@@ -1500,20 +1500,45 @@ source_utan_cache <- function(url, encoding = NA, echo = FALSE) {
   }
 }
 
-# avrundning_dynamisk <- function(x, gräns_stora = 10, gräns_medel = 1, dec_stora = 0, dec_medel = 1, dec_små = 2) {
-#   avrunda <- function(v) {
-#     if (abs(v) >= gräns_stora) {
-#       round(v, dec_stora)  # Inga decimaler för stora tal
-#     } else if (abs(v) >= gräns_medel) {
-#       round(v, dec_medel)  # En decimal för medelstora tal
-#     } else {
-#       round(v, dec_små)    # Två decimaler för små tal
-#     }
-#   }
-#   # Applicera på varje element i vektorn x med purrr::map_dbl
-#   retur_vekt <- map_dbl(x, avrunda)
-#   return(retur_vekt)
-# }
+excelfil_spara_formaterad <- function(
+    indata,
+    output_mapp,
+    namn = NA
+) {
+  
+  # indata = dataset i form av en lista eller ett dataset
+  # output_mapp = är vad det låter som, där excelfilen ska sparas
+  # namn = namn på excelfilen (utan filändelse), saknas namn så döps den efter listan/df:n
+  
+  stopifnot(dir.exists(output_mapp))
+  
+  if (is.na(namn)) namn <- deparse(substitute(indata))
+  if (is.data.frame(indata)) indata <- list(indata) else stopifnot(is.list(indata))
+  names(indata) <- names(indata) %||% namn
+  
+  wb <- openxlsx::createWorkbook()
+  
+  purrr::iwalk(indata, ~ {
+    blad <- .y
+    df   <- .x
+    
+    openxlsx::addWorksheet(wb, blad)
+    openxlsx::writeData(wb, blad, df, startRow = 1, startCol = 1)
+    
+    bold <- openxlsx::createStyle(textDecoration = "bold")
+    openxlsx::addStyle(
+      wb, blad, style = bold,
+      rows = 1, cols = 1:ncol(df), gridExpand = TRUE
+    )
+    
+    openxlsx::setColWidths(wb, blad, cols = 1:ncol(df), widths = "auto")
+    # nu <- wb$worksheets[[blad]]$colWidths
+    # openxlsx::setColWidths(wb, blad, cols = 1:ncol(df), widths = nu * 1.15)
+  })
+  
+  fil <- file.path(output_mapp, paste0(namn, ".xlsx"))
+  openxlsx::saveWorkbook(wb, fil, overwrite = TRUE)
+}
 
 # ================================================= Ladda ner data utan API ==============================================
 
