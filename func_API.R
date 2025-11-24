@@ -2200,7 +2200,7 @@ github_commit_push <- function(
     #   
     
     
-    cat(paste0("Commit och push till ", repo, " på ", repo_org ,"s Github för är klar.\n\n", konsolmeddelande))
+    cat(paste0("Commit och push till ", repo, " på ", repo_org ,"s Github är klar.\n\n", konsolmeddelande))
     
   } else {
     print("Inga nya eller uppdaterade filer att ladda upp till Github.")
