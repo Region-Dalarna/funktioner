@@ -1773,7 +1773,7 @@ hamta_excel_dataset_med_url <- function(url_excel,
   if (!is.na(hoppa_over_flikar)) flikar <- flikar[!flikar %in% hoppa_over_flikar]        # ta bort flikar som läses in om det finns värden i hoppa_over_flikar
   
   dataset_lista <- map(flikar, ~ {
-    retur_df <- read_xlsx(excel_fil, sheet = .x, skip = skippa_rader)
+    retur_df <- readxl::read_xlsx(excel_fil, sheet = .x, skip = skippa_rader)
     if (!is.na(mutate_flik)) retur_df <- retur_df %>% mutate(!!mutate_flik := .x)
     return(retur_df)
   })
