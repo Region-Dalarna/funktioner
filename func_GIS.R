@@ -1856,6 +1856,46 @@ postgres_meta <- function(con = "default",
   return(retur_df)
 }
 
+postgres_meta_skapa_vy_aktuell_version <- function(
+    con                 # uppkoppling
+) {
+  
+  # om vyn aktuell version redan finns i schemat metadata så görs ingenting
+  if ("aktuell_version" %in% postgres_lista_scheman_tabeller(con = con)$metadata){
+    stop("Vyn aktuell_version i schemat metadata finns redan. Funktionen stoppas.")
+  }
+  
+  # SQL-skript för att skapa vyn
+  create_view_sql <- "
+  CREATE OR REPLACE VIEW metadata.aktuell_version AS
+  SELECT *
+  FROM (
+      SELECT DISTINCT ON (schema, tabell)
+          id,
+          schema,
+          tabell,
+          version_datum,
+          version_tid,
+          uppdaterad_datum,
+          uppdaterad_tid,
+          lyckad_uppdatering,
+          kommentar
+      FROM metadata.uppdateringar
+      ORDER BY schema, tabell, uppdaterad_datum DESC, uppdaterad_tid DESC
+  ) subquery
+  ORDER BY uppdaterad_datum ASC, uppdaterad_tid ASC;
+  "
+  
+  # Kör SQL-kommandot för att skapa vyn - i geodatabasen
+  tryCatch({
+    dbExecute(con, create_view_sql)
+    message("Vyn 'metadata.aktuell_version' skapades framgångsrikt.")
+  }, error = function(e) {
+    message("Ett fel uppstod: ", e$message)
+  })
+  
+} # slut funktion
+
 postgres_tabell_ta_bort <- function(con = "default", 
                                     schema, 
                                     tabell,
