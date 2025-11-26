@@ -6604,31 +6604,38 @@ keyring_lagg_till_inloggning <- function(keyring_service) {
   avsluta <- FALSE
   svar <- "tomt"
   
-  # --- Kontrollera om inloggning redan finns ---
-  if (keyring_service %in% keyring_lista$service) {
-    svar <- dlg_message(
-      paste0("Det finns redan en inloggning som heter '", keyring_service,
-             "'. Vill du ta bort den och lägga in den på nytt?"),
-      type = "yesno"
-    )$res
-    
-    # om användar klickar på no så avslutas funktionen utan att göra något
-    if (tolower(svar) == "no") avsluta <- TRUE
-  }
-  
-  # --- Om användaren vill fortsätta ---
-  if (!avsluta) {
     # Be om användarnamn (förifyllt)
     username <- dlg_input(
       "Skriv användarnamn:",
       default = Sys.info()[["user"]],
-      title = "Inloggning geodatabasen"
+      title = "Inloggning"  #paste0("Inloggning keyring service: ", keyring_service)
     )$res
     
     if (is.null(username) || username == "" || length(username) == 0) {
       message("Ingen inloggning skapad (användarnamn saknas).")
       return(invisible(NULL))
     }
+    
+    # --- Kontrollera om inloggning redan finns ---
+    if(
+      tryCatch({
+        keyring::key_get(keyring_service, username)
+        TRUE
+      }, error = function(e) FALSE)
+    ) {
+      svar <- dlg_message(
+        paste0("Det finns redan en inloggning som heter '", keyring_service,
+               "' med användarnamn '", username, "'. Vill du ta bort den och lägga in den på nytt?"),
+        type = "yesno"
+      )$res
+      
+      # om användar klickar på no så avslutas funktionen utan att göra något
+      if (tolower(svar) == "no") avsluta <- TRUE
+    }
+    
+    
+    # --- Om användaren vill fortsätta ---
+    if (!avsluta) {
     
     # Be om lösenord (maskerat)
     
@@ -6661,12 +6668,12 @@ keyring_lagg_till_inloggning <- function(keyring_service) {
     )
     
     dlg_message(
-      paste0("Inloggning för '", keyring_service, "' har sparats i keyring."),
+      paste0("Inloggning för '", keyring_service, "' och användarnamn '",
+             username, "' har sparats i keyring."),
       type = "ok"
     )
   }
 }
-
 
 
 adresser_inv_reg_folke_bearbeta <- function(skickad_df) {
