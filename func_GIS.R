@@ -5782,7 +5782,7 @@ pendling_kraftfalt <- function(
   
   # fyll i som ett argument till funktionen annars används default värden
   if (is.na(ut_mapp)) {
-    ut_mapp <- "G:/skript/gis/sweco_dec_2022/utdata"
+    ut_mapp <- utskriftsmapp()
   }
   # det namn du ger din geopackage annars används default värden
   if (is.na(gpkg_namn)) {
@@ -6198,7 +6198,7 @@ pendling_natverk <- function(
   # Hantera NA i parametrar
   # där du eventuellt sparar data lokalt
   if (is.na(ut_mapp)) {
-    ut_mapp <- "G:/skript/gis/sweco_dec_2022/utdata"
+    ut_mapp <- utskriftsmapp()
   }
   # det namn du ger din geopackage
   if (is.na(gpkg_namn)) {
@@ -6403,7 +6403,7 @@ pendling_ruta <- function(version = c("PostGIS", "R"), # Måste välja mellan Po
   
   # Set default values for optional parameters
   if (is.na(ut_mapp)) {
-    ut_mapp <- "G:/skript/gis/sweco_dec_2022/utdata"
+    ut_mapp <- utskriftsmapp()
   }
   if (is.na(gpkg_namn)) {
     gpkg_namn <- "pendling_ruta.gpkg"
