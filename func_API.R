@@ -1377,41 +1377,6 @@ anv_hamta_namn_epost_fran_lista <- function(skickat_namn = NULL){
 
 } # slut funktion
 
-excelfil_spara_snyggt <- function(excelflikar, 
-                                  utdatamapp, 
-                                  utdata_filnamn,
-                                  auto_kolumnbredd = TRUE,          # anpassar bredden på kolumnerna till hur mycket text det är i dem
-                                  fetstil_rader = 1,                # vilka rader som ska vara i fetstil, NA = inga rader får fetstil
-                                  fetstil_kolumner = NA,            # vilka kolumner som ska vara i fetstil, NA = inga kolumner får fetstil
-                                  skriv_over_fil = TRUE             # TRUE = skriver över tidigare version om det finns någon (den kan dock inte vara öppen i Excel, då får man felmeddelande)
-                                  ) {
-  library(openxlsx, quietly = TRUE)
-  
-  # om det är en dataframe så konverteras den till en lista
-  if (all(class(excelflikar) != "list")) {
-    excelflikar <- list(excelflikar)
-    names(excelflikar) <- c("dataset")
-  } else {   # om det är en lista så sätts namn på listan om det inte finns för alla element
-    if (any(is.null(names(excelflikar)))) names(excelflikar) <- paste0("dataset_", 1:length(excelflikar))
-  }
-
-    # Skapa en ny workbook
-  wb <- createWorkbook()
-  
-  # Iterera över listan och lägg till data i separata blad
-  walk2(excelflikar, names(excelflikar), ~ {
-    addWorksheet(wb, .y)                     # lägg till flik
-    writeData(wb, sheet = .y, x = .x)        # lägg till data på fliken
-    if (auto_kolumnbredd) setColWidths(wb, sheet = .y, cols = 1:ncol(.x), widths = "auto")        # sätt kolumnbredd till autosize, dvs. så bred som texten i kolumnen är
-    if (!is.na(fetstil_rader)) walk(fetstil_rader, function(rad) addStyle(wb, sheet = .y, rows = rad, cols = 1:ncol(.x),                    # gör fetstil på de rader som användare angett, eller NA för inga rader med fetstil
-                                                              style = createStyle(textDecoration = "bold"), gridExpand = TRUE))
-    if (!is.na(fetstil_kolumner)) walk(fetstil_kolumner, function(kolumn) addStyle(wb, sheet = .y, rows = 1:nrow(.x), cols = kolumn,              # gör fetstil på de kolumner som användare angett, eller NA för inga kolumner med fetstil
-                                                                    style = createStyle(textDecoration = "bold"), gridExpand = TRUE))
-  })
-  
-  # Spara workbooken
-  saveWorkbook(wb, paste0(utdatamapp, utdata_filnamn), overwrite = skriv_over_fil)
-}
 
 slash_lagg_till <- function(x) {
   if (!str_ends(x, "/")) x <- paste0(x, "/")
@@ -1500,45 +1465,55 @@ source_utan_cache <- function(url, encoding = NA, echo = FALSE) {
   }
 }
 
-excelfil_spara_formaterad <- function(
-    indata,
-    output_mapp = utskriftsmapp(),
-    namn = NA
+excelfil_spara_formaterad <- function(indata,
+                                      output_mapp = utskriftsmapp(), 
+                                      excelfil_namn = NA,
+                                      auto_kolumnbredd = TRUE,          # anpassar bredden på kolumnerna till hur mycket text det är i dem
+                                      fetstil_rader = 1,                # vilka rader som ska vara i fetstil, NA = inga rader får fetstil
+                                      fetstil_kolumner = NA,            # vilka kolumner som ska vara i fetstil, NA = inga kolumner får fetstil
+                                      skriv_over_fil = TRUE             # TRUE = skriver över tidigare version om det finns någon (den kan dock inte vara öppen i Excel, då får man felmeddelande)
 ) {
-  
-  # indata = dataset i form av en lista eller ett dataset
-  # output_mapp = är vad det låter som, där excelfilen ska sparas
-  # namn = namn på excelfilen (utan filändelse), saknas namn så döps den efter listan/df:n
-  
   stopifnot(dir.exists(output_mapp))
   
-  if (is.na(namn)) namn <- deparse(substitute(indata))
-  if (is.data.frame(indata)) indata <- list(indata) else stopifnot(is.list(indata))
-  names(indata) <- names(indata) %||% namn
+  library(openxlsx, quietly = TRUE)
   
-  wb <- openxlsx::createWorkbook()
+  if (is.na(excelfil_namn)) excelfil_namn <- deparse(substitute(indata))             #
+  # om det är en dataframe så konverteras den till en lista
+  if (all(class(indata) != "list")) {
+    indata <- list(indata)
+    names(indata) <- c("dataset")
+  } else {   # om det är en lista så sätts namn på listan om det inte finns för alla element
+    if (any(is.null(names(indata)))) names(indata) <- paste0("dataset_", 1:length(indata))
+  }
   
-  purrr::iwalk(indata, ~ {
-    blad <- .y
-    df   <- .x
+  # Skapa en ny workbook
+  wb <- createWorkbook()
+  
+  # Iterera över listan och lägg till data i separata blad
+  walk2(indata, names(indata), ~ {
+    addWorksheet(wb, .y)                     # lägg till flik
+    writeData(wb, sheet = .y, x = .x)        # lägg till data på fliken
     
-    openxlsx::addWorksheet(wb, blad)
-    openxlsx::writeData(wb, blad, df, startRow = 1, startCol = 1)
+    # egen beräkning av autosize
+    if (auto_kolumnbredd) {
+     kolumnbredd <- pmax(
+       map_dbl(.x, ~ max(nchar(as.character(.x)), na.rm = TRUE)),
+       nchar(names(.x))) + 2
+     
+      setColWidths(wb, sheet = .y, cols = 1:ncol(.x), widths = kolumnbredd)        # sätt kolumnbredd till autosize, dvs. så bred som texten i kolumnen är
+    }
     
-    bold <- openxlsx::createStyle(textDecoration = "bold")
-    openxlsx::addStyle(
-      wb, blad, style = bold,
-      rows = 1, cols = 1:ncol(df), gridExpand = TRUE
-    )
     
-    openxlsx::setColWidths(wb, blad, cols = 1:ncol(df), widths = "auto")
-    # nu <- wb$worksheets[[blad]]$colWidths
-    # openxlsx::setColWidths(wb, blad, cols = 1:ncol(df), widths = nu * 1.15)
+    if (!is.na(fetstil_rader)) walk(fetstil_rader, function(rad) addStyle(wb, sheet = .y, rows = rad, cols = 1:ncol(.x),                    # gör fetstil på de rader som användare angett, eller NA för inga rader med fetstil
+                                                                          style = createStyle(textDecoration = "bold"), gridExpand = TRUE))
+    if (!is.na(fetstil_kolumner)) walk(fetstil_kolumner, function(kolumn) addStyle(wb, sheet = .y, rows = 1:nrow(.x), cols = kolumn,              # gör fetstil på de kolumner som användare angett, eller NA för inga kolumner med fetstil
+                                                                                   style = createStyle(textDecoration = "bold"), gridExpand = TRUE))
   })
   
-  fil <- file.path(output_mapp, paste0(namn, ".xlsx"))
-  openxlsx::saveWorkbook(wb, fil, overwrite = TRUE)
+  # Spara workbooken
+  saveWorkbook(wb, paste0(output_mapp, excelfil_namn), overwrite = skriv_over_fil)
 }
+
 
 # ================================================= Ladda ner data utan API ==============================================
 
