@@ -7,6 +7,7 @@ p_load(git2r,
        rKolada,
        httr,
        farver,
+       DBI,
        keyring,
        rvest,
        curl,
@@ -1465,6 +1466,27 @@ source_utan_cache <- function(url, encoding = NA, echo = FALSE) {
   }
 }
 
+source_funktioner <- function(skriptfil, funktioner) {
+  # funktion för att source:a in en eller flera funktioner från en fil
+  tmp_env <- new.env(parent = .GlobalEnv)
+  source(skriptfil, local = tmp_env)
+  
+  hittade_funktioner <- funktioner[funktioner %in% ls(tmp_env)]
+  ej_hittade_funktioner <- funktioner[!funktioner %in% ls(tmp_env)] 
+  
+  
+  walk(hittade_funktioner, ~{
+    assign(.x, tmp_env[[.x]], envir = .GlobalEnv)
+  })
+  
+  verb <- if (length(ej_hittade_funktioner) > 1) "Funktionerna " else "Funktionen "
+  if (length(ej_hittade_funktioner) > 0) cat(paste0(verb, ej_hittade_funktioner %>% list_komma_och(), " finns inte i skriptfilen '", skriptfil, "'."))
+  
+  rm(tmp_env)
+  
+}
+
+
 excelfil_spara_formaterad <- function(indata,
                                       output_mapp = utskriftsmapp(), 
                                       excelfil_namn = NA,
@@ -1762,6 +1784,28 @@ hamta_excel_dataset_med_url <- function(url_excel,
   return(dataset_lista)
 }
 
+oppnadata_hamta <- function(
+    schema = NA,
+    tabell = NA,
+    query = NA
+) {
+  # funktion för att hämta öppna data i geodatabasen, eller lista vilka scheman och tabeller som 
+  # finns om man inte skickar med några parametrar
+  
+  # vi source:ar in enbart de fyra funktioner som behövs från func_GIS.R för att köra denna 
+  # funktion, så att vi inte kladdar ner global environment för mycket. 
+  source_funktioner("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R",
+                    c("postgres_hamta_oppnadata", "postgres_lista_scheman_tabeller",
+                      "uppkoppling_db", "postgres_tabell_till_df"))
+  
+  retur_df <- postgres_hamta_oppnadata(
+    schema = schema,
+    tabell = tabell,
+    query = query
+  )
+  
+  return(retur_df)  
+}
 
 # ================================================= github-funktioner ========================================================
 
