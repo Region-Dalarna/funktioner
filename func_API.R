@@ -1457,13 +1457,22 @@ urklipp <- function(x, sep = "\n") {
 source_utan_cache <- function(url, encoding = NA, echo = FALSE) {
   # använd istället för source för att säkerställa att den inte source:ar in en cache istället
   # bra när man precis har commit:at och push:at till
-  full_url <- sprintf("%s?nocache=%s", url, as.integer(Sys.time()))
+  #full_url <- sprintf("%s?nocache=%s", url, as.integer(Sys.time()))
+  
+  tmp <- tempfile()
+  
+  res <- GET(url, add_headers("Cache-Control" = "no-cache"))
+  stop_for_status(res)
+  writeBin(content(res, "raw"), tmp)
   
   if (!is.na(encoding)) {
-    source(full_url, encoding = encoding, echo = echo)  
+    source(tmp, encoding = encoding, echo = echo)  
+    #source(full_url, encoding = encoding, echo = echo)  
   } else {
-    source(full_url, echo = echo)
+    source(tmp, echo = echo)
   }
+  
+  unlink(tmp)
 }
 
 source_funktioner <- function(skriptfil, funktioner) {
