@@ -794,6 +794,22 @@ uppkoppling_db <- function(
   
 }
 
+oppnadata_hamta <- function(
+    schema = NA,
+    tabell = NA,
+    query = NA
+) {
+  
+  retur_df <- postgres_hamta_oppnadata(
+    schema = schema,
+    tabell = tabell,
+    query = query
+  )
+
+  return(retur_df)  
+}
+
+
 postgres_hamta_oppnadata <- function(
     schema = NA,
     tabell = NA,
@@ -802,9 +818,20 @@ postgres_hamta_oppnadata <- function(
     meddelande_tid = FALSE
     ) {
   # om inte både schema och tabell skickas med så listas scheman och tabeller för databasen öppna data
-  if (is.na(schema) | is.na(tabell)){
+  if (is.na(schema) & is.na(tabell)){
     postgres_lista_scheman_tabeller(con = uppkoppling_db(db_name = "oppna_data"))
   } else {
+    
+    if (str_detect(schema, "\\.")) {
+      if (str_count(schema, "\\.") > 1) stop("Det får max vara en punkt, som skiljer schema från tabell.")
+      tabell <- str_split(schema, "\\.")[[1]][2]
+      schema <- str_split(schema, "\\.")[[1]][1]
+    }
+    
+    scheman_tabeller <- postgres_lista_scheman_tabeller(uppkoppling_db(db_name = "oppna_data"))
+    if (!schema %in% names(scheman_tabeller)) stop("Schemat '", schema, "' finns inte i oppna_data-databasen. Kontrollera schemats namn och prova igen.")
+    if (!tabell %in% scheman_tabeller[[schema]]) stop("Tabellen '", tabell, "' finns inte i schemat '", schema, "' i oppna_data-databasen. Kontrollera tabellens namn och prova igen.")
+    
     retur_df <- postgres_tabell_till_df(
       con = uppkoppling_db(db_name = "oppna_data"),
       schema = schema,
