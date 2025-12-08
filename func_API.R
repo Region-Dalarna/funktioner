@@ -1457,7 +1457,6 @@ urklipp <- function(x, sep = "\n") {
 source_utan_cache <- function(url, encoding = NA, echo = FALSE) {
   # använd istället för source för att säkerställa att den inte source:ar in en cache istället
   # bra när man precis har commit:at och push:at till
-  #full_url <- sprintf("%s?nocache=%s", url, as.integer(Sys.time()))
   
   tmp <- tempfile()
   
@@ -1467,7 +1466,6 @@ source_utan_cache <- function(url, encoding = NA, echo = FALSE) {
   
   if (!is.na(encoding)) {
     source(tmp, encoding = encoding, echo = echo)  
-    #source(full_url, encoding = encoding, echo = echo)  
   } else {
     source(tmp, echo = echo)
   }
