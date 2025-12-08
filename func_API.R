@@ -1794,16 +1794,25 @@ hamta_excel_dataset_med_url <- function(url_excel,
 oppnadata_hamta <- function(
     schema = NA,
     tabell = NA,
-    query = NA
-) {
+    query = NA) {
   # funktion för att hämta öppna data i geodatabasen, eller lista vilka scheman och tabeller som 
   # finns om man inte skickar med några parametrar
   
   # vi source:ar in enbart de fyra funktioner som behövs från func_GIS.R för att köra denna 
   # funktion, så att vi inte kladdar ner global environment för mycket. 
-  source_funktioner("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R",
-                    c("postgres_hamta_oppnadata", "postgres_lista_scheman_tabeller",
-                      "uppkoppling_db", "postgres_tabell_till_df"))
+  
+  funktioner_nodvandiga <- c("postgres_hamta_oppnadata", "postgres_lista_scheman_tabeller",
+                             "uppkoppling_db", "postgres_tabell_till_df")
+  
+  # kontrollera om alla nödvändiga funktioner redan är laddade
+  funktioner_ar_laddade <- funktioner_nodvandiga[funktioner_nodvandiga %in% ls(envir = .GlobalEnv)]
+  funktioner_behover_laddas <- funktioner_nodvandiga[!funktioner_ar_laddade %in% ls(envir = .GlobalEnv)]
+  
+  # om inte alla nödvändiga funktioner redan är laddade så laddas de in från rätt fil
+  if (length(funktioner_behover_laddas) > 0) {
+    source_funktioner("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R",
+                    funktioner_behover_laddas)
+  }
   
   retur_df <- postgres_hamta_oppnadata(
     schema = schema,
