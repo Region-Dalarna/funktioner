@@ -1806,7 +1806,12 @@ oppnadata_hamta <- function(
   
   # kontrollera om alla nödvändiga funktioner redan är laddade
   funktioner_ar_laddade <- funktioner_nodvandiga[funktioner_nodvandiga %in% ls(envir = .GlobalEnv)]
-  funktioner_behover_laddas <- funktioner_nodvandiga[!funktioner_ar_laddade %in% ls(envir = .GlobalEnv)]
+  if (length(funktioner_ar_laddade) == 0){
+    funktioner_behover_laddas <- funktioner_nodvandiga
+  } else {
+    funktioner_behover_laddas <- funktioner_nodvandiga[!funktioner_ar_laddade %in% ls(envir = .GlobalEnv)]  
+  }
+  
   
   # om inte alla nödvändiga funktioner redan är laddade så laddas de in från rätt fil
   if (length(funktioner_behover_laddas) > 0) {
