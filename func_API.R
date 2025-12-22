@@ -697,12 +697,12 @@ gymnprg_inr_koder_hamta_api_skolverket <- possibly(function(url = "https://api.s
     gy_alla %>% select(studyPaths) %>% unnest(studyPaths, keep_empty = TRUE)
   ) %>% distinct() %>% 
     filter(!is.na(code)) %>% 
-    rename(prg_inr_kod = code, 
-           program_inriktning = name)
+    rename(Kod = code, 
+           Namn = name)
   
   gy25namn <- gy_df %>% 
-    filter(str_detect(prg_inr_kod, "25")) %>% 
-    mutate(prg_inr_kod = prg_inr_kod %>% str_remove_all("25"))
+    filter(str_detect(Kod, "25")) %>% 
+    mutate(Kod = Kod %>% str_remove_all("25"))
   
   gy_df <- gy_df %>% 
     bind_rows(gy25namn)
