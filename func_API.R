@@ -1531,13 +1531,14 @@ excelfil_spara_formaterad <- function(indata,
                                       auto_kolumnbredd = TRUE,          # anpassar bredden på kolumnerna till hur mycket text det är i dem
                                       fetstil_rader = 1,                # vilka rader som ska vara i fetstil, NA = inga rader får fetstil
                                       fetstil_kolumner = NA,            # vilka kolumner som ska vara i fetstil, NA = inga kolumner får fetstil
+                                      filnamnstillagg = "xlsx",         # sparas som detta format om man inte anger annat
                                       skriv_over_fil = TRUE             # TRUE = skriver över tidigare version om det finns någon (den kan dock inte vara öppen i Excel, då får man felmeddelande)
 ) {
   stopifnot(dir.exists(output_mapp))
   
   library(openxlsx, quietly = TRUE)
   
-  if (is.na(excelfil_namn)) excelfil_namn <- deparse(substitute(indata))             #
+  if (is.na(excelfil_namn)) excelfil_namn <- paste0(deparse(substitute(indata)), ".", filnamnstillagg)             #
   # om det är en dataframe så konverteras den till en lista
   if (all(class(indata) != "list")) {
     indata <- list(indata)
