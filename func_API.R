@@ -684,6 +684,32 @@ skolverket_hitta_startrad <- function(df, kolumn = 1, min_längd = 5) {
   return(NA_integer_)  # Om ingen sådan rad hittas
 }
 
+# funktion som används nedan för att hämta gymnasieprogram- och inriktningskoder från Skolverket
+gymnprg_inr_koder_hamta_api_skolverket <- possibly(function(url = "https://api.skolverket.se/planned-educations/v3/support/programs") {
+  resp <- GET(url)
+  stop_for_status(resp)
+  resp_lista <- jsonlite::fromJSON(httr::content(resp, as = "text", encoding = "UTF-8"), flatten = TRUE)$body
+  test_gy <- resp_lista$gy
+  gy_alla <- resp_lista[str_detect(names(resp_lista), "(?i)gy")] %>% 
+    list_rbind()
+  gy_df <- bind_rows(
+    gy_alla %>% select(code, name),
+    gy_alla %>% select(studyPaths) %>% unnest(studyPaths, keep_empty = TRUE)
+  ) %>% distinct() %>% 
+    filter(!is.na(code)) %>% 
+    rename(prg_inr_kod = code, 
+           program_inriktning = name)
+  
+  gy25namn <- gy_df %>% 
+    filter(str_detect(prg_inr_kod, "25")) %>% 
+    mutate(prg_inr_kod = prg_inr_kod %>% str_remove_all("25"))
+  
+  gy_df <- gy_df %>% 
+    bind_rows(gy25namn)
+  
+  return(gy_df)
+}, otherwise = NULL)
+
 # =========================================== Bra generella funktioner =========================================================
 
 ladda_funk_parametrar <- function(funktion, meddelanden = FALSE) {
