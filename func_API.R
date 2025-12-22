@@ -689,12 +689,17 @@ gymnprg_inr_koder_hamta_api_skolverket <- possibly(function(url = "https://api.s
   resp <- GET(url)
   stop_for_status(resp)
   resp_lista <- jsonlite::fromJSON(httr::content(resp, as = "text", encoding = "UTF-8"), flatten = TRUE)$body
-  test_gy <- resp_lista$gy
-  gy_alla <- resp_lista[str_detect(names(resp_lista), "(?i)gy")] %>% 
-    list_rbind()
+  gy_alla <- resp_lista %>%
+    { .[str_detect(names(.), "gy")] } %>%      # behåll bara de vars namn innehåller "gy"
+    imap(~ mutate(.x, skolform = .y))  %>%     # lägg till kolumn med skolform
+    list_rbind() %>%                           # lägg ihop till en dataframe
+    mutate(skolform = case_when(skolform == "gy" ~ "Gymnasieskola",
+                                skolform == "gyan" ~ "Anpassad gymnasieskola",
+                                TRUE ~ skolform))
+  
   gy_df <- bind_rows(
-    gy_alla %>% select(code, name),
-    gy_alla %>% select(studyPaths) %>% unnest(studyPaths, keep_empty = TRUE)
+    gy_alla %>% select(code, name, skolform),
+    gy_alla %>% select(studyPaths, skolform) %>% unnest(studyPaths, keep_empty = TRUE)
   ) %>% distinct() %>% 
     filter(!is.na(code)) %>% 
     rename(Kod = code, 
