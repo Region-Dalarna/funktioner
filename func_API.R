@@ -3148,6 +3148,13 @@ kontrollera_pxweb_url <- function(url_scb_lista) {
   return(slut_retur_url)
 }
 
+scb_tabellid_extrahera_fran_url <- function(url) {
+  html <- httr::content(httr::GET(url), "text", encoding = "UTF-8")
+  
+  id <- str_extract(html, "TAB\\d+")
+  unique(id)
+}
+
 extrahera_unika_varden_flera_scb_tabeller <- function(px_meta) {
   # En funktion för att skapa en tibble från 'values' och 'valueTexts'
   create_value_pairs <- function(variable) {
