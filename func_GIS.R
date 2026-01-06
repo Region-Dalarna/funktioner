@@ -204,6 +204,7 @@ intern_funktion_sf_skapa_fran_df_med_rutkolumner <- function(skickad_df, x_kol, 
       y_temp = if_else(nchar(!!sym(x_kol)) == 7 & nchar(!!sym(y_kol)) == 6, !!sym(x_kol), !!sym(y_kol)),
       x_ny = as.numeric(x_temp) + as.numeric(rutstorlek)/2,
       y_ny = as.numeric(y_temp) + as.numeric(rutstorlek)/2) %>%
+    select(-c(x_temp, y_temp)) %>% 
     st_as_sf(coords = c("x_ny", "y_ny"), crs = vald_crs) %>% 
     st_cast("POINT")
   
