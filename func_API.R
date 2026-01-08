@@ -895,11 +895,11 @@ mapp_temp_peter <- function(){ return("g:/skript/peter/temp/")}
 
 mapp_leveranser <- function(){"g:/Samhällsanalys/Leveranser/"}
 
-manader_bearbeta_scbtabeller <- function(skickad_df, kolumn_manad = "månad") {
+manader_bearbeta_scbtabeller <- function(skickad_df, kolumn_manad = "månad", kortmanad = FALSE) {
   # funktion för att skapa kolumnerna år, månad, månad_år samt år_månad av kolumnen månad som 
   # ligger i flera scb-tabeller och är strukturerad som år, bokstaven "M" och sedan månads-
   # nummer med två tecken (nolla framför på årets första 9 månader), alltså "2023M11" för 
-  # november 2023.
+  # november 2023. kortmanad = TRUE skickar med ytterligare en kolumn i formatet "jan 2026"
   
   retur_df <- skickad_df %>% 
     rename(tid = !!sym(kolumn_manad)) %>% 
@@ -907,12 +907,15 @@ manader_bearbeta_scbtabeller <- function(skickad_df, kolumn_manad = "månad") {
            månad_nr = parse_integer(str_sub(tid, 6,7)),
            månad = format(as.Date(paste(år, str_sub(tid, 6,7), "1", sep = "-")), "%B"),
            år_månad = paste0(år, " - ", månad),
-           månad_år = paste0(månad, " ", år)) 
+           månad_år = paste0(månad, " ", år),
+           mån_år = paste0(str_to_lower(str_sub(månad, 1, 3)), " ", år)
+           ) 
   
   manad_sort <- retur_df %>% group_by(månad_nr) %>% summarise(antal = n(), månad_sort = max(månad)) %>% select(månad_sort) %>% dplyr::pull()
   
   retur_df <- retur_df %>% 
     mutate(månad_år = factor(månad_år, levels = unique(månad_år[order(år, månad_nr)])),
+           mån_år = factor(mån_år, levels = unique(mån_år[order(år, månad_nr)])),
            år_månad = factor(år_månad, levels = unique(år_månad[order(år, månad_nr)])),
            år = factor(år),
            månad = factor(månad, levels = manad_sort)) %>%
@@ -921,6 +924,9 @@ manader_bearbeta_scbtabeller <- function(skickad_df, kolumn_manad = "månad") {
     relocate(månad, .after = år) %>% 
     relocate(år_månad, .after = månad) %>% 
     relocate(månad_år, .after = år_månad)
+  
+  if (!kortmanad) retur_df <- retur_df %>% select(-mån_år)
+  
   return(retur_df)
 }
 
