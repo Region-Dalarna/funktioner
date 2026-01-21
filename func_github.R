@@ -464,9 +464,331 @@ if (behorighet_samhallsanalys && !is.null(github_org)) {
     message("✅ Teamet 'samhallsanalys' har fått push-behörighet.")  # visa svar från GitHub
   }
   
+}
+
+} # slut funktion
+
+skapa_shinyapp_github <- function(
+    github_repo,                            # Namn på repo OCH Shiny-app (mapp på servern)
+    github_org         = "Region-Dalarna",  # Org på GitHub, sätt till NULL för privat konto
+    rapport_titel      = github_repo,       # Titel som visas i titlePanel
+    rapport_undertitel = NA,                # (används bara i README nu, kan byggas ut)
+    githubmapp_lokalt  = "c:/gh/",          # Sökväg till mapp där du har alla github-repon, t.ex. "C:/github_repos"
+    behorighet_team    = "samhallsanalys"   # GitHub-team som får push-behörighet, NULL om inget team
+) {
+  # ==== Beroenden ==============================================================
+  pkg_needed <- c("usethis", "gert", "glue", "stringr", "purrr", "httr", "keyring")
+  miss <- pkg_needed[!vapply(pkg_needed, requireNamespace, logical(1), quietly = TRUE)]
+  if (length(miss) > 0) {
+    stop(
+      "Följande paket behöver installeras först: ",
+      paste(miss, collapse = ", "),
+      call. = FALSE
+    )
+  }
   
+  # Lokal helper: skapa mapp om den inte finns
+  skapa_mapp_om_den_inte_finns <- function(path) {
+    if (!dir.exists(path)) dir.create(path, recursive = TRUE)
+  }
+  
+  # ==== Normalisera sökvägar ===================================================
+  githubmapp_lokalt <- stringr::str_replace_all(githubmapp_lokalt, stringr::fixed("\\"), "/")
+  if (!stringr::str_ends(githubmapp_lokalt, "/")) {
+    githubmapp_lokalt <- paste0(githubmapp_lokalt, "/")
+  }
+  
+  sokvag_proj <- paste0(githubmapp_lokalt, github_repo)
+  if (!stringr::str_ends(sokvag_proj, "/")) {
+    sokvag_proj <- paste0(sokvag_proj, "/")
+  }
+  
+  # Skapa rotmapp om den inte finns
+  skapa_mapp_om_den_inte_finns(sokvag_proj)
+  
+  # ==== Skapa R-projekt ========================================================
+  gitprojekt_sokvag <- if (stringr::str_sub(sokvag_proj, -1, -1) == "/") {
+    stringr::str_sub(sokvag_proj, 1, -2)
+  } else {
+    sokvag_proj
+  }
+  
+  usethis::create_project(gitprojekt_sokvag, open = FALSE)
+  
+  # ==== Skapa app-struktur: app/, www/, R/ ====================================
+  app_dir      <- file.path(sokvag_proj, "app")
+  www_dir      <- file.path(app_dir, "www")
+  #r_dir        <- file.path(app_dir, "R")
+  workflows_dir <- file.path(sokvag_proj, ".github", "workflows")
+  
+  purrr::walk(
+    c(app_dir, www_dir, r_dir, workflows_dir),
+    skapa_mapp_om_den_inte_finns
+  )
+  
+  # ==== Hämta favicon till www/ ===============================================
+  favicon_url  <- "https://raw.githubusercontent.com/Region-Dalarna/depot/main/favicon.ico"
+  favicon_path <- file.path(www_dir, "favicon.ico")
+  utils::download.file(favicon_url, favicon_path, mode = "wb")
+  
+  # ==== Skapa global.R ========================================================
+  global_R <- glue::glue(
+    '## Globala inställningar för Shinyappen: <<github_repo>>
+
+# Ladda nödvändiga paket
+library(shiny)
+library(shinyjs)
+library(shinyWidgets)
+library(DT)
+library(ggiraph)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(ggplot2)
+
+# Allmänna options - TRUE = visa inte R-felmeddelanden i appen, FALSE = visa felmeddelanden från R på webben
+options(shiny.sanitize.errors = FALSE)
+',
+    .open = "<<", .close = ">>"
+  )
+  
+  writeLines(global_R, file.path(app_dir, "global.R"))
+  
+  # ==== Skapa ui.R ============================================================
+  ui_R <- glue::glue(
+    "
+source('global.R')
+
+shinyUI(
+  fluidPage(
+    tags$head(
+      tags$link(rel = 'icon', type = 'image/x-icon', href = 'favicon.ico')
+    ),
+    titlePanel('<<rapport_titel>>'),
+    sidebarLayout(
+      sidebarPanel(
+        h4('Exempelsida'),
+        p('Byt ut detta innehåll mot din riktiga UI.')
+      ),
+      mainPanel(
+        tabsetPanel(
+          tabPanel('Tab 1', h3('Hej från <<github_repo>>')),
+          tabPanel('Om', p('Beskriv applikationen här.'))
+        ),
+        hr(),
+        verbatimTextOutput('example_text')
+      )
+    )
+  )
+)
+",
+  .open = "<<", .close = ">>"
+  )
+
+writeLines(ui_R, file.path(app_dir, "ui.R"))
+
+# ==== Skapa server.R ========================================================
+server_R <- 
+  "shinyServer(function(input, output, session) {
+
+  output$example_text <- renderText({
+    'Byt ut detta mot din egen serverlogik.'
+  })
+
+})
+"
+
+writeLines(server_R, file.path(app_dir, "server.R"))
+
+# ==== Skapa .gitignore ======================================================
+gitignore_content <- "
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+.Rhistory
+.Rapp.history
+"
+
+writeLines(trimws(gitignore_content, which = "left"),
+           file.path(sokvag_proj, ".gitignore"))
+
+# ==== Skapa README ==========================================================
+readme_content <- glue::glue(
+  "# {rapport_titel}
+
+Detta repository innehåller en Shinyapplikation (`{github_repo}`) för Samhällsanalys, Region Dalarna.
+
+## Struktur
+
+- All appkod ligger i katalogen `app/`
+  - `ui.R`, `server.R`, `global.R`
+  - `www/` för favicon och övriga statiska filer
+  - `R/` för hjälpfunktioner
+
+- Deployment sker via GitHub Actions (`.github/workflows/deploy.yml`)
+  till Shiny-servern (appmapp `/srv/shiny-server/{github_repo}`).
+
+")
+
+writeLines(readme_content, file.path(sokvag_proj, "README.md"))
+
+# ==== Skapa deploy.yml för GitHub Actions ===================================
+deploy_yml <- glue::glue(
+  'name: Deploy <<github_repo>>
+
+on:
+  push:
+    branches: [ publicera ]
+
+jobs:
+  deploy:
+    runs-on: [ self-hosted, shiny ]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy app using server-side script
+        run: |
+          TEMP_DIR=\"${GITHUB_WORKSPACE}/app\"
+          /usr/local/bin/shiny_deploy.sh <<github_repo>> \"$TEMP_DIR\"
+',
+  .open = "<<", .close = ">>"
+)
+
+writeLines(deploy_yml, file.path(workflows_dir, "deploy.yml"))
+
+# ==== Initiera Git, skapa branch 'utveckling', lägg upp på GitHub ===========
+old_wd <- getwd()
+on.exit(setwd(old_wd), add = TRUE)
+setwd(sokvag_proj)
+
+gert::git_init()
+gert::git_add(".")
+gert::git_commit("Initiera Shinyapp-projekt")
+
+
+# Skapa repo på GitHub
+if (is.null(github_org)) {
+  usethis::use_github(
+    private   = FALSE,
+    protocol  = "https"
+  )
+} else {
+  usethis::use_github(
+    organisation = github_org,
+    private      = FALSE,
+    visibility   = "public",
+    protocol     = "https"
+  )
+}
+
+# Ge team behörighet om angivet
+if (!is.null(behorighet_team) && !is.null(github_org)) {
+  # Kräver att keyring är konfigurerad med github_token etc, samma som i din webbrapport-funktion
+  gh_user  <- keyring::key_list(service = "github_token")$username
+  gh_token <- keyring::key_get("github_token", gh_user)
+  
+  resp <- httr::PUT(
+    url = glue::glue(
+      "https://api.github.com/orgs/{github_org}/teams/{behorighet_team}/repos/{github_org}/{github_repo}"
+    ),
+    httr::add_headers(Authorization = paste("token", gh_token)),
+    body   = list(permission = "push"),
+    encode = "json"
+  )
+  
+  if (httr::status_code(resp) == 204) {
+    message("✅ Teamet '", behorighet_team, "' har fått push-behörighet.")
+  } else {
+    message("⚠️ Kunde inte sätta team-behörighet automatiskt (status ", 
+            httr::status_code(resp), ").")
+  }
+}
+
+invisible(sokvag_proj)
 }
 
 
+shiny_merge_till_publicera <- function(
+    repo,
+    from_branch = "master",
+    to_branch   = "publicera",
+    remote      = "origin",
+    sokvag_lokalt_repo = "c:/gh"
+) {
+  stopifnot(requireNamespace("gert", quietly = TRUE))
   
-} # slut funktion
+  # Byt till repo-mapp
+  repo_path <- file.path(sokvag_lokalt_repo, repo)
+  old_wd <- getwd()
+  on.exit(setwd(old_wd), add = TRUE)
+  setwd(repo_path)
+  
+  # 1. Säkerställ att vi är i ett git-repo
+  repo <- gert::git_info()
+  message("📁 Repo: ", repo$path)
+  
+  
+  # 1b. Säkerställ att from_branch (t.ex. master) är uppdaterad
+  message("📌 Säkerställer att '", from_branch, "' är uppdaterad mot remote...")
+  gert::git_branch_checkout(from_branch)
+  gert::git_pull(remote = remote, refspec = from_branch)
+  
+  # 1c. Kontrollera att det inte finns ocomittade ändringar
+  
+  status <- gert::git_status()
+  if (nrow(status) > 0) {
+    stop("Det finns ocommittade ändringar i repo:t. Commita eller stash:a innan du kör shiny_merge_till_publicera().")
+  }
+  
+  # 2. Hämta senaste från remote
+  message("⬇️  Hämtar senaste från remote...")
+  gert::git_fetch(remote = remote)
+  
+  # 3. Finns to_branch lokalt? Om inte, skapa från remote om den finns,
+  #    annars skapa från from_branch.
+  branches <- gert::git_branch_list()$name
+  
+  if (!(to_branch %in% branches)) {
+    message("ℹ️  Branch '", to_branch, "' finns inte lokalt.")
+    
+    # Finns den på remote?
+    remote_branches <- gert::git_remote_ls(remote)$ref
+    remote_full <- paste0("refs/remotes/", remote, "/", to_branch)
+    
+    if (remote_full %in% remote_branches) {
+      message("   Skapar lokal branch från remote ", remote, "/", to_branch)
+      gert::git_branch_create(to_branch, ref = paste0(remote, "/", to_branch))
+    } else {
+      message("   Skapar ny branch '", to_branch, "' från '", from_branch, "'.")
+      gert::git_branch_create(to_branch, ref = from_branch)
+    }
+  }
+  
+  # 4. Checka ut publicera
+  message("🔀 Byter till branch '", to_branch, "'...")
+  gert::git_branch_checkout(to_branch)
+  
+  # 5. Merge in från from_branch
+  message("🔁 Mergear in ändringar från '", from_branch, "'...")
+  gert::git_merge(from_branch, commit = TRUE)
+  
+  # 6. Pusha publicera till remote
+  message("⬆️  Pushar '", to_branch, "' till ", remote, "...")
+  gert::git_push(remote = remote)
+  
+  # 7. Gå tillbaka till master
+  message("⬅️  Går tillbaka till branch '", from_branch, "'...")
+  gert::git_branch_checkout(from_branch)
+  
+  
+  message("✅ Klar: '", from_branch, "' är mergad till '", to_branch,
+          "' och pushad. GitHub Actions bör nu trigga deploy.")
+}
+
