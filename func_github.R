@@ -74,7 +74,7 @@ skapa_webbrapport_github <- function(githubmapp_lokalt,                 # sökv�
                                      rapport_undertitel = NA,
                                      anvand_publicera_rapporter = TRUE, # TRUE så publiceras rapporten med Github Pages via repositoryt publicera_rapporter
                                      behorighet_team = "samhallsanalys" # namn på team som ska ges behörighet, NULL om man inte vill ge något team behörighet, teamet måste finnas i organisationen om detta ska fungera
-                                     ) {         # om man vill ha en undertitel så lägger man in den här
+) {         # om man vill ha en undertitel så lägger man in den här
   
   githubmapp_lokalt <- githubmapp_lokalt %>% str_replace_all(fixed("\\"), "/")
   if (str_sub(githubmapp_lokalt, nchar(githubmapp_lokalt), nchar(githubmapp_lokalt)) != "/") githubmapp_lokalt <- paste0(githubmapp_lokalt, "/")
@@ -84,7 +84,7 @@ skapa_webbrapport_github <- function(githubmapp_lokalt,                 # sökv�
   if (str_sub(sokvag_proj, nchar(sokvag_proj), nchar(sokvag_proj)) != "/") sokvag_proj <- paste0(sokvag_proj, "/")
   
   skapa_mapp_om_den_inte_finns(sokvag_proj)
-
+  
   # # Här skriver vi själva .Rproj-filen
   # str_proj_fil <- paste0(
   #   "Version: 1.0\n\n",
@@ -100,7 +100,7 @@ skapa_webbrapport_github <- function(githubmapp_lokalt,                 # sökv�
   # 
   #   "RnwWeave: Sweave\n",
   #   "LaTeX: pdfLaTeX")
-
+  
   # # skriv .Rproj-fil till hårddisken
   # writeLines(str_proj_fil, paste0(sokvag_proj, github_repo, ".Rproj"))
   
@@ -139,22 +139,22 @@ skapa_webbrapport_github <- function(githubmapp_lokalt,                 # sökv�
 </div>
 ')
   
-
+  
   # Nu kan du använda writelines() för att skriva den här variabeln till en fil
   writeLines(hero_image_html, paste0(sokvag_proj, "hero_image.html"))
   
   # Nu laddar vi ner lite filer som vi behöver för att skapa rapporterna
   list_filer <- list(
-      dalastrategin_jpg = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/Dalastrategin.jpg",
-      dalastrategin_hjul_png = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/dalastrategin_hjul.png",
-      logga_korrekt = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/logga_korrekt.png",
-      logo_liggande_fri_vit = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/logo_liggande_fri_vit.png",
-      logo_liggande_platta_farg = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/logo_liggande_platta_farg.png",
-      logo_liggande_platta_svart = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/logo_liggande_platta_svart.png",
-      logo_liggande_fri_svart = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/rd_logo_liggande_fri_svart.png",
-      styles_hero_css = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/styles_hero.css",
-      favicon_html = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/favicon.html",
-      favicon_ico = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/favicon.ico"
+    dalastrategin_jpg = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/Dalastrategin.jpg",
+    dalastrategin_hjul_png = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/dalastrategin_hjul.png",
+    logga_korrekt = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/logga_korrekt.png",
+    logo_liggande_fri_vit = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/logo_liggande_fri_vit.png",
+    logo_liggande_platta_farg = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/logo_liggande_platta_farg.png",
+    logo_liggande_platta_svart = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/logo_liggande_platta_svart.png",
+    logo_liggande_fri_svart = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/rd_logo_liggande_fri_svart.png",
+    styles_hero_css = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/styles_hero.css",
+    favicon_html = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/favicon.html",
+    favicon_ico = "https://raw.githubusercontent.com/Region-Dalarna/depot/main/favicon.ico"
   )
   
   filnamn <- map_chr(list_filer, ~ str_extract(.x, "[^/]+$"))
@@ -199,7 +199,7 @@ output:
     number_sections: true
 ---
 ')
-
+  
   # därefter kör vi den del där vi laddar paket etc.
   rmd_init <- glue("
 ```{{r setup, include=FALSE}}
@@ -245,7 +245,7 @@ utbildning_df <- read.xlsx('G:/skript/projekt/data/kvinnor_man/utbildningsniva.x
 utbildning_85_df <- read.xlsx('G:/skript/projekt/data/kvinnor_man/utbildningsniva_85.xlsx')
 ```
 ")
-    
+  
   # därefter kommer inledningen av rapporten
   rmd_text <- glue('
 <p style = "font-size:12px">
@@ -409,66 +409,66 @@ if(uppdatera_hemsida==TRUE){{
 
 ```
 ')
-
-# nu sätter vi ihop hela Rmd-filen  
-hela_rmd_filen <- paste0(rmd_header, "\n\n",
-                         rmd_init, "\n\n",
-                         rmd_text, "\n\n",
-                         rmd_slut_skript)  
-
-# Vi skriver filen till mappen
-writeLines(hela_rmd_filen, paste0(sokvag_proj, github_repo, ".Rmd"))
   
-#setwd(sokvag_proj)
-
-#usethis::create_project("c:/gh_falupeppe/Test-repo")
-
-# Byt arbetskatalog till det nya projektet
-
-#setwd(sokvag_proj)
-# skapa git först
-
-gert::git_init()
-gert::git_add(".")
-gert::git_commit("Initiera Git")
-
-# därefter github
-if (is.null(github_org)) {
-  use_github(
-    private = FALSE,
-    protocol = "https"
-)
-} else {
-  use_github(
-    organisation = github_org,
-    private = FALSE,
-    visibility = "public",
-    protocol = "https"
-  ) 
-}
-
-# # ställ in att vi ska använda Github pages
-# use_github_pages(branch = git_default_branch(), path = "/docs", cname = NA)
-
-# ställ in behörighet för samhallsanalys om parametern är TRUE
-if (behorighet_samhallsanalys && !is.null(github_org)) {
+  # nu sätter vi ihop hela Rmd-filen  
+  hela_rmd_filen <- paste0(rmd_header, "\n\n",
+                           rmd_init, "\n\n",
+                           rmd_text, "\n\n",
+                           rmd_slut_skript)  
   
-  response <- PUT(
-    url = glue("https://api.github.com/orgs/{github_org}/teams/samhallsanalys/repos/{github_org}/{repo_namn}"),
-    add_headers(Authorization = paste("token", key_get("github_token", key_list(service = "github_token")$username))),
-    body = list(permission = "push"),
-    encode = "json"
-  )
+  # Vi skriver filen till mappen
+  writeLines(hela_rmd_filen, paste0(sokvag_proj, github_repo, ".Rmd"))
   
-  if (httr::status_code(response) == 204) {
-    message("✅ Teamet 'samhallsanalys' har fått push-behörighet.")  # visa svar från GitHub
+  #setwd(sokvag_proj)
+  
+  #usethis::create_project("c:/gh_falupeppe/Test-repo")
+  
+  # Byt arbetskatalog till det nya projektet
+  
+  #setwd(sokvag_proj)
+  # skapa git först
+  
+  gert::git_init()
+  gert::git_add(".")
+  gert::git_commit("Initiera Git")
+  
+  # därefter github
+  if (is.null(github_org)) {
+    use_github(
+      private = FALSE,
+      protocol = "https"
+    )
+  } else {
+    use_github(
+      organisation = github_org,
+      private = FALSE,
+      visibility = "public",
+      protocol = "https"
+    ) 
   }
   
-}
-
+  # # ställ in att vi ska använda Github pages
+  # use_github_pages(branch = git_default_branch(), path = "/docs", cname = NA)
+  
+  # ställ in behörighet för samhallsanalys om parametern är TRUE
+  if (behorighet_samhallsanalys && !is.null(github_org)) {
+    
+    response <- PUT(
+      url = glue("https://api.github.com/orgs/{github_org}/teams/samhallsanalys/repos/{github_org}/{repo_namn}"),
+      add_headers(Authorization = paste("token", key_get("github_token", key_list(service = "github_token")$username))),
+      body = list(permission = "push"),
+      encode = "json"
+    )
+    
+    if (httr::status_code(response) == 204) {
+      message("✅ Teamet 'samhallsanalys' har fått push-behörighet.")  # visa svar från GitHub
+    }
+    
+  }
+  
 } # slut funktion
 
-skapa_shinyapp_github <- function(
+shinyapp_skapa_med_github_repo <- function(
     github_repo,                            # Namn på repo OCH Shiny-app (mapp på servern)
     github_org         = "Region-Dalarna",  # Org på GitHub, sätt till NULL för privat konto
     rapport_titel      = github_repo,       # Titel som visas i titlePanel
@@ -715,7 +715,7 @@ invisible(sokvag_proj)
 }
 
 
-shiny_merge_till_publicera <- function(
+shinyapp_publicera <- function(
     repo,
     from_branch = "master",
     to_branch   = "publicera",
