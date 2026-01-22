@@ -2014,7 +2014,7 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
     if (item$type == "dir") {
       # Skippa dolda mappar (som börjar med .)
       if (grepl("^\\.", item$name)) {
-        cat("Skippar dold mapp:", item$name, "\n")
+        #cat("Skippar dold mapp:", item$name, "\n")
         return(tibble::tibble())  # Returnera tom tibble
       }
       
@@ -2028,7 +2028,7 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
           skriv_source_konsol = FALSE,
           till_urklipp = FALSE,
           filter = filter,
-          icke_source_repo = icke_source_repo,        # Lägg till denna
+          icke_source_repo = FALSE,        # Lägg till denna
           keyring_github_token = keyring_github_token, # Lägg till denna
           lista_ej_systemfiler = FALSE,                # Sätt till FALSE för undermappar
           rekursiv_korning = TRUE,
@@ -2043,13 +2043,15 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
       return(result)
       
     } else {
+      
+      ska_skapa_source <- if (rekursiv_korning) FALSE else icke_source_repo
       # Om det är en fil, returnera dess namn och URL
       tibble::tibble(
         namn = paste0(path, item$name),
         url = item$download_url,
-        source = ifelse(icke_source_repo, item$download_url, paste0('source("', item$download_url, '")\n')),
-        ppt_url = ifelse(icke_source_repo, item$download_url, paste0(item$download_url, '\n')), 
-        ppt_lista = ifelse(icke_source_repo, NA, paste0('ppt_lista <- ppt_lista_fyll_pa(\n', 
+        source = ifelse(ska_skapa_source, item$download_url, paste0('source("', item$download_url, '")\n')),
+        ppt_url = ifelse(ska_skapa_source, item$download_url, paste0(item$download_url, '\n')), 
+        ppt_lista = ifelse(ska_skapa_source, NA, paste0('ppt_lista <- ppt_lista_fyll_pa(\n', 
                                                         'ppt_lista = ppt_lista,\n',
                                                         'source_url = "', item$download_url, '",\n',
                                                         'parameter_argument = list(output_mapp = utmapp_bilder),\n',
@@ -2101,7 +2103,7 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
     return(retur_df$url)
   } else {
     # Kontrollera om 'source'-kolumnen finns innan vi försöker ta bort den
-    if ("source" %in% names(retur_df)) {
+    if ("source" %in% names(retur_df) && !rekursiv_korning) {
       return(retur_df %>% dplyr::select(-source))
     } else {
       return(retur_df)
