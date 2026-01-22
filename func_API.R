@@ -1974,6 +1974,7 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
                                     icke_source_repo = FALSE,                      # om TRUE så returneras bara filnamn och url och inte source-satser
                                     skriv_ppt_lista = FALSE,                      # om TRUE så returneras kodrader för att skapa skript för att lägga in i ppt-lista
                                     lista_ej_systemfiler = TRUE,                    # TRUE filtreras LICENSE och filer som börjar med punkt bort ur listan
+                                    rekursiv_korning = FALSE,                     # kan sättas till TRUE om vi kör rekursivt
                                     path = "") {                                  # path används för att hantera mappar
   # En funktion för att lista filer i ett repository som finns hos en github-användare
   
@@ -1986,7 +1987,7 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
   }
   
   
-  if (token_finns) {
+  if (token_finns & !rekursiv_korning) {
     response <- httr::GET(url, httr::add_headers(Authorization = paste("token", key_get("github_token", key_list(service = "github_token")$username))))
   } else {
     response <- httr::GET(url)
@@ -2011,8 +2012,36 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
   # Gå igenom alla poster och hantera mappar och filer
   retur_df <- purrr::map_df(content, function(item) {
     if (item$type == "dir") {
+      # Skippa dolda mappar (som börjar med .)
+      if (grepl("^\\.", item$name)) {
+        cat("Skippar dold mapp:", item$name, "\n")
+        return(tibble::tibble())  # Returnera tom tibble
+      }
+      
       # Om det är en mapp, rekursera genom att kalla funktionen igen
-      github_lista_repo_filer(owner, repo, url_vekt_enbart = FALSE, skriv_source_konsol = FALSE, till_urklipp = FALSE, filter = filter, path = paste0(path, item$name, "/"))
+      # Använd tryCatch för att fånga fel från undermappar
+      result <- tryCatch({
+        github_lista_repo_filer(
+          repo = repo,
+          owner = owner,
+          url_vekt_enbart = FALSE,
+          skriv_source_konsol = FALSE,
+          till_urklipp = FALSE,
+          filter = filter,
+          icke_source_repo = icke_source_repo,        # Lägg till denna
+          keyring_github_token = keyring_github_token, # Lägg till denna
+          lista_ej_systemfiler = FALSE,                # Sätt till FALSE för undermappar
+          rekursiv_korning = TRUE,
+          path = paste0(path, item$name, "/")
+        )
+      }, error = function(e) {
+        cat("Varning: Kunde inte läsa mapp:", new_path, "\n")
+        cat("Felmeddelande:", e$message, "\n")
+        return(tibble::tibble())  # Returnera tom tibble vid fel
+      }) 
+      
+      return(result)
+      
     } else {
       # Om det är en fil, returnera dess namn och URL
       tibble::tibble(
