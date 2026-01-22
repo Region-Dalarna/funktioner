@@ -1977,18 +1977,29 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
   
   url <- paste0("https://api.github.com/repos/", owner, "/", repo, "/contents/", path)
   
+  
   if (requireNamespace("keyring", quietly = TRUE) && "github_token" %in% keyring::key_list()[["service"]]) {
     token_finns <- TRUE
   } else {
     token_finns <- FALSE
   }
   
+  # Prova utan token
+  response <- httr::GET(url)
   
-  if (token_finns) {
-    response <- httr::GET(url, httr::add_headers(Authorization = paste("token", key_get("github_token", key_list(service = "github_token")$username))))
-  } else {
-    response <- httr::GET(url)
+  # Bara använd token om vi får 401/403
+  if (!httr::status_code(response) %in% c(200) && token_finns) {
+      if (token_finns) {
+         response <- httr::GET(url, httr::add_headers(Authorization = paste("token", key_get("github_token", 
+                                                                                        key_list(service = "github_token")$username))))
+      }
   }
+  
+  # if (token_finns) {
+  #   response <- httr::GET(url, httr::add_headers(Authorization = paste("token", key_get("github_token", key_list(service = "github_token")$username))))
+  # } else {
+  #   response <- httr::GET(url)
+  # }
   
   # Kontrollera om förfrågan lyckades
   if (httr::status_code(response) != 200) {
@@ -2009,24 +2020,84 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
   # Gå igenom alla poster och hantera mappar och filer
   retur_df <- purrr::map_df(content, function(item) {
     if (item$type == "dir") {
+
+      # Skippa dolda mappar (som börjar med .)
+      if (grepl("^\\.", item$name)) {
+        cat("Skippar dold mapp:", item$name, "\n")
+        return(tibble::tibble())  # Returnera tom tibble
+      }
+
       # Om det är en mapp, rekursera genom att kalla funktionen igen
-      github_lista_repo_filer(owner, repo, url_vekt_enbart = FALSE, skriv_source_konsol = FALSE, till_urklipp = FALSE, filter = filter, path = paste0(path, item$name, "/"))
+      # Använd tryCatch för att fånga fel från undermappar
+      result <- tryCatch({
+        github_lista_repo_filer(
+          repo = repo,
+          owner = owner,
+          url_vekt_enbart = FALSE,
+          skriv_source_konsol = FALSE,
+          till_urklipp = FALSE,
+          filter = filter,
+          icke_source_repo = icke_source_repo,        # Lägg till denna
+          keyring_github_token = keyring_github_token, # Lägg till denna
+          lista_ej_systemfiler = FALSE,                # Sätt till FALSE för undermappar
+          path = paste0(path, item$name, "/")
+        )
+      }, error = function(e) {
+        cat("Varning: Kunde inte läsa mapp:", new_path, "\n")
+        cat("Felmeddelande:", e$message, "\n")
+        return(tibble::tibble())  # Returnera tom tibble vid fel
+      })
+
+      return(result)
+
     } else {
       # Om det är en fil, returnera dess namn och URL
       tibble::tibble(
         namn = paste0(path, item$name),
         url = item$download_url,
         source = ifelse(icke_source_repo, item$download_url, paste0('source("', item$download_url, '")\n')),
-        ppt_url = ifelse(icke_source_repo, item$download_url, paste0(item$download_url, '\n')), 
-        ppt_lista = ifelse(icke_source_repo, NA, paste0('ppt_lista <- ppt_lista_fyll_pa(\n', 
+        ppt_url = ifelse(icke_source_repo, item$download_url, paste0(item$download_url, '\n')),
+        ppt_lista = ifelse(icke_source_repo, NA, paste0('ppt_lista <- ppt_lista_fyll_pa(\n',
                                                         'ppt_lista = ppt_lista,\n',
                                                         'source_url = "', item$download_url, '",\n',
                                                         'parameter_argument = list(output_mapp = utmapp_bilder),\n',
                                                         'region_vekt = region_vekt,\n',
                                                         'utmapp_bilder = utmapp_bilder)\n\n'
-                                                        )))
+        )))
     }
   })
+  # retur_df <- purrr::map_df(content, function(item) {
+  #   if (item$type == "dir") {
+  #     # Debug: skriv ut vad som händer
+  #     new_path <- paste0(path, item$name, "/")
+  #     cat("Hittade mapp:", item$name, "\n")
+  #     cat("Ny path blir:", new_path, "\n")
+  # 
+  #     # Skippa dolda mappar (som börjar med .)
+  #     if (grepl("^\\.", item$name)) {
+  #       cat("Skippar dold mapp:", item$name, "\n")
+  #       return(tibble::tibble())  # Returnera tom tibble
+  #     }
+  # 
+  #     # Om det är en mapp, rekursera genom att kalla funktionen igen
+  #     github_lista_repo_filer(repo, owner, url_vekt_enbart = FALSE, skriv_source_konsol = FALSE,
+  #                             till_urklipp = FALSE, filter = filter, path = paste0(path, item$name, "/"))
+  #   } else {
+  #     # Om det är en fil, returnera dess namn och URL
+  #     tibble::tibble(
+  #       namn = paste0(path, item$name),
+  #       url = item$download_url,
+  #       source = ifelse(icke_source_repo, item$download_url, paste0('source("', item$download_url, '")\n')),
+  #       ppt_url = ifelse(icke_source_repo, item$download_url, paste0(item$download_url, '\n')),
+  #       ppt_lista = ifelse(icke_source_repo, NA, paste0('ppt_lista <- ppt_lista_fyll_pa(\n',
+  #                                                       'ppt_lista = ppt_lista,\n',
+  #                                                       'source_url = "', item$download_url, '",\n',
+  #                                                       'parameter_argument = list(output_mapp = utmapp_bilder),\n',
+  #                                                       'region_vekt = region_vekt,\n',
+  #                                                       'utmapp_bilder = utmapp_bilder)\n\n'
+  #                                                       )))
+  #   }
+  # })
   
   if (lista_ej_systemfiler) retur_df <- retur_df %>% filter(namn != "LICENSE", str_sub(namn, 1, 1) != ".")
   
