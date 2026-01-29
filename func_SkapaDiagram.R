@@ -574,42 +574,20 @@ SkapaStapelDiagram <- function(skickad_df,
     } # slut på if-sats där vi testar 
   } # slut på if-sats där vi kontrollerar om vi har någon fokusera_varden-lista överhuvudtaget
   
-  if (diagram_bildformat != "png") filnamn_diagram <- filnamn_diagram %>% str_replace(".png", paste0(".", diagram_bildformat))
-  
-  fullpath <- paste0(output_mapp, filnamn_diagram)  # används i skriv_till_diagramfil OCH i skriv_till_excelfil
-  
   if (skriv_till_diagramfil){
-    # Ändra höjd och bredd på den sparade png-filen, + ange mapp och filnamn
-    bredd <- diagramfil_bredd
-    hojd <- diagramfil_hojd
-    
-    if (diagram_bildformat == "eps") {
-      
-      cairo_ps(filename = paste0(output_mapp, filnamn_diagram),
-               width = bredd, height = hojd, pointsize = 12,
-               fallback_resolution = 300)
-      print(gg_obj)
-      dev.off()
-      
-    } else {
-      ggsave(fullpath, width = bredd, height = hojd)
-    }
-    # Lägg till logga till diagrammet =======================================
-    
-    if (lagg_pa_logga){  
-      if (is.na(logga_path)) logga_path <- hamta_logga_path()   # hämta sökväg till diagram
-      add_logo(
-        plot_path = paste0(output_mapp, filnamn_diagram), # url or local file for the plot
-        logo_path = logga_path, # url or local file for the logo
-        logo_position = "bottom right", # choose a corner
-        # 'top left', 'top right', 'bottom left' or 'bottom right'
-        logo_scale = logga_scaling,
-        
-        #10 as default, but can change to manually make logo bigger (lägre tal = större logga)
-        replace = TRUE
-      )
-    }
+    skriv_till_diagramfil(
+      ggplot_objekt = p,
+      diagramfil_bredd = diagramfil_bredd,
+      diagramfil_hojd = diagramfil_hojd,
+      output_mapp = output_mapp,
+      filnamn_diagram = filnamn_diagram,
+      lagg_pa_logga = lagg_pa_logga,
+      logga_scaling = logga_scaling,
+      logga_path = logga_path,
+      diagram_bildformat = diagram_bildformat
+    )
   }
+
   if (skriv_till_excelfil) {
     fullpath_excel <- str_replace(fullpath, ".png", ".xlsx")
     write.xlsx(skickad_df, fullpath_excel)
@@ -943,10 +921,6 @@ SkapaLinjeDiagram <- function(skickad_df,
       scale_linetype_manual(values = linjetyp_typvektor)
     }} +
     
-    # scale_y_continuous(breaks = seq(min_yvar, max_yvar, 
-    #                                 by = round(max_yvar / 6, (nchar(trunc(max_yvar/6))-1)*-1)),
-    #                    minor_breaks = seq(min_yvar, max_yvar, by = min_by_yvar),
-    
     # Ändrat nedan så att man kan bestämma värdet på marginalen för y-axeln
     
     {if (!diagram_facet | (facet_scale == "fixed" & diagram_facet)){
@@ -960,21 +934,7 @@ SkapaLinjeDiagram <- function(skickad_df,
       scale_y_continuous(labels = etikett_format,
                          expand = marginal_y_axis)
     }} +
-    
-    
-    # scale_y_continuous(breaks = seq(min_yvar, max_yvar, 
-    #                                 by = maj_by_yvar),
-    #                    minor_breaks = seq(min_yvar, max_yvar, by = min_by_yvar),
-    #                    labels = etikett_format,
-    #                    #expand = expand_vekt, 
-    #                    limits = c(limit_min,max_yvar),
-    #                    expand = c(0,0)) +
-    # 
-    
-  
-  #labels = function(x) format(x, big.mark = " ")) +
-  #{if (diagram_facet & x_grupp != "NA") facet_wrap(as.formula(paste("~",facet_grp)), scales = facet_scale) } +
-  #{if (diagram_facet) facet_wrap(as.formula(paste("~",facet_grp)), scales = facet_scale) } +
+
   
   {if (diagram_facet) facet_wrap(as.formula(paste("~",facet_grp)), scales = "free",
                                  ncol = facet_kolumner,
@@ -994,31 +954,20 @@ SkapaLinjeDiagram <- function(skickad_df,
   
   # skriv till diagramfil om sådan är vald
   if (skriv_till_diagramfil){
-    # Ändra höjd och bredd på den sparade png-filen, + ange mapp och filnamn
-    bredd <- diagramfil_bredd
-    hojd <- diagramfil_hojd
-    
-    if (diagram_bildformat != "png") filnamn_diagram <- filnamn_diagram %>% str_replace(".png", paste0(".", diagram_bildformat))
-    
-    fullpath <- paste0(output_mapp, filnamn_diagram)
-    ggsave(fullpath, width = bredd, height = hojd)
-    
-    # Lägg till logga till diagrammet =======================================
-    if (lagg_pa_logga) {
-      if (is.na(logga_path)) logga_path <- hamta_logga_path()       # hämta logga_path i funktion först i denna fil
-      if (!is.null(logga_path)){  
-        add_logo(
-          plot_path = paste0(output_mapp, filnamn_diagram), # url or local file for the plot
-          logo_path = logga_path, # url or local file for the logo
-          logo_position = "bottom right", # choose a corner
-          # 'top left', 'top right', 'bottom left' or 'bottom right'
-          logo_scale = logga_scaling,
-          #10 as default, but can change to manually make logo bigger (lägre tal = större logga)
-          replace = TRUE
-        )
-      } # if !is.null(logga_path)
-    } # if lagg_pa_logga
-  } # if skriv_till_diagramfil
+    skriv_till_diagramfil(
+      ggplot_objekt = p,
+      diagramfil_bredd = diagramfil_bredd,
+      diagramfil_hojd = diagramfil_hojd,
+      output_mapp = output_mapp,
+      filnamn_diagram = filnamn_diagram,
+      lagg_pa_logga = lagg_pa_logga,
+      logga_scaling = logga_scaling,
+      logga_path = logga_path,
+      diagram_bildformat = diagram_bildformat
+    )
+  }
+  
+
   return(p)
 } # slut funktion för att skriva linjediagram
 
@@ -1391,35 +1340,167 @@ skriv_till_diagramfil <- function(ggplot_objekt,
                                   diagram_bildformat = "png"
                                   ) {   
   
-  g <- ggplot_objekt
   # Ändra höjd och bredd på den sparade png-filen, + ange mapp och filnamn
   bredd <- diagramfil_bredd
   hojd <- diagramfil_hojd
   
-  if (diagram_bildformat != "png") filnamn_diagram <- filnamn_diagram %>% str_replace(".png", paste0(".", diagram_bildformat))
+  
+  if (!identical(diagram_bildformat, "png")) {
+    filnamn_diagram <- paste0(tools::file_path_sans_ext(filnamn_diagram), ".", diagram_bildformat)
+  }
   
   fullpath <- paste0(output_mapp, filnamn_diagram)
-  ggsave(fullpath, width = bredd, height = hojd)
+  
+  ext <- tolower(tools::file_ext(fullpath))
+  ok  <- FALSE
+  
+  
+  if (ext %in% c("png","jpg","jpeg","pdf","svg")) {
+    # välj device för JPEG och SVG/PDF
+    dev <- NULL
+    if (ext %in% c("jpg","jpeg")) {
+      dev <- if (requireNamespace("ragg", quietly = TRUE)) ragg::agg_jpeg else "jpeg"
+    } else if (ext == "svg") {
+      dev <- if (requireNamespace("svglite", quietly = TRUE)) svglite::svglite else "svg"
+    } else if (ext == "pdf") {
+      # cairo_pdf ger skarpare text på Windows; om inte, lämna NULL
+      dev <- if (exists("cairo_pdf", where = asNamespace("grDevices"))) grDevices::cairo_pdf else NULL
+    }
+    
+    ok <- ggsave_retry(plot = ggplot_objekt, target_path = fullpath,
+                       width = bredd, height = hojd, dpi = 300,
+                       device = dev, units = "in")
+    
+  } else if (ext == "eps") {
+    ok <- save_eps_retry(plot = ggplot_objekt, target_path = fullpath,
+                         width = bredd, height = hojd, units = "in")
+  } else {
+    stop(paste0("Okänt bildformat: ", ext))
+  }
+  
+  if (!ok) stop(paste0("Kunde inte spara (ens med fallback) till: ", fullpath))
+  
+  
+  #ggsave(filename = fullpath, plot = ggplot_objekt, width = bredd, height = hojd)
   
   # Lägg till logga till diagrammet =======================================
   
   if (lagg_pa_logga){  
-    if (is.na(logga_path)) logga_path <- hamta_logga_path()   # hämta sökväg till diagram
-    add_logo(
-      plot_path = paste0(output_mapp, filnamn_diagram), # url or local file for the plot
-      logo_path = logga_path, # url or local file for the logo
-      logo_position = "bottom right", # choose a corner
-      # 'top left', 'top right', 'bottom left' or 'bottom right'
-      logo_scale = logga_scaling,
-      
-      #10 as default, but can change to manually make logo bigger (lägre tal = större logga)
-      replace = TRUE)
+    
+    if (is.na(logga_path) || !nzchar(logga_path)) logga_path <- hamta_logga_path()
+    
+    # Enkel liten retry om filen är ny och ev. låst av indexerare
+    add_ok <- FALSE
+    for (i in 1:5) {
+      add_ok <- try({
+        add_logo(
+          plot_path     = fullpath,
+          logo_path     = logga_path,
+          logo_position = "bottom right",
+          logo_scale    = logga_scaling,
+          replace       = TRUE
+        )
+        TRUE
+      }, silent = TRUE)
+      if (!inherits(add_ok, "try-error")) { add_ok <- TRUE; break }
+      Sys.sleep(0.5 * i)
     }
+    if (!isTRUE(add_ok)) warning("Kunde inte lägga på logga på: ", fullpath)
+  }
+    
+    # if (is.na(logga_path)) logga_path <- hamta_logga_path()   # hämta sökväg till diagram
+    # add_logo(
+    #   plot_path = paste0(output_mapp, filnamn_diagram), # url or local file for the plot
+    #   logo_path = logga_path, # url or local file for the logo
+    #   logo_position = "bottom right", # choose a corner
+    #   # 'top left', 'top right', 'bottom left' or 'bottom right'
+    #   logo_scale = logga_scaling,
+    #   
+    #   #10 as default, but can change to manually make logo bigger (lägre tal = större logga)
+    #   replace = TRUE)
+    # }
 }
 
-# every_nth <- function(n) {
-#   return(function(x) {x[c(TRUE, rep(FALSE, n - 1))]})
-# }
+
+`%||%` <- function(x, y) if (is.null(x)) y else x
+
+ggsave_retry <- function(plot, target_path, width = 12, height = 7, dpi = 300,
+                         attempts = 5, sleep_sec = 0.8, use_local_fallback = TRUE,
+                         device = NULL, units = "in") {
+  
+  # skapa mapp om den inte finns
+  dir.create(dirname(target_path), recursive = TRUE, showWarnings = FALSE)
+
+  # Välj en robust default om inget device specificeras och vi sparar PNG/JPEG
+  if (is.null(device)) {
+    ext <- tolower(tools::file_ext(target_path))
+    if (ext %in% c("png","jpeg","jpg")) {
+      device <- if (requireNamespace("ragg", quietly = TRUE)) ragg::agg_png else NULL
+    }
+  }
+  last_err <- NULL
+
+  # 1) Direkt till mål
+  for (i in seq_len(attempts)) {
+    suppressWarnings(try(unlink(target_path), silent = TRUE))
+    ok <- tryCatch({
+      ggplot2::ggsave(filename = target_path, plot = plot,
+                      width = width, height = height, dpi = dpi,
+                      units = units, device = device)
+      TRUE
+    }, error = function(e) {
+      last_err <<- conditionMessage(e); FALSE
+    })
+    if (isTRUE(ok) && file.exists(target_path)) return(TRUE)
+    Sys.sleep(sleep_sec * i)
+  }
+
+  # 2) Fallback: spara lokalt, kopiera till mål
+  if (use_local_fallback) {
+    local_tmp <- file.path(tempdir(), paste0("tmp_", basename(target_path)))
+    ok2 <- tryCatch({
+      ggplot2::ggsave(filename = local_tmp, plot = plot,
+                      width = width, height = height, dpi = dpi,
+                      units = units, device = device)
+      TRUE
+    }, error = function(e) { last_err <<- paste0("Fallback ggsave: ", conditionMessage(e)); FALSE })
+
+    if (isTRUE(ok2) && file.exists(local_tmp)) {
+      for (i in seq_len(attempts)) {
+        if (file.copy(local_tmp, target_path, overwrite = TRUE)) return(TRUE)
+        Sys.sleep(sleep_sec * i)
+      }
+      last_err <- paste0(last_err %||% "", " | file.copy() till target misslyckades upprepade gånger.")
+    }
+  }
+
+  message("ggsave_retry() fel för ", target_path, "\nDetalj: ", last_err %||% "<inget fångat fel>")
+  return(FALSE)
+}
+
+
+save_eps_retry <- function(plot, target_path, width, height,
+                           attempts = 8, sleep_sec = 0.8, pointsize = 12, fallback_res = 300,
+                           units = "in") {
+  
+  dir.create(dirname(target_path), recursive = TRUE, showWarnings = FALSE)
+  # cairo_ps tar width/height i inches; säkerställ att dina värden är just inches
+  for (i in seq_len(attempts)) {
+    ok <- try({
+      grDevices::cairo_ps(filename = target_path, width = width, height = height,
+                          pointsize = pointsize, fallback_resolution = fallback_res,
+                          onefile = FALSE, family = "sans")
+      print(plot)
+      grDevices::dev.off()
+      TRUE
+    }, silent = TRUE)
+    
+    if (!inherits(ok, "try-error") && file.exists(target_path)) return(TRUE)
+    Sys.sleep(sleep_sec * i)
+  }
+  FALSE
+}
+
 
 every_nth <- function(n, sista_vardet, ta_bort_nast_sista = FALSE) {
   return(function(x) {
