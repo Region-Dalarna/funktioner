@@ -1992,15 +1992,14 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
   # Prova utan token
   response <- httr::GET(url)
   
-
   # Bara använd token om vi får 401/403
+
   if (token_finns & !rekursiv_korning) {
     response <- httr::GET(url, httr::add_headers(Authorization = paste("token", key_get("github_token", key_list(service = "github_token")$username))))
   } else {
     response <- httr::GET(url)
   }
   
-
   # Kontrollera om förfrågan lyckades
   if (httr::status_code(response) != 200) {
     stop("API-förfrågan misslyckades med statuskod: ", httr::status_code(response), ". Meddelande: ", httr::content(response)$message)
@@ -2048,7 +2047,7 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
         cat("Felmeddelande:", e$message, "\n")
         return(tibble::tibble())  # Returnera tom tibble vid fel
       }) 
-
+      
       return(result)
 
     } else {
@@ -2058,10 +2057,6 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
       tibble::tibble(
         namn = paste0(path, item$name),
         url = item$download_url,
-        # source = ifelse(icke_source_repo, item$download_url, paste0('source("', item$download_url, '")\n')),
-        # ppt_url = ifelse(icke_source_repo, item$download_url, paste0(item$download_url, '\n')),
-        # ppt_lista = ifelse(icke_source_repo, NA, paste0('ppt_lista <- ppt_lista_fyll_pa(\n',
-
         source = ifelse(ska_skapa_source, item$download_url, paste0('source("', item$download_url, '")\n')),
         ppt_url = ifelse(ska_skapa_source, item$download_url, paste0(item$download_url, '\n')), 
         ppt_lista = ifelse(ska_skapa_source, NA, paste0('ppt_lista <- ppt_lista_fyll_pa(\n', 
@@ -2073,39 +2068,7 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
         )))
     }
   })
-  # retur_df <- purrr::map_df(content, function(item) {
-  #   if (item$type == "dir") {
-  #     # Debug: skriv ut vad som händer
-  #     new_path <- paste0(path, item$name, "/")
-  #     cat("Hittade mapp:", item$name, "\n")
-  #     cat("Ny path blir:", new_path, "\n")
-  # 
-  #     # Skippa dolda mappar (som börjar med .)
-  #     if (grepl("^\\.", item$name)) {
-  #       cat("Skippar dold mapp:", item$name, "\n")
-  #       return(tibble::tibble())  # Returnera tom tibble
-  #     }
-  # 
-  #     # Om det är en mapp, rekursera genom att kalla funktionen igen
-  #     github_lista_repo_filer(repo, owner, url_vekt_enbart = FALSE, skriv_source_konsol = FALSE,
-  #                             till_urklipp = FALSE, filter = filter, path = paste0(path, item$name, "/"))
-  #   } else {
-  #     # Om det är en fil, returnera dess namn och URL
-  #     tibble::tibble(
-  #       namn = paste0(path, item$name),
-  #       url = item$download_url,
-  #       source = ifelse(icke_source_repo, item$download_url, paste0('source("', item$download_url, '")\n')),
-  #       ppt_url = ifelse(icke_source_repo, item$download_url, paste0(item$download_url, '\n')),
-  #       ppt_lista = ifelse(icke_source_repo, NA, paste0('ppt_lista <- ppt_lista_fyll_pa(\n',
-  #                                                       'ppt_lista = ppt_lista,\n',
-  #                                                       'source_url = "', item$download_url, '",\n',
-  #                                                       'parameter_argument = list(output_mapp = utmapp_bilder),\n',
-  #                                                       'region_vekt = region_vekt,\n',
-  #                                                       'utmapp_bilder = utmapp_bilder)\n\n'
-  #                                                       )))
-  #   }
-  # })
-  
+
   if (lista_ej_systemfiler) retur_df <- retur_df %>% filter(namn != "LICENSE", str_sub(namn, 1, 1) != ".")
   
   # Filtrera baserat på sökord om filter inte är NA
@@ -3724,7 +3687,9 @@ skapa_webbrapport_github <- function(githubmapp_lokalt,                 # sökv�
     filnamn <- str_extract(.x, "[^/]+$")
     download.file(.x, paste0(sokvag_skript, filnamn), mode = "wb")
   })
-  # vi skapar nu själva .Rmd-filen
+
+  # ============================================== vi skapar nu själva .Rmd-filen ===================================================
+
   
   # vi börjar med headern i webbrapporten
   rmd_header <- glue('
@@ -4025,7 +3990,9 @@ shinyapp_skapa_med_github_repo <- function(
 ) {
   
   source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_filer.R", encoding = "utf-8")
-  # Beroenden
+
+  # ==== Beroenden ==============================================================
+
   pkg_needed <- c("usethis", "gert", "glue", "stringr", "purrr", "httr", "keyring")
   miss <- pkg_needed[!vapply(pkg_needed, requireNamespace, logical(1), quietly = TRUE)]
   if (length(miss) > 0) {
@@ -4041,7 +4008,9 @@ shinyapp_skapa_med_github_repo <- function(
     if (!dir.exists(path)) dir.create(path, recursive = TRUE)
   }
   
-  # Normalisera sökvägar
+
+  # ==== Normalisera sökvägar ===================================================
+
   githubmapp_lokalt <- stringr::str_replace_all(githubmapp_lokalt, stringr::fixed("\\"), "/")
   if (!stringr::str_ends(githubmapp_lokalt, "/")) {
     githubmapp_lokalt <- paste0(githubmapp_lokalt, "/")
@@ -4055,7 +4024,9 @@ shinyapp_skapa_med_github_repo <- function(
   # Skapa rotmapp om den inte finns
   skapa_mapp_om_den_inte_finns(sokvag_proj)
   
-  # Skapa R-projekt
+
+  # ==== Skapa R-projekt ========================================================
+
   gitprojekt_sokvag <- if (stringr::str_sub(sokvag_proj, -1, -1) == "/") {
     stringr::str_sub(sokvag_proj, 1, -2)
   } else {
@@ -4064,7 +4035,9 @@ shinyapp_skapa_med_github_repo <- function(
   
   usethis::create_project(gitprojekt_sokvag, open = FALSE)
   
-  # Skapa app-struktur: app/, www/, R/
+
+  # ==== Skapa app-struktur: app/, www/, R/ ====================================
+
   app_dir      <- file.path(sokvag_proj, "app")
   www_dir      <- file.path(app_dir, "www")
   #r_dir        <- file.path(app_dir, "R")
@@ -4075,12 +4048,16 @@ shinyapp_skapa_med_github_repo <- function(
     skapa_mapp_om_den_inte_finns
   )
   
-  # Hämta favicon till www/
+
+  # ==== Hämta favicon till www/ ===============================================
+
   favicon_url  <- "https://raw.githubusercontent.com/Region-Dalarna/depot/main/favicon.ico"
   favicon_path <- file.path(www_dir, "favicon.ico")
   utils::download.file(favicon_url, favicon_path, mode = "wb")
   
-  # Skapa global.R
+
+  # ==== Skapa global.R ========================================================
+
   global_R <- glue::glue(
     '## Globala inställningar för Shinyappen: <<github_repo>>
 
@@ -4098,14 +4075,13 @@ library(ggplot2)
 # Allmänna options - TRUE = visa inte R-felmeddelanden i appen, FALSE = visa felmeddelanden från R på webben
 options(shiny.sanitize.errors = FALSE)
 ',
-.open = "<<", .close = ">>"
-  )
+.open = "<<", .close = ">>")
   
+
 writeLines(global_R, file.path(app_dir, "global.R"))
   
-# Skapa ui.R 
-ui_R <- glue::glue(
-    "
+  # ==== Skapa ui.R ============================================================
+  ui_R <- glue::glue("
 source('global.R')
 
 shinyUI(
@@ -4136,7 +4112,8 @@ shinyUI(
 
 writeLines(ui_R, file.path(app_dir, "ui.R"))
 
-# Skapa server.R
+# ==== Skapa server.R ========================================================
+
 server_R <- 
   "shinyServer(function(input, output, session) {
 
@@ -4149,7 +4126,8 @@ server_R <-
 
 writeLines(server_R, file.path(app_dir, "server.R"))
 
-#  Skapa .gitignore 
+# ==== Skapa .gitignore ======================================================
+
 gitignore_content <- "
 .Rproj.user
 .Rhistory
@@ -4166,7 +4144,9 @@ gitignore_content <- "
 writeLines(trimws(gitignore_content, which = "left"),
            file.path(sokvag_proj, ".gitignore"))
 
-# Skapa README
+
+# ==== Skapa README ==========================================================
+
 readme_content <- glue::glue(
   "# {rapport_titel}
 
@@ -4186,7 +4166,8 @@ Detta repository innehåller en Shinyapplikation (`{github_repo}`) för Samhäll
 
 writeLines(readme_content, file.path(sokvag_proj, "README.md"))
 
-# Skapa deploy.yml för GitHub Actions
+# ==== Skapa deploy.yml för GitHub Actions ===================================
+
 deploy_yml <- glue::glue(
   'name: Deploy <<github_repo>>
 
@@ -4212,7 +4193,8 @@ jobs:
 
 writeLines(deploy_yml, file.path(workflows_dir, "deploy.yml"))
 
-# Initiera Git, skapa branch 'utveckling', lägg upp på GitHub
+
+# ==== Initiera Git, skapa branch 'utveckling', lägg upp på GitHub ===========
 old_wd <- getwd()
 on.exit(setwd(old_wd), add = TRUE)
 setwd(sokvag_proj)
