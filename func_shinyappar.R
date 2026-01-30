@@ -127,3 +127,73 @@ shiny_list_passwords <- function() {
   
   return(services)
 }
+
+
+
+shiny_uppkoppling_skriv <- function(
+    databas = "geodata",
+    db_host = "WFALMITVS526.ltdalarna.se",
+    db_port = 5432,
+    db_options = "-c search_path=public",
+    db_user = "shiny_skriv"
+) {
+  
+  shiny_uppkoppling_db(service_name = "databas_adm", 
+                 db_name = databas,
+                 db_host = db_host,
+                 db_port = db_port,
+                 db_options = db_options)
+}
+
+shiny_uppkoppling_las <- function(
+    
+  # 0. Funktion för att koppla upp mot databasen. Kan användas med defaultvärden enligt nedan eller egna parametrar.
+  # Används av andra funktioner som default om inget eget objekt med databasuppkoppling har skickats till dessa funktioner
+  # OBS! Ändra default för db_name till "geodata" sen
+  
+  db_name = "geodata",                  
+  db_host = "WFALMITVS526.ltdalarna.se",
+  db_port = 5432,
+  db_options = "-c search_path=public",
+  db_user = "shiny_las"
+) {
+
+  tryCatch({
+    # Etablera anslutningen
+    con <- suppress_specific_warning(
+      dbConnect(          
+        RPostgres::Postgres(),
+        bigint = "integer",  
+        user = db_user,
+        password = shiny_get_password(db_user),
+        host = db_host,
+        port = db_port,
+        dbname = db_name,
+        #timezon = "UTC",
+        options=db_options),
+      "Invalid time zone 'UTC', falling back to local time.")
+    
+    
+    # Returnerar anslutningen om den lyckas
+    return(con)
+  }, error = function(e) {
+    # Skriver ut felmeddelandet och returnerar NULL
+    print(paste("Ett fel inträffade vid anslutning till databasen:", e$message))
+    return(NULL)
+  })
+  
+}
+
+df_till_sf <- function(df, geom_col = "geometry", crs = 3006) {
+  # så att man smidigt kan jobba med dbplyr och tbl() %>% collect() %>% df_till_sf()
+  # funkar inte annars då geometrikolumnen inte behåller sin geografi men finns som EWKB som kan konverteras till geometri
+    
+  # funktion som konverterar en df till ett sf-objekt
+  # df: data.frame med en kolumn som innehåller geometri i EWKB-format
+  # geom_col: namn på kolumnen som innehåller geometrin
+  df_sf <- df
+  df_sf[[geom_col]] <- sf::st_as_sfc(df[[geom_col]], EWKB = TRUE)
+  df_sf <- sf::st_as_sf(df_sf, sf_column_name = geom_col)
+  st_crs(df_sf) <- crs
+  return(df_sf)
+}
