@@ -14,9 +14,6 @@ shiny_set_password <- function(service) {
   
   existing <- if (file.exists(renv_file)) readLines(renv_file) else character()
   
-  # ta bort ev. gammal rad med samma variabel
-  existing <- existing[!grepl(paste0("^", varname, "="), existing)]
-  
   # Finns redan ett lösenord?
   existing_match <- grep(paste0("^", varname, "="), existing, value = TRUE)
   
@@ -31,13 +28,13 @@ shiny_set_password <- function(service) {
     }
   }
   
+  
   # Läs in nytt lösenord som användaren får skriva in
   cat("Ange lösenord för tjänsten '", service, "': ", sep = "")
   password <- readline()
   
-  # Ta bort gammal rad
+  # ta bort ev. gammal rad med samma variabel
   existing <- existing[!grepl(paste0("^", varname, "="), existing)]
-  
   
   new_content <- c(existing, paste0(varname, "=", password))
   
@@ -60,8 +57,7 @@ shiny_set_password <- function(service) {
 shiny_get_password <- function(service) {
   
   if (!grepl("^[A-Za-z0-9_]+$", service)) {
-    cat("Service-namnet får bara innehålla A-Z, a-z, 0-9 och '_'.")
-    return(invisible(NULL))
+    stop("Service-namnet får bara innehålla A-Z, a-z, 0-9 och '_'.")
   }
   
   varname <- paste0(service, "_PWD")
@@ -69,8 +65,7 @@ shiny_get_password <- function(service) {
   pw <- Sys.getenv(varname, unset = NA)
   
   if (is.na(pw) || !nzchar(pw)) {
-    cat("Lösenord saknas. Variabeln '", varname, "' finns inte i miljön.")
-    return(invisible(NULL))
+    stop("Lösenord saknas. Variabeln '", varname, "' finns inte i miljön.")
   }
   
   pw
@@ -87,16 +82,14 @@ shiny_delete_password <- function(service) {
   pw <- Sys.getenv(varname, unset = NA)
   
   if (is.na(pw) || !nzchar(pw)) {
-    cat("Lösenord saknas. Variabeln '", varname, "' finns inte i miljön.")
-    return(invisible(NULL))
+    stop("Lösenord saknas. Variabeln '", varname, "' finns inte i miljön.")
   }
   
   home <- Sys.getenv("HOME")
   renv_file <- file.path(home, ".Renviron")
   
   if (!file.exists(renv_file)) {
-    cat("Filen ", renv_file, " finns inte. Inget att ta bort.\n", sep = "")
-    return(invisible(NULL))
+    stop("Filen ", renv_file, " finns inte. Inget att ta bort.\n", sep = "")
   }
   
   existing <- readLines(renv_file)
@@ -114,8 +107,7 @@ shiny_list_passwords <- function() {
   renv_file <- file.path(home, ".Renviron")
   
   if (!file.exists(renv_file)) {
-    cat(".Renviron-filen finns inte på denna maskin: ", renv_file)
-    return(invisible(NULL))
+    stop(".Renviron-filen finns inte på denna maskin: ", renv_file)
   }
   
   lines <- readLines(renv_file)
@@ -124,8 +116,7 @@ shiny_list_passwords <- function() {
   matches <- grep("^[A-Za-z0-9_]+_PWD=", lines, value = TRUE)
   
   if (length(matches) == 0) {
-    cat("Inga tjänster hittades i .Renviron.\n")
-    return(character())
+    stop("Inga tjänster hittades i .Renviron.\n")
   }
   
   # Extrahera service-namnen genom att ta bort _PWD=...
