@@ -83,6 +83,13 @@ shiny_delete_password <- function(service) {
   }
   
   varname <- paste0(service, "_PWD")
+  readRenviron("~/.Renviron")
+  pw <- Sys.getenv(varname, unset = NA)
+  
+  if (is.na(pw) || !nzchar(pw)) {
+    cat("Lösenord saknas. Variabeln '", varname, "' finns inte i miljön.")
+    return(invisible(NULL))
+  }
   
   home <- Sys.getenv("HOME")
   renv_file <- file.path(home, ".Renviron")
