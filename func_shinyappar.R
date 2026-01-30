@@ -1,4 +1,4 @@
-
+home
 
 shiny_set_password <- function(service) {
   
@@ -49,7 +49,8 @@ shiny_set_password <- function(service) {
   }
   
   # Uppdatera miljön direkt i sessionen
-  Sys.setenv(structure(list(password), names = varname))
+  args <- setNames(list(password), varname)
+  do.call(Sys.setenv, args)
   
   cat("✔ Installerat: ", varname, " i ", renv_file, "\n", sep = "")
   return(invisible(TRUE))
