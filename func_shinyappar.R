@@ -61,7 +61,7 @@ shiny_get_password <- function(service) {
   }
   
   varname <- paste0(service, "_PWD")
-  readRenviron("~/.Renviron")
+  readRenviron(file.path(Sys.getenv("HOME"), ".Renviron"))
   pw <- Sys.getenv(varname, unset = NA)
   
   if (is.na(pw) || !nzchar(pw)) {
@@ -78,7 +78,7 @@ shiny_delete_password <- function(service) {
   }
   
   varname <- paste0(service, "_PWD")
-  readRenviron("~/.Renviron")
+  readRenviron(file.path(Sys.getenv("HOME"), ".Renviron"))
   pw <- Sys.getenv(varname, unset = NA)
   
   if (is.na(pw) || !nzchar(pw)) {
@@ -182,6 +182,121 @@ shiny_uppkoppling_las <- function(
     return(NULL)
   })
   
+}
+
+shiny_db_list <- function(
+    con,
+    include_views        = TRUE,                     # inkludera VIEWs
+    only_with_geometry   = FALSE,                    # endast tabeller som har geometrikolumn
+    schema_like          = NULL,                     # t.ex. "karta%" (ILIKE)
+    table_like           = NULL,                     # t.ex. "%kommun%" (ILIKE)
+    exclude_schemas      = c("pg_catalog","information_schema", "public"),
+    include_rowcount_est = FALSE                     # uppskattat antal rader (snabbt)
+) {
+  stopifnot(DBI::dbIsValid(con))
+  
+  # --- Bygg WHERE-delar utan sprintf() ---
+  where_clauses <- character()
+  
+  # Exkludera systemscheman
+  if (length(exclude_schemas)) {
+    excl <- paste(DBI::dbQuoteLiteral(con, exclude_schemas), collapse = ", ")
+    where_clauses <- c(where_clauses, paste0("t.table_schema NOT IN (", excl, ")"))
+  }
+  
+  # Tabelltyp
+  if (isTRUE(include_views)) {
+    where_clauses <- c(where_clauses, "t.table_type IN ('BASE TABLE','VIEW')")
+  } else {
+    where_clauses <- c(where_clauses, "t.table_type = 'BASE TABLE'")
+  }
+  
+  # LIKE-filter för schema/tabell
+  if (!is.null(schema_like)) {
+    where_clauses <- c(
+      where_clauses,
+      paste0("t.table_schema ILIKE ", DBI::dbQuoteLiteral(con, schema_like))
+    )
+  }
+  if (!is.null(table_like)) {
+    where_clauses <- c(
+      where_clauses,
+      paste0("t.table_name ILIKE ", DBI::dbQuoteLiteral(con, table_like))
+    )
+  }
+  
+  # Endast tabeller med geometrikolumn (PostGIS)
+  if (isTRUE(only_with_geometry)) {
+    where_clauses <- c(
+      where_clauses,
+      paste(
+        "EXISTS (",
+        " SELECT 1",
+        " FROM information_schema.columns c",
+        " WHERE c.table_schema = t.table_schema",
+        "   AND c.table_name   = t.table_name",
+        "   AND c.udt_name     = 'geometry'",
+        ")",
+        sep = "\n"
+      )
+    )
+  }
+  
+  where_sql <- paste(where_clauses, collapse = " AND ")
+  if (!nzchar(where_sql)) where_sql <- "TRUE"  # fallback
+  
+  # Radantal-estimat via pg_catalog (valfritt)
+  rowcount_cols <- ""
+  rowcount_join <- ""
+  if (isTRUE(include_rowcount_est)) {
+    rowcount_cols <- paste(
+      "",
+      ", CASE",
+      "    WHEN pc.reltuples IS NULL THEN NULL",
+      "    ELSE GREATEST(pc.reltuples::bigint, 0)",
+      "  END AS rowcount_est",
+      sep = "\n"
+    )
+    rowcount_join <- paste(
+      "LEFT JOIN pg_catalog.pg_namespace pn",
+      "  ON pn.nspname = t.table_schema",
+      "LEFT JOIN pg_catalog.pg_class pc",
+      "  ON pc.relnamespace = pn.oid",
+      " AND pc.relname      = t.table_name",
+      " AND pc.relkind IN ('r','m','v')",
+      sep = "\n"
+    )
+  }
+  
+  # Lista geometri-kolumner per tabell (array)
+  geomname_cols <- paste(
+    "",
+    ", (",
+    "    SELECT array_agg(c.column_name ORDER BY c.ordinal_position)",
+    "    FROM information_schema.columns c",
+    "    WHERE c.table_schema = t.table_schema",
+    "      AND c.table_name   = t.table_name",
+    "      AND c.udt_name     = 'geometry'",
+    "  ) AS geometry_columns",
+    sep = "\n"
+  )
+  
+  # Slutlig SQL (byggd med paste0/paste)
+  sql <- paste(
+    "SELECT",
+    "  t.table_schema AS schema,",
+    "  t.table_name   AS table,",
+    "  t.table_type   AS type",
+    geomname_cols,
+    rowcount_cols,
+    "FROM information_schema.tables t",
+    rowcount_join,
+    paste("WHERE", where_sql),
+    "ORDER BY t.table_schema, t.table_name;",
+    sep = "\n"
+  )
+  
+  DBI::dbGetQuery(con, sql)
 }
 
 df_till_sf <- function(df, geom_col = "geometry", crs = 3006) {
