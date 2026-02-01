@@ -1,4 +1,5 @@
-
+library(DBI)
+library(RPostgres)
 
 shiny_set_password <- function(service) {
   
@@ -160,8 +161,7 @@ shiny_uppkoppling_las <- function(
 
   tryCatch({
     # Etablera anslutningen
-    con <- suppress_specific_warning(
-      dbConnect(          
+    con <- dbConnect(          
         RPostgres::Postgres(),
         bigint = "integer",  
         user = db_user,
@@ -170,8 +170,7 @@ shiny_uppkoppling_las <- function(
         port = db_port,
         dbname = db_name,
         #timezon = "UTC",
-        options=db_options),
-      "Invalid time zone 'UTC', falling back to local time.")
+        options=db_options)
     
     
     # Returnerar anslutningen om den lyckas
