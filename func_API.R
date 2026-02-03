@@ -4044,7 +4044,7 @@ shinyapp_skapa_med_github_repo <- function(
   workflows_dir <- file.path(sokvag_proj, ".github", "workflows")
   
   purrr::walk(
-    c(app_dir, www_dir, r_dir, workflows_dir),
+    c(app_dir, www_dir, workflows_dir),
     skapa_mapp_om_den_inte_finns
   )
   
