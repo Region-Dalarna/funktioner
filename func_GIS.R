@@ -1836,6 +1836,68 @@ postgres_tabell_till_df <- function(con = "default",
   return(retur_df)
 }
 
+postgres_df_till_postgrestabell <- function(con = "default",
+                                            inlas_df,
+                                            schema,                            # det schema i postgis-databasen som målpunktstabellen ska ligga under
+                                            tabell,                                      # det tabellnamn den nya filen ska få i postgis
+                                            id_kol = NA,                   # den kolumn som innehåller ett unikt ID och görs till primärnyckelkolumn
+                                            addera_data = FALSE,                         # om TRUE så läggs rader till i en tabell, annars skrivs den över (om den finns, annars skrivs en ny tabell)                                            
+                                            meddelande_tid = FALSE
+  ) {
+
+    starttid <- Sys.time()                                        # Starta tidstagning
+    
+    # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+    if(is.character(con) && con == "default") {
+      con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+      default_flagga = TRUE
+    } else  default_flagga = FALSE  
+    
+    
+    # säkerställ att alla kolumnnamn är i gemener, ställer inte till problem i postgis då
+    names(inlas_df) <- tolower(names(inlas_df))
+    tabell <- tabell %>% tolower()
+    
+    # kör sql-kod för att skapa ett nytt schema med namn definierat ovan om det inte redan finns
+    schema_finns <- postgres_schema_finns(con, schema)
+    
+    if (!schema_finns) dbExecute(con, paste0("create schema if not exists ", schema, ";"))
+    
+    # Kontrollera om tabellen redan finns
+    tabell_finns <- DBI::dbExistsTable(con, DBI::Id(schema = schema, table = tabell))
+    
+    system.time({
+      if (!tabell_finns) {
+        # Om tabellen inte finns
+        append_mode <- FALSE
+        
+      } else if (addera_data) {
+        # Om rader ska adderas till befintlig tabell
+        append_mode <- TRUE
+        
+      } else {
+        # Om tabellen finns, töm tabellen men behåll struktur och behörigheter
+        dbExecute(con, sprintf("TRUNCATE TABLE %s.%s;", schema, tabell))
+        append_mode <- FALSE
+        
+      }
+      
+      if (append_mode) {
+        DBI::dbWriteTable(con, Id(schema = schema, table = tabell), inlas_df, append = TRUE) 
+      } else {
+        DBI::dbWriteTable(con, Id(schema = schema, table = tabell), inlas_df, overwrite = TRUE)
+      }
+    })
+    
+    # gör id_kol till id-kolumn i tabellen
+    if (!is.na(id_kol)) {
+      dbExecute(con, paste0("ALTER TABLE ", schema, ".", tabell, " ADD PRIMARY KEY (", id_kol ,");"))
+    }
+    if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
+        berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
+    if (meddelande_tid) cat(glue("Processen tog {berakningstid} sekunder att köra"))
+    
+} # slut funktion
 
 postgres_meta <- function(con = "default",
                           tabell = "aktuell_version",
