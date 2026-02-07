@@ -546,82 +546,266 @@ tatortskoder_bearbeta <- function(api_url, tatortskoder, var_namn = "region") {
 
 # ================================================= kolada-funktioner ========================================================
 
-hamta_kolada_giltiga_ar <- function(kpi_id, vald_region = "2080"){
+# hamta_kolada_giltiga_ar <- function(kpi_id, vald_region = "2080"){
+# 
+#   vald_region <- vald_region %>% str_pad(4, pad = "0")
+# 
+#   hamtade_varden <- get_values(
+#     kpi = kpi_id,
+#     municipality = vald_region,
+#     period = 1900:2060
+#   )
+# 
+#   alla_ar <- hamtade_varden$year %>% as.character() %>% unique()
+#   return(alla_ar)
+# }
+
+hamta_kolada_giltiga_ar <- function(kpi_id, vald_region = "2080") {
+  # Bygg API URL för v3
+  url <- paste0("https://api.kolada.se/v3/data/kpi/", kpi_id, 
+                "/municipality/", vald_region)
   
-  vald_region <- vald_region %>% str_pad(4, pad = "0")
+  # Hämta data
+  response <- httr::GET(url)
   
-  hamtade_varden <- get_values(
-    kpi = kpi_id,
-    municipality = vald_region,
-    period = 1900:2060
-  )
+  # Kontrollera att anropet lyckades
+  if (httr::status_code(response) != 200) {
+    stop("API-anrop misslyckades: ", httr::status_code(response))
+  }
   
-  alla_ar <- hamtade_varden$year %>% as.character() %>% unique()
-  return(alla_ar)
+  # Parsa JSON
+  data <- httr::content(response, as = "text", encoding = "UTF-8") %>%
+    jsonlite::fromJSON()
+  
+  # Extrahera alla unika år från values-arrayen
+  if (nrow(data$values) > 0) {
+    alla_ar <- data$values$period %>%
+      unique() %>%
+      sort()
+    
+    return(alla_ar)
+  } else {
+    warning("Inga data hittades för KPI ", kpi_id, " och kommun ", vald_region)
+    return(character(0))
+  }
 }
 
-
-hamta_kolada_df <- function(kpi_id, valda_kommuner, valda_ar = NA, konsuppdelat = TRUE, dop_om_kolumner = TRUE){
+hamta_kolada_df <- function(kpi_id, 
+                            valda_kommuner, 
+                            valda_ar = NA, 
+                            konsuppdelat = TRUE,
+                            konsuppdelat_total_ta_bort = FALSE,
+                            dop_om_kolumner = TRUE){
   
-  kolnamn_vektor <- c(ar = "year", regionkod = "municipality_id", region = "municipality",
-                      #regiontyp = "municipality_type", 
+  # Kontrollera att paketet är installerat
+  if (!requireNamespace("jsonlite", quietly = TRUE)) {
+    stop("Paketet 'jsonlite' krävs men är inte installerat. Installera det med: install.packages('jsonlite')")
+  }
+  
+  kolnamn_vektor <- c(ar = "period", regionkod = "municipality", region = "municipality_name",
                       kon = "gender", variabelkod = "kpi",  
-                      variabel = "fraga", varde = "value") 
+                      variabel = "kpi_title", varde = "value") 
   
-  valda_kommuner <- valda_kommuner %>% str_pad(4, pad = "0")
+  valda_kommuner <- str_pad(valda_kommuner, 4, pad = "0")
   
+  # Hämta giltiga år
   alla_ar <- hamta_kolada_giltiga_ar(kpi_id, valda_kommuner[1])
-  senaste_ar <- max(alla_ar)
-  start_ar <- min(alla_ar)
   
-  #alla_giltiga_ar <- if(valda_ar == "9999") senaste_ar else valda_ar[valda_ar %in% alla_ar]
-  alla_giltiga_ar <- if(all(valda_ar == "9999")) senaste_ar else valda_ar[valda_ar %in% alla_ar]
+  # Kontrollera om det finns giltiga år
+  if (length(alla_ar) == 0) {
+    message("Inga giltiga år hittades för KPI ", kpi_id, " och kommun ", valda_kommuner[1], ". Returnerar tom tibble.")
+    return(tibble::tibble())
+  }
   
-  hamta_ar <- if (is.na(valda_ar[1])) alla_ar else alla_giltiga_ar
+  # Bestäm vilka år som ska hämtas
+  if (is.na(valda_ar[1])) {
+    hamta_ar <- alla_ar
+  } else if (all(valda_ar == "9999")) {
+    hamta_ar <- max(alla_ar)
+  } else {
+    hamta_ar <- valda_ar[valda_ar %in% alla_ar]
+  }
   
-  #### Dra hem variablerna från Kolada
-  hamtade_varden <- get_values(
-    kpi = kpi_id,
-    municipality = valda_kommuner,
-    period = hamta_ar
-  )
+  # Bygg API URL för v3
+  kommuner_str <- paste(valda_kommuner, collapse = ",")
+  ar_str <- paste(hamta_ar, collapse = ",")
   
-  # hämta frågenamnen från Kolada
-  kpi_df <- get_kpi(kpi_id) %>% select(id, title)
+  url <- paste0("https://api.kolada.se/v3/data/kpi/", kpi_id, 
+                "/municipality/", kommuner_str,
+                "/year/", ar_str)
   
-  # Koppla på frågenamn som kolumnnamn samt beräkna om värde är över rikets
-  retur_df <- hamtade_varden %>% 
-    left_join(kpi_df, by = c("kpi" = "id")) %>% 
-    rename(fraga = title) 
+  # Hämta data från API
+  response <- GET(url)
   
+  if (status_code(response) != 200) {
+    stop("API-anrop misslyckades: ", status_code(response))
+  }
+  
+  # Parsa JSON
+  data <- content(response, as = "text", encoding = "UTF-8") %>%
+    jsonlite::fromJSON()
+  
+  # Hämta KPI-metadata för att få titel
+  kpi_url <- paste0("https://api.kolada.se/v3/kpi/", kpi_id)
+  kpi_response <- GET(kpi_url)
+  kpi_data <- content(kpi_response, as = "text", encoding = "UTF-8") %>%
+    jsonlite::fromJSON()
+  kpi_title <- kpi_data$values$title
+  
+  # Transformera data till tidy format
+  retur_df <- data$values %>%
+    tidyr::unnest(values) %>%
+    dplyr::left_join(kolada_kommuntabell_hamta(), by = c("municipality" = "municipality")) %>%
+    dplyr::mutate(kpi_title = kpi_title) %>%
+    dplyr::select(kpi, kpi_title, municipality, municipality_name, period, gender, value)
+  
+  # Hantera könsuppdelning
   if ("gender" %in% names(retur_df)) {
-    if (konsuppdelat & nrow(retur_df[retur_df$gender %in% c("K", "M"),])>0) {       # om man valt könsuppdelat och det finns värden för kvinnor eller män
-      retur_df <- retur_df %>% 
-        filter(gender != "T")
-      
+    if (konsuppdelat && any(retur_df$gender %in% c("K", "M"))) {
+      if (konsuppdelat_total_ta_bort) retur_df <- retur_df %>% filter(gender != "T")
     } else {
-      retur_df <- retur_df %>% 
-        filter(gender == "T")
-    } # slut if-sats om könsuppdelat är valt och det finns kvinnor och män i datasetet
-    retur_df <- retur_df %>% 
-      mutate(gender = case_when(gender == "T" ~ "Båda könen",
-                                gender == "K" ~ "Kvinnor",
-                                gender == "M" ~ "Män"))
+      retur_df <- retur_df %>% filter(gender == "T")
+    }
     
-  } # slut if-sats om kön finns med som variabel
+    retur_df <- retur_df %>% 
+      mutate(gender = recode(gender, 
+                             "T" = "Båda könen",
+                             "K" = "Kvinnor",
+                             "M" = "Män"))
+  }
   
-  # gör om år till character
-  retur_df <- retur_df %>% 
-    mutate(year = year %>% as.character())
-  
+  # Döp om kolumner om önskat
   if (dop_om_kolumner) {
     retur_df <- retur_df %>% 
-      select(any_of(kolnamn_vektor)) %>% 
-      mutate(regionkod = regionkod %>% as.numeric() %>% as.character() %>% str_replace("^0$", "00"),
-             region = region %>% str_remove("Region "))
+      rename(
+        ar = period,
+        regionkod = municipality,
+        region = municipality_name,
+        kon = gender,
+        variabelkod = kpi,
+        variabel = kpi_title,
+        varde = value
+      ) %>%
+      mutate(
+        regionkod = if_else(regionkod == "0", "00", as.character(as.numeric(regionkod))),
+        region = str_remove(region, "Region ")
+      )
   }
+  
   return(retur_df)
 }
+
+# Skapa en global lookup-tabell (körs en gång)
+.kolada_kommun_lookup <- NULL
+
+kolada_kommuntabell_hamta <- function() {
+  if (is.null(.kolada_kommun_lookup)) {
+    kommun_url <- "https://api.kolada.se/v3/municipality"
+    kommun_response <- httr::GET(kommun_url)
+    kommun_data <- httr::content(kommun_response, as = "text", encoding = "UTF-8") %>%
+      jsonlite::fromJSON()
+    
+    .kolada_kommun_lookup <<- kommun_data$values %>%
+      dplyr::select(id, title, type) %>%
+      dplyr::rename(municipality = id, municipality_name = title)
+  }
+  return(.kolada_kommun_lookup)
+}
+
+kolada_kpi_grupper_hamta <- function(title = NULL) {
+  
+  # Kontrollera paket
+
+  if (!requireNamespace("jsonlite", quietly = TRUE)) {
+    stop("Paketet 'jsonlite' krävs. Installera med: install.packages('jsonlite')")
+  }
+  
+  # Bygg API URL
+  url <- "https://api.kolada.se/v3/kpi_groups"
+  
+  # Lägg till title-filter om angivet
+  if (!is.null(title)) {
+    url <- paste0(url, "?title=", utils::URLencode(title))
+  }
+  
+  # Hämta data
+  response <- httr::GET(url)
+  
+  if (httr::status_code(response) != 200) {
+    stop("API-anrop misslyckades: ", httr::status_code(response))
+  }
+  
+  # Parsa JSON
+  data <- httr::content(response, as = "text", encoding = "UTF-8") %>%
+    jsonlite::fromJSON()
+  
+  # Returnera som dataframe
+  return(data$values)
+}
+
+# Användning:
+# kpi_grupper <- hamta_kolada_kpigrupper_v3()
+# hamta_kolada_df <- function(kpi_id, valda_kommuner, valda_ar = NA, konsuppdelat = TRUE, dop_om_kolumner = TRUE){
+#   
+#   kolnamn_vektor <- c(ar = "year", regionkod = "municipality_id", region = "municipality",
+#                       #regiontyp = "municipality_type", 
+#                       kon = "gender", variabelkod = "kpi",  
+#                       variabel = "fraga", varde = "value") 
+#   
+#   valda_kommuner <- valda_kommuner %>% str_pad(4, pad = "0")
+#   
+#   alla_ar <- hamta_kolada_giltiga_ar(kpi_id, valda_kommuner[1])
+#   senaste_ar <- max(alla_ar)
+#   start_ar <- min(alla_ar)
+#   
+#   #alla_giltiga_ar <- if(valda_ar == "9999") senaste_ar else valda_ar[valda_ar %in% alla_ar]
+#   alla_giltiga_ar <- if(all(valda_ar == "9999")) senaste_ar else valda_ar[valda_ar %in% alla_ar]
+#   
+#   hamta_ar <- if (is.na(valda_ar[1])) alla_ar else alla_giltiga_ar
+#   
+#   #### Dra hem variablerna från Kolada
+#   hamtade_varden <- get_values(
+#     kpi = kpi_id,
+#     municipality = valda_kommuner,
+#     period = hamta_ar
+#   )
+#   
+#   # hämta frågenamnen från Kolada
+#   kpi_df <- get_kpi(kpi_id) %>% select(id, title)
+#   
+#   # Koppla på frågenamn som kolumnnamn samt beräkna om värde är över rikets
+#   retur_df <- hamtade_varden %>% 
+#     left_join(kpi_df, by = c("kpi" = "id")) %>% 
+#     rename(fraga = title) 
+#   
+#   if ("gender" %in% names(retur_df)) {
+#     if (konsuppdelat & nrow(retur_df[retur_df$gender %in% c("K", "M"),])>0) {       # om man valt könsuppdelat och det finns värden för kvinnor eller män
+#       retur_df <- retur_df %>% 
+#         filter(gender != "T")
+#       
+#     } else {
+#       retur_df <- retur_df %>% 
+#         filter(gender == "T")
+#     } # slut if-sats om könsuppdelat är valt och det finns kvinnor och män i datasetet
+#     retur_df <- retur_df %>% 
+#       mutate(gender = case_when(gender == "T" ~ "Båda könen",
+#                                 gender == "K" ~ "Kvinnor",
+#                                 gender == "M" ~ "Män"))
+#     
+#   } # slut if-sats om kön finns med som variabel
+#   
+#   # gör om år till character
+#   retur_df <- retur_df %>% 
+#     mutate(year = year %>% as.character())
+#   
+#   if (dop_om_kolumner) {
+#     retur_df <- retur_df %>% 
+#       select(any_of(kolnamn_vektor)) %>% 
+#       mutate(regionkod = regionkod %>% as.numeric() %>% as.character() %>% str_replace("^0$", "00"),
+#              region = region %>% str_remove("Region "))
+#   }
+#   return(retur_df)
+# }
 
 # =========================================== Skolvkerket-funktioner =========================================================
 
