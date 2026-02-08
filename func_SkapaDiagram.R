@@ -636,6 +636,7 @@ SkapaLinjeDiagram <- function(skickad_df,
                               y_axis_minus_plus_samma_axel = FALSE, # om man vill ha lika stort avstånd från 0 till min och maxvärde på y-axeln - gäller endast när man har min-värde < 0 och max-värde > 0
                               facet_legend_bottom = FALSE,
                               x_axis_visa_var_xe_etikett = NA,
+                              na_varden_behall_i_dataset = FALSE,
                               inkludera_sista_vardet_var_xe_etikett = TRUE,              # om man vill ha med sista värdet när man kör x_axis_visa_var_xe_etikett
                               x_axis_var_xe_etikett_ta_bort_nast_sista_vardet = FALSE, # tar bort näst sista värdet i visa_var_xe_etikett
                               AF_special = FALSE,
@@ -709,11 +710,22 @@ SkapaLinjeDiagram <- function(skickad_df,
       ungroup()
   } else {
     # om filter_or är NA
-    plot_df <- skickad_df %>% 
-      group_by(across(all_of(grupp_var))) %>% 
-      summarize(total = sum(!!y_var, na.rm = TRUE)) %>% 
-      ungroup()
-  }
+    if (na_varden_behall_i_dataset) {
+      
+      plot_df <- skickad_df %>% 
+        group_by(across(all_of(grupp_var))) %>% 
+        summarize(total = sum(!!y_var, na.rm = FALSE)) %>% 
+        ungroup() 
+      
+    } else {
+    
+      plot_df <- skickad_df %>% 
+        group_by(across(all_of(grupp_var))) %>% 
+        summarize(total = sum(!!y_var, na.rm = TRUE)) %>% 
+        ungroup()  
+      
+    }
+  } # slut if-sats om det finns skickad_filter_OR_vect
   
   # om vi vill ha en titel på teckenförklaringen
   if (is.na(legend_titel)) legend_titel <- NULL
@@ -766,7 +778,7 @@ SkapaLinjeDiagram <- function(skickad_df,
   
   # =========================================== skapa stödlinje-variabler =============================================
   
-  if (y_axis_100proc) max_varde_plot_df <- 100 else max_varde_plot_df <- max(plot_df["total"])    # om vi skickat med att vi vill ha låsa y-axelns maxvärde till 100 så fixar vi det här - slice(1) utfall att det finns flera grupper som uppnår maxvärde (då tar vi bara en av dem)
+  if (y_axis_100proc) max_varde_plot_df <- 100 else max_varde_plot_df <- max(plot_df["total"], na.rm = na_varden_behall_i_dataset)    # om vi skickat med att vi vill ha låsa y-axelns maxvärde till 100 så fixar vi det här - slice(1) utfall att det finns flera grupper som uppnår maxvärde (då tar vi bara en av dem)
   if (diagram_facet) {
     variabel_vekt <- c(as.character(skickad_x_var), as.character(facet_grp), as.character(skickad_x_grupp)) %>% .[!is.na(.)]
     
@@ -774,7 +786,7 @@ SkapaLinjeDiagram <- function(skickad_df,
     min_varde_plot_df <- plot_df %>% group_by(across(any_of(variabel_vekt))) %>% summarise(summ = sum(total)) %>% ungroup() %>% filter(summ == min(summ)) %>% slice(1) %>% dplyr::pull()
     
   } else {
-    min_varde_plot_df <- min(plot_df["total"])
+    min_varde_plot_df <- min(plot_df["total"], na.rm = na_varden_behall_i_dataset)
   }
   if (min_varde_plot_df < 0 & max_varde_plot_df < 0) min_och_max_negativa <- TRUE else min_och_max_negativa <- FALSE
   stodlinjer_list <- Berakna_varden_stodlinjer(min_varde =  min_varde_plot_df, max_varde = max_varde_plot_df, y_borjar_pa_noll = y_axis_borjar_pa_noll, procent_0_100_10intervaller = procent_0_100_10intervaller, avrunda_fem = stodlinjer_avrunda_fem, minus_plus_samma = y_axis_minus_plus_samma_axel)
