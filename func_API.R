@@ -546,491 +546,491 @@ tatortskoder_bearbeta <- function(api_url, tatortskoder, var_namn = "region") {
 
 # ================================================= kolada-funktioner ========================================================
 
+#' 
+#' 
+#' # Globala inställningar för rate limiting
+#' .kolada_env <- new.env()
+#' .kolada_env$senaste_anrop <- 0
+#' .kolada_env$min_intervall <- 0.2  # 5 requests/sekund
+#' 
+#' # ============================================
+#' # INTERNA HJÄLPFUNKTIONER
+#' # ============================================
+#' 
+#' #' Intern: Rate limiting
+#' #' @keywords internal
+#' intern_kolada_throttle <- function() {
+#'   nuvarande_tid <- as.numeric(Sys.time())
+#'   forlöpt_tid <- nuvarande_tid - .kolada_env$senaste_anrop
+#'   
+#'   if (forlöpt_tid < .kolada_env$min_intervall) {
+#'     vantetid <- .kolada_env$min_intervall - forlöpt_tid
+#'     Sys.sleep(vantetid)
+#'   }
+#'   
+#'   .kolada_env$senaste_anrop <- as.numeric(Sys.time())
+#' }
+#' 
+#' #' Intern: Gör ett enskilt API-anrop
+#' #' @keywords internal
+#' intern_kolada_request <- function(endpoint, params = NULL, bas_url = "https://api.kolada.se/v3/") {
+#'   intern_kolada_throttle()
+#'   
+#'   url <- paste0(bas_url, endpoint)
+#'   response <- GET(url, query = params, timeout(30))
+#'   
+#'   # Hantera rate limiting från API:et
+#'   if (status_code(response) == 429) {
+#'     retry_after <- as.numeric(headers(response)$`retry-after` %||% 60)
+#'     warning(sprintf("API rate limit nådd. Väntar %d sekunder...", retry_after))
+#'     Sys.sleep(retry_after)
+#'     return(intern_kolada_request(endpoint, params, bas_url))
+#'   }
+#'   
+#'   # Hantera fel
+#'   if (status_code(response) != 200) {
+#'     stop(sprintf("API-fel %d: %s", status_code(response), content(response, "text")))
+#'   }
+#'   
+#'   content(response, "text", encoding = "UTF-8") %>%
+#'     jsonlite::fromJSON(simplifyVector = FALSE)
+#' }
+#' 
+#' #' Intern: Hantera paginering
+#' #' @keywords internal
+#' intern_kolada_paginera <- function(endpoint, params = NULL, visa_progress = FALSE) {
+#'   params <- params %||% list()
+#'   params$page <- 1
+#'   params$per_page <- 5000  # Max som API:et tillåter
+#'   
+#'   alla_objekt <- list()
+#'   totalt_antal <- NULL
+#'   
+#'   if (visa_progress) message(sprintf("Hämtar %s...", endpoint))
+#'   
+#'   repeat {
+#'     resultat <- intern_kolada_request(endpoint, params)
+#'     
+#'     objekt <- resultat$values %||% list()
+#'     alla_objekt <- c(alla_objekt, objekt)
+#'     
+#'     # Visa progress om vi vet totalt antal
+#'     if (is.null(totalt_antal) && !is.null(resultat$count)) {
+#'       totalt_antal <- resultat$count
+#'       if (visa_progress) message(sprintf("Totalt antal: %d", totalt_antal))
+#'     }
+#'     
+#'     if (visa_progress && !is.null(totalt_antal)) {
+#'       message(sprintf("Progress: %d/%d", length(alla_objekt), totalt_antal))
+#'     }
+#'     
+#'     # Kolla om det finns fler sidor
+#'     if (is.null(resultat$next_url) || resultat$next_url == "") break
+#'     
+#'     params$page <- params$page + 1
+#'   }
+#'   
+#'   if (visa_progress) message(sprintf("Hämtade %d objekt totalt", length(alla_objekt)))
+#'   
+#'   alla_objekt
+#' }
+#' 
+#' #' Intern: Dela upp i batches och kombinera resultat
+#' #' @keywords internal
+#' intern_kolada_batcha <- function(endpoint, params, batch_params, 
+#'                                  max_batch_storlek = 25, visa_progress = TRUE) {
+#'   
+#'   # Extrahera parametrar som behöver batching
+#'   batch_param_varden <- list()
+#'   for (param in batch_params) {
+#'     if (!is.null(params[[param]])) {
+#'       batch_param_varden[[param]] <- params[[param]]
+#'       params[[param]] <- NULL
+#'     }
+#'   }
+#'   
+#'   # Om inga parametrar behöver batching, gör vanlig paginerad request
+#'   if (length(batch_param_varden) == 0) {
+#'     return(intern_kolada_paginera(endpoint, params, visa_progress))
+#'   }
+#'   
+#'   # Skapa batches för varje parameter
+#'   param_batches <- list()
+#'   for (param_namn in names(batch_param_varden)) {
+#'     varden <- batch_param_varden[[param_namn]]
+#'     # Dela upp i chunks
+#'     antal_batches <- ceiling(length(varden) / max_batch_storlek)
+#'     batches <- split(varden, ceiling(seq_along(varden) / max_batch_storlek))
+#'     param_batches[[param_namn]] <- batches
+#'   }
+#'   
+#'   # Skapa alla kombinationer av batches (för multipla batchade parametrar)
+#'   param_namn <- names(param_batches)
+#'   batch_index_lista <- lapply(param_batches, function(x) seq_along(x))
+#'   batch_kombinationer <- expand.grid(batch_index_lista, stringsAsFactors = FALSE)
+#'   
+#'   alla_objekt <- list()
+#'   totalt_batches <- nrow(batch_kombinationer)
+#'   
+#'   if (visa_progress) {
+#'     message(sprintf("Bearbetar %d batch(ar) för %s...", totalt_batches, endpoint))
+#'   }
+#'   
+#'   for (i in seq_len(totalt_batches)) {
+#'     # Skapa params för denna batch
+#'     batch_params_aktuell <- params
+#'     
+#'     # Lägg till batch-värden för varje parameter
+#'     for (j in seq_along(param_namn)) {
+#'       param_namn_aktuell <- param_namn[j]
+#'       batch_idx <- batch_kombinationer[i, j]
+#'       batch_params_aktuell[[param_namn_aktuell]] <- param_batches[[param_namn_aktuell]][[batch_idx]]
+#'     }
+#'     
+#'     tryCatch({
+#'       # Gör paginerad request för denna batch
+#'       batch_objekt <- intern_kolada_paginera(endpoint, batch_params_aktuell, visa_progress = FALSE)
+#'       alla_objekt <- c(alla_objekt, batch_objekt)
+#'       
+#'       if (visa_progress && (i %% 5 == 0 || i == totalt_batches)) {
+#'         message(sprintf("  Slutförde batch %d/%d", i, totalt_batches))
+#'       }
+#'     }, error = function(e) {
+#'       warning(sprintf("Fel i batch %d: %s", i, e$message))
+#'     })
+#'   }
+#'   
+#'   if (visa_progress) {
+#'     message(sprintf("Totalt antal objekt från alla batches: %d", length(alla_objekt)))
+#'   }
+#'   
+#'   alla_objekt
+#' }
+#' 
+#' # ============================================
+#' # ANVÄNDARFUNKTIONER (PUBLIKA API:ET)
+#' # ============================================
+#' 
+#' #' Hämta rådata från Kolada API med automatisk batching
+#' #'
+#' #' @param kpi KPI-ID eller vektor av KPI-ID:n
+#' #' @param kommun Kommun-ID eller vektor av kommun-ID:n
+#' #' @param ar År eller vektor av år
+#' #' @param ou Organisationsenhet-ID eller vektor av OU-ID:n
+#' #' @param uppdaterad_sedan Filtrera data uppdaterad sedan detta datum (format: YYYY-MM-DD)
+#' #' @param max_batch_storlek Maximalt antal ID:n per batch (standard: 25)
+#' #' @param visa_progress Visa progress-meddelanden
+#' #'
+#' #' @return Lista med rådata från API:et
+#' #'
+#' #' @examples
+#' #' # Hämta data för alla kommuner (ange inte kommun-parameter)
+#' #' data <- kolada_hamta_radata(kpi = "N00945", ar = 2023)
+#' #'
+#' #' # Hämta data för specifika kommuner (automatisk batching om >25)
+#' #' kommuner <- c("0180", "1480", "1280") # 290 kommuner
+#' #' data <- kolada_hamta_radata(
+#' #'   kpi = "N00945",
+#' #'   kommun = kommuner,
+#' #'   ar = c(2023, 2022, 2021)
+#' #' )
+#' #' @export
+#' kolada_hamta_radata <- function(kpi = NULL,
+#'                                 kommun = NULL,
+#'                                 ar = NULL,
+#'                                 ou = NULL,
+#'                                 uppdaterad_sedan = NULL,
+#'                                 max_batch_storlek = 25,
+#'                                 visa_progress = TRUE) {
+#'   
+#'   # Bestäm endpoint
+#'   if (!is.null(ou)) {
+#'     endpoint <- "oudata/"
+#'     params <- list()
+#'     params$ou_id <- if (!is.list(ou)) as.list(ou) else ou
+#'   } else {
+#'     endpoint <- "data/"
+#'     params <- list()
+#'   }
+#'   
+#'   # Lägg till parametrar
+#'   if (!is.null(kpi)) {
+#'     params$kpi_id <- if (!is.list(kpi)) as.list(kpi) else kpi
+#'   }
+#'   
+#'   if (!is.null(kommun)) {
+#'     params$municipality_id <- if (!is.list(kommun)) as.list(kommun) else kommun
+#'   }
+#'   
+#'   if (!is.null(ar)) {
+#'     params$year <- if (!is.list(ar)) as.list(ar) else ar
+#'   }
+#'   
+#'   if (!is.null(uppdaterad_sedan)) {
+#'     params$from_date <- uppdaterad_sedan
+#'   }
+#'   
+#'   # Bestäm vilka parametrar som behöver batching
+#'   batch_params <- character(0)
+#'   
+#'   if (!is.null(params$kpi_id) && length(params$kpi_id) > max_batch_storlek) {
+#'     batch_params <- c(batch_params, "kpi_id")
+#'   }
+#'   
+#'   if (!is.null(params$municipality_id) && length(params$municipality_id) > max_batch_storlek) {
+#'     batch_params <- c(batch_params, "municipality_id")
+#'   }
+#'   
+#'   if (!is.null(params$ou_id) && length(params$ou_id) > max_batch_storlek) {
+#'     batch_params <- c(batch_params, "ou_id")
+#'   }
+#'   
+#'   if (!is.null(params$year) && length(params$year) > max_batch_storlek) {
+#'     batch_params <- c(batch_params, "year")
+#'   }
+#'   
+#'   # Hämta data med batching om nödvändigt
+#'   if (length(batch_params) > 0) {
+#'     data <- intern_kolada_batcha(endpoint, params, batch_params, max_batch_storlek, visa_progress)
+#'   } else {
+#'     data <- intern_kolada_paginera(endpoint, params, visa_progress)
+#'   }
+#'   
+#'   data
+#' }
+#' 
+#' #' Hämta data från Kolada API som en tidy data frame
+#' #'
+#' #' @inheritParams kolada_hamta_radata
+#' #'
+#' #' @return Tidy data frame med kolumner: kpi, kommun, ou, period, varde, kon, status, antal
+#' #'
+#' #' @examples
+#' #' # Hämta data för alla kommuner
+#' #' df <- kolada_hamta_df(kpi = "N00945", ar = 2023)
+#' #'
+#' #' # Hämta data för många kommuner (automatisk batching)
+#' #' alla_kommuner <- kolada_hamta_kommuner()
+#' #' df <- kolada_hamta_df(
+#' #'   kpi = "N00945",
+#' #'   kommun = alla_kommuner$id,
+#' #'   ar = c(2023, 2022)
+#' #' )
+#' #' @export
+#' kolada_hamta_df <- function(kpi = NULL,
+#'                             kommun = NULL,
+#'                             ar = NULL,
+#'                             ou = NULL,
+#'                             inkluderа_alla_geografier = FALSE,
+#'                             uppdaterad_sedan = NULL,
+#'                             max_batch_storlek = 25,
+#'                             visa_progress = TRUE) {
+#'   
+#'   # API:et kräver minst två av tre parametrar: kpi_id, municipality_id, year
+#'   # Om varken kommun eller år anges, hämta alla giltiga år från API:et
+#'   if (is.null(kommun) && is.null(ar) && !is.null(kpi)) {
+#'     ar <- kolada_hamta_giltiga_varden("data", "year", kpi_id = kpi)
+#'     if (length(ar) == 0) {
+#'       warning("Inga giltiga år hittades för angiven KPI. Försöker utan år...")
+#'       ar <- NULL
+#'     }
+#'   }
+#'   
+#'   # Hämta rådata med automatisk batching
+#'   data <- kolada_hamta_radata(
+#'     kpi = kpi,
+#'     kommun = kommun,
+#'     ar = ar,
+#'     ou = ou,
+#'     uppdaterad_sedan = uppdaterad_sedan,
+#'     max_batch_storlek = max_batch_storlek,
+#'     visa_progress = visa_progress
+#'   )
+#'   
+#'   if (length(data) == 0) {
+#'     return(data.frame())
+#'   }
+#'   
+#'   # Flatten nested structure till tidy data frame
+#'   df <- map_dfr(data, function(objekt) {
+#'     varden <- objekt$values
+#'     if (is.null(varden) || length(varden) == 0) return(NULL)
+#'     
+#'     map_dfr(varden, function(val) {
+#'       tibble(
+#'         kpi = objekt$kpi %||% NA_character_,
+#'         kommun = objekt$municipality %||% NA_character_,
+#'         ou = objekt$ou %||% NA_character_,
+#'         period = objekt$period %||% NA_character_,
+#'         varde = val$value %||% NA_real_,
+#'         kon = val$gender %||% NA_character_,
+#'         status = val$status %||% NA_character_,
+#'         antal = val$count %||% NA_integer_
+#'       )
+#'     })
+#'   })
+#'   
+#'   df
+#' }
+#' 
+#' #' Hämta alla kommuner och regioner från Kolada
+#' #'
+#' #' @param sokning Valfri sökterm för att filtrera på namn
+#' #' @param typ Filtrera på typ ('K' för kommun, 'L' för landsting/region)
+#' #'
+#' #' @return Data frame med kommun/region-information
+#' #'
+#' #' @examples
+#' #' # Hämta alla kommuner och regioner
+#' #' alla <- kolada_hamta_kommuner()
+#' #'
+#' #' # Hämta endast kommuner
+#' #' kommuner <- kolada_hamta_kommuner(typ = "K")
+#' #'
+#' #' # Hämta endast regioner/landsting
+#' #' regioner <- kolada_hamta_kommuner(typ = "L")
+#' #'
+#' #' # Sök efter specifik kommun
+#' #' stockholm <- kolada_hamta_kommuner(sokning = "Stockholm")
+#' #' @export
+#' kolada_hamta_kommuner <- function(sokning = NULL, typ = NULL) {
+#'   params <- list()
+#'   
+#'   if (!is.null(sokning)) params$title <- sokning
+#'   if (!is.null(typ)) params$type <- typ
+#'   
+#'   kommuner <- intern_kolada_paginera("municipality", params, visa_progress = FALSE)
+#'   
+#'   bind_rows(kommuner)
+#' }
+#' 
+#' #' Sök efter KPI:er i Kolada
+#' #'
+#' #' @param sokning Sökterm för att filtrera KPI:er på titel
+#' #' @param publiceringsdatum Filtrera på publiceringsdatum (YYYY-MM-DD)
+#' #' @param verksamhetsomrade Filtrera på verksamhetsområde
+#' #'
+#' #' @return Data frame med KPI-information
+#' #'
+#' #' @examples
+#' #' # Sök efter KPI:er relaterade till skola
+#' #' skol_kpier <- kolada_kpi_sok("skola")
+#' #'
+#' #' # Sök efter KPI:er inom ett specifikt verksamhetsområde
+#' #' halsa_kpier <- kolada_kpi_sok(verksamhetsomrade = "Hälso- och sjukvård")
+#' #' @export
+#' kolada_kpi_sok <- function(sokning = NULL, 
+#'                            publiceringsdatum = NULL,
+#'                            verksamhetsomrade = NULL) {
+#'   params <- list()
+#'   
+#'   if (!is.null(sokning)) params$title <- sokning
+#'   
+#'   kpier <- intern_kolada_paginera("kpi", params, visa_progress = FALSE)
+#'   
+#'   # Filtrera på publiceringsdatum om angivet
+#'   if (!is.null(publiceringsdatum)) {
+#'     kpier <- Filter(function(k) !is.null(k$publication_date) && k$publication_date == publiceringsdatum, kpier)
+#'   }
+#'   
+#'   # Filtrera på verksamhetsområde om angivet
+#'   if (!is.null(verksamhetsomrade)) {
+#'     kpier <- Filter(function(k) !is.null(k$operating_area) && k$operating_area == verksamhetsomrade, kpier)
+#'   }
+#'   
+#'   bind_rows(kpier)
+#' }
+#' 
+#' #' Hämta specifik KPI baserat på ID
+#' #'
+#' #' @param kpi_id KPI-ID att hämta
+#' #'
+#' #' @return Lista med KPI-information
+#' #'
+#' #' @examples
+#' #' # Hämta en specifik KPI
+#' #' kpi <- kolada_kpi_hamta("N00945")
+#' #' print(kpi$title)
+#' #' @export
+#' kolada_kpi_hamta <- function(kpi_id) {
+#'   resultat <- intern_kolada_request(paste0("kpi/", kpi_id))
+#'   kpier <- resultat$values %||% list()
+#'   
+#'   if (length(kpier) == 0) {
+#'     stop(sprintf("KPI med ID %s hittades inte", kpi_id))
+#'   }
+#'   
+#'   kpier[[1]]
+#' }
+#' 
+#' #' Hämta organisationsenheter från Kolada
+#' #'
+#' #' @param sokning Valfri sökterm för att filtrera på namn
+#' #' @param kommun Filtrera på kommun-ID
+#' #' @param ou_typ Filtrera på organisationsenhet-typ prefix (t.ex. 'V11' för förskolor)
+#' #'
+#' #' @return Data frame med organisationsenhet-information
+#' #'
+#' #' @examples
+#' #' # Hämta alla organisationsenheter
+#' #' alla_ou <- kolada_hamta_ou()
+#' #'
+#' #' # Hämta organisationsenheter för en specifik kommun
+#' #' ou_stockholm <- kolada_hamta_ou(kommun = "0180")
+#' #'
+#' #' # Hämta endast förskolor (V11)
+#' #' forskolor <- kolada_hamta_ou(ou_typ = "V11")
+#' #' @export
+#' kolada_hamta_ou <- function(sokning = NULL, kommun = NULL, ou_typ = NULL) {
+#'   params <- list()
+#'   
+#'   if (!is.null(sokning)) params$title <- sokning
+#'   if (!is.null(kommun)) params$municipality <- kommun
+#'   
+#'   enheter <- intern_kolada_paginera("ou", params, visa_progress = FALSE)
+#'   
+#'   # Filtrera på OU-typ om angivet
+#'   if (!is.null(ou_typ)) {
+#'     enheter <- Filter(function(u) !is.null(u$id) && startsWith(u$id, ou_typ), enheter)
+#'   }
+#'   
+#'   bind_rows(enheter)
+#' }
+#' 
+#' #' Ställ in anpassad rate limiting
+#' #'
+#' #' @param max_anrop_per_sekund Maximalt antal anrop per sekund (standard: 5)
+#' #'
+#' #' @examples
+#' #' # Standard är 5 anrop/sekund
+#' #' # Minska om du får problem:
+#' #' kolada_satt_rate_limit(max_anrop_per_sekund = 2.0)
+#' #' @export
+#' kolada_satt_rate_limit <- function(max_anrop_per_sekund = 5.0) {
+#'   .kolada_env$min_intervall <- 1.0 / max_anrop_per_sekund
+#'   message(sprintf("Rate limit satt till %.1f anrop/sekund (%.3f sekunder mellan anrop)", 
+#'                   max_anrop_per_sekund, .kolada_env$min_intervall))
+#' }
+#' 
+#' 
 
 
-# Globala inställningar för rate limiting
-.kolada_env <- new.env()
-.kolada_env$senaste_anrop <- 0
-.kolada_env$min_intervall <- 0.2  # 5 requests/sekund
 
-# ============================================
-# INTERNA HJÄLPFUNKTIONER
-# ============================================
 
-#' Intern: Rate limiting
-#' @keywords internal
-intern_kolada_throttle <- function() {
-  nuvarande_tid <- as.numeric(Sys.time())
-  forlöpt_tid <- nuvarande_tid - .kolada_env$senaste_anrop
-  
-  if (forlöpt_tid < .kolada_env$min_intervall) {
-    vantetid <- .kolada_env$min_intervall - forlöpt_tid
-    Sys.sleep(vantetid)
-  }
-  
-  .kolada_env$senaste_anrop <- as.numeric(Sys.time())
-}
 
-#' Intern: Gör ett enskilt API-anrop
-#' @keywords internal
-intern_kolada_request <- function(endpoint, params = NULL, bas_url = "https://api.kolada.se/v3/") {
-  intern_kolada_throttle()
-  
-  url <- paste0(bas_url, endpoint)
-  response <- GET(url, query = params, timeout(30))
-  
-  # Hantera rate limiting från API:et
-  if (status_code(response) == 429) {
-    retry_after <- as.numeric(headers(response)$`retry-after` %||% 60)
-    warning(sprintf("API rate limit nådd. Väntar %d sekunder...", retry_after))
-    Sys.sleep(retry_after)
-    return(intern_kolada_request(endpoint, params, bas_url))
-  }
-  
-  # Hantera fel
-  if (status_code(response) != 200) {
-    stop(sprintf("API-fel %d: %s", status_code(response), content(response, "text")))
-  }
-  
-  content(response, "text", encoding = "UTF-8") %>%
-    jsonlite::fromJSON(simplifyVector = FALSE)
-}
+hamta_kolada_giltiga_ar <- function(kpi_id, vald_region = "2080"){
 
-#' Intern: Hantera paginering
-#' @keywords internal
-intern_kolada_paginera <- function(endpoint, params = NULL, visa_progress = FALSE) {
-  params <- params %||% list()
-  params$page <- 1
-  params$per_page <- 5000  # Max som API:et tillåter
-  
-  alla_objekt <- list()
-  totalt_antal <- NULL
-  
-  if (visa_progress) message(sprintf("Hämtar %s...", endpoint))
-  
-  repeat {
-    resultat <- intern_kolada_request(endpoint, params)
-    
-    objekt <- resultat$values %||% list()
-    alla_objekt <- c(alla_objekt, objekt)
-    
-    # Visa progress om vi vet totalt antal
-    if (is.null(totalt_antal) && !is.null(resultat$count)) {
-      totalt_antal <- resultat$count
-      if (visa_progress) message(sprintf("Totalt antal: %d", totalt_antal))
-    }
-    
-    if (visa_progress && !is.null(totalt_antal)) {
-      message(sprintf("Progress: %d/%d", length(alla_objekt), totalt_antal))
-    }
-    
-    # Kolla om det finns fler sidor
-    if (is.null(resultat$next_url) || resultat$next_url == "") break
-    
-    params$page <- params$page + 1
-  }
-  
-  if (visa_progress) message(sprintf("Hämtade %d objekt totalt", length(alla_objekt)))
-  
-  alla_objekt
-}
+  vald_region <- vald_region %>% str_pad(4, pad = "0")
 
-#' Intern: Dela upp i batches och kombinera resultat
-#' @keywords internal
-intern_kolada_batcha <- function(endpoint, params, batch_params, 
-                                 max_batch_storlek = 25, visa_progress = TRUE) {
-  
-  # Extrahera parametrar som behöver batching
-  batch_param_varden <- list()
-  for (param in batch_params) {
-    if (!is.null(params[[param]])) {
-      batch_param_varden[[param]] <- params[[param]]
-      params[[param]] <- NULL
-    }
-  }
-  
-  # Om inga parametrar behöver batching, gör vanlig paginerad request
-  if (length(batch_param_varden) == 0) {
-    return(intern_kolada_paginera(endpoint, params, visa_progress))
-  }
-  
-  # Skapa batches för varje parameter
-  param_batches <- list()
-  for (param_namn in names(batch_param_varden)) {
-    varden <- batch_param_varden[[param_namn]]
-    # Dela upp i chunks
-    antal_batches <- ceiling(length(varden) / max_batch_storlek)
-    batches <- split(varden, ceiling(seq_along(varden) / max_batch_storlek))
-    param_batches[[param_namn]] <- batches
-  }
-  
-  # Skapa alla kombinationer av batches (för multipla batchade parametrar)
-  param_namn <- names(param_batches)
-  batch_index_lista <- lapply(param_batches, function(x) seq_along(x))
-  batch_kombinationer <- expand.grid(batch_index_lista, stringsAsFactors = FALSE)
-  
-  alla_objekt <- list()
-  totalt_batches <- nrow(batch_kombinationer)
-  
-  if (visa_progress) {
-    message(sprintf("Bearbetar %d batch(ar) för %s...", totalt_batches, endpoint))
-  }
-  
-  for (i in seq_len(totalt_batches)) {
-    # Skapa params för denna batch
-    batch_params_aktuell <- params
-    
-    # Lägg till batch-värden för varje parameter
-    for (j in seq_along(param_namn)) {
-      param_namn_aktuell <- param_namn[j]
-      batch_idx <- batch_kombinationer[i, j]
-      batch_params_aktuell[[param_namn_aktuell]] <- param_batches[[param_namn_aktuell]][[batch_idx]]
-    }
-    
-    tryCatch({
-      # Gör paginerad request för denna batch
-      batch_objekt <- intern_kolada_paginera(endpoint, batch_params_aktuell, visa_progress = FALSE)
-      alla_objekt <- c(alla_objekt, batch_objekt)
-      
-      if (visa_progress && (i %% 5 == 0 || i == totalt_batches)) {
-        message(sprintf("  Slutförde batch %d/%d", i, totalt_batches))
-      }
-    }, error = function(e) {
-      warning(sprintf("Fel i batch %d: %s", i, e$message))
-    })
-  }
-  
-  if (visa_progress) {
-    message(sprintf("Totalt antal objekt från alla batches: %d", length(alla_objekt)))
-  }
-  
-  alla_objekt
-}
-
-# ============================================
-# ANVÄNDARFUNKTIONER (PUBLIKA API:ET)
-# ============================================
-
-#' Hämta rådata från Kolada API med automatisk batching
-#'
-#' @param kpi KPI-ID eller vektor av KPI-ID:n
-#' @param kommun Kommun-ID eller vektor av kommun-ID:n
-#' @param ar År eller vektor av år
-#' @param ou Organisationsenhet-ID eller vektor av OU-ID:n
-#' @param uppdaterad_sedan Filtrera data uppdaterad sedan detta datum (format: YYYY-MM-DD)
-#' @param max_batch_storlek Maximalt antal ID:n per batch (standard: 25)
-#' @param visa_progress Visa progress-meddelanden
-#'
-#' @return Lista med rådata från API:et
-#'
-#' @examples
-#' # Hämta data för alla kommuner (ange inte kommun-parameter)
-#' data <- kolada_hamta_radata(kpi = "N00945", ar = 2023)
-#'
-#' # Hämta data för specifika kommuner (automatisk batching om >25)
-#' kommuner <- c("0180", "1480", "1280") # 290 kommuner
-#' data <- kolada_hamta_radata(
-#'   kpi = "N00945",
-#'   kommun = kommuner,
-#'   ar = c(2023, 2022, 2021)
-#' )
-#' @export
-kolada_hamta_radata <- function(kpi = NULL,
-                                kommun = NULL,
-                                ar = NULL,
-                                ou = NULL,
-                                uppdaterad_sedan = NULL,
-                                max_batch_storlek = 25,
-                                visa_progress = TRUE) {
-  
-  # Bestäm endpoint
-  if (!is.null(ou)) {
-    endpoint <- "oudata/"
-    params <- list()
-    params$ou_id <- if (!is.list(ou)) as.list(ou) else ou
-  } else {
-    endpoint <- "data/"
-    params <- list()
-  }
-  
-  # Lägg till parametrar
-  if (!is.null(kpi)) {
-    params$kpi_id <- if (!is.list(kpi)) as.list(kpi) else kpi
-  }
-  
-  if (!is.null(kommun)) {
-    params$municipality_id <- if (!is.list(kommun)) as.list(kommun) else kommun
-  }
-  
-  if (!is.null(ar)) {
-    params$year <- if (!is.list(ar)) as.list(ar) else ar
-  }
-  
-  if (!is.null(uppdaterad_sedan)) {
-    params$from_date <- uppdaterad_sedan
-  }
-  
-  # Bestäm vilka parametrar som behöver batching
-  batch_params <- character(0)
-  
-  if (!is.null(params$kpi_id) && length(params$kpi_id) > max_batch_storlek) {
-    batch_params <- c(batch_params, "kpi_id")
-  }
-  
-  if (!is.null(params$municipality_id) && length(params$municipality_id) > max_batch_storlek) {
-    batch_params <- c(batch_params, "municipality_id")
-  }
-  
-  if (!is.null(params$ou_id) && length(params$ou_id) > max_batch_storlek) {
-    batch_params <- c(batch_params, "ou_id")
-  }
-  
-  if (!is.null(params$year) && length(params$year) > max_batch_storlek) {
-    batch_params <- c(batch_params, "year")
-  }
-  
-  # Hämta data med batching om nödvändigt
-  if (length(batch_params) > 0) {
-    data <- intern_kolada_batcha(endpoint, params, batch_params, max_batch_storlek, visa_progress)
-  } else {
-    data <- intern_kolada_paginera(endpoint, params, visa_progress)
-  }
-  
-  data
-}
-
-#' Hämta data från Kolada API som en tidy data frame
-#'
-#' @inheritParams kolada_hamta_radata
-#'
-#' @return Tidy data frame med kolumner: kpi, kommun, ou, period, varde, kon, status, antal
-#'
-#' @examples
-#' # Hämta data för alla kommuner
-#' df <- kolada_hamta_df(kpi = "N00945", ar = 2023)
-#'
-#' # Hämta data för många kommuner (automatisk batching)
-#' alla_kommuner <- kolada_hamta_kommuner()
-#' df <- kolada_hamta_df(
-#'   kpi = "N00945",
-#'   kommun = alla_kommuner$id,
-#'   ar = c(2023, 2022)
-#' )
-#' @export
-kolada_hamta_df <- function(kpi = NULL,
-                            kommun = NULL,
-                            ar = NULL,
-                            ou = NULL,
-                            inkluderа_alla_geografier = FALSE,
-                            uppdaterad_sedan = NULL,
-                            max_batch_storlek = 25,
-                            visa_progress = TRUE) {
-  
-  # API:et kräver minst två av tre parametrar: kpi_id, municipality_id, year
-  # Om varken kommun eller år anges, hämta alla giltiga år från API:et
-  if (is.null(kommun) && is.null(ar) && !is.null(kpi)) {
-    ar <- kolada_hamta_giltiga_varden("data", "year", kpi_id = kpi)
-    if (length(ar) == 0) {
-      warning("Inga giltiga år hittades för angiven KPI. Försöker utan år...")
-      ar <- NULL
-    }
-  }
-  
-  # Hämta rådata med automatisk batching
-  data <- kolada_hamta_radata(
-    kpi = kpi,
-    kommun = kommun,
-    ar = ar,
-    ou = ou,
-    uppdaterad_sedan = uppdaterad_sedan,
-    max_batch_storlek = max_batch_storlek,
-    visa_progress = visa_progress
+  hamtade_varden <- get_values(
+    kpi = kpi_id,
+    municipality = vald_region,
+    period = 1900:2060
   )
-  
-  if (length(data) == 0) {
-    return(data.frame())
-  }
-  
-  # Flatten nested structure till tidy data frame
-  df <- map_dfr(data, function(objekt) {
-    varden <- objekt$values
-    if (is.null(varden) || length(varden) == 0) return(NULL)
-    
-    map_dfr(varden, function(val) {
-      tibble(
-        kpi = objekt$kpi %||% NA_character_,
-        kommun = objekt$municipality %||% NA_character_,
-        ou = objekt$ou %||% NA_character_,
-        period = objekt$period %||% NA_character_,
-        varde = val$value %||% NA_real_,
-        kon = val$gender %||% NA_character_,
-        status = val$status %||% NA_character_,
-        antal = val$count %||% NA_integer_
-      )
-    })
-  })
-  
-  df
+
+  alla_ar <- hamtade_varden$year %>% as.character() %>% unique()
+  return(alla_ar)
 }
-
-#' Hämta alla kommuner och regioner från Kolada
-#'
-#' @param sokning Valfri sökterm för att filtrera på namn
-#' @param typ Filtrera på typ ('K' för kommun, 'L' för landsting/region)
-#'
-#' @return Data frame med kommun/region-information
-#'
-#' @examples
-#' # Hämta alla kommuner och regioner
-#' alla <- kolada_hamta_kommuner()
-#'
-#' # Hämta endast kommuner
-#' kommuner <- kolada_hamta_kommuner(typ = "K")
-#'
-#' # Hämta endast regioner/landsting
-#' regioner <- kolada_hamta_kommuner(typ = "L")
-#'
-#' # Sök efter specifik kommun
-#' stockholm <- kolada_hamta_kommuner(sokning = "Stockholm")
-#' @export
-kolada_hamta_kommuner <- function(sokning = NULL, typ = NULL) {
-  params <- list()
-  
-  if (!is.null(sokning)) params$title <- sokning
-  if (!is.null(typ)) params$type <- typ
-  
-  kommuner <- intern_kolada_paginera("municipality", params, visa_progress = FALSE)
-  
-  bind_rows(kommuner)
-}
-
-#' Sök efter KPI:er i Kolada
-#'
-#' @param sokning Sökterm för att filtrera KPI:er på titel
-#' @param publiceringsdatum Filtrera på publiceringsdatum (YYYY-MM-DD)
-#' @param verksamhetsomrade Filtrera på verksamhetsområde
-#'
-#' @return Data frame med KPI-information
-#'
-#' @examples
-#' # Sök efter KPI:er relaterade till skola
-#' skol_kpier <- kolada_kpi_sok("skola")
-#'
-#' # Sök efter KPI:er inom ett specifikt verksamhetsområde
-#' halsa_kpier <- kolada_kpi_sok(verksamhetsomrade = "Hälso- och sjukvård")
-#' @export
-kolada_kpi_sok <- function(sokning = NULL, 
-                           publiceringsdatum = NULL,
-                           verksamhetsomrade = NULL) {
-  params <- list()
-  
-  if (!is.null(sokning)) params$title <- sokning
-  
-  kpier <- intern_kolada_paginera("kpi", params, visa_progress = FALSE)
-  
-  # Filtrera på publiceringsdatum om angivet
-  if (!is.null(publiceringsdatum)) {
-    kpier <- Filter(function(k) !is.null(k$publication_date) && k$publication_date == publiceringsdatum, kpier)
-  }
-  
-  # Filtrera på verksamhetsområde om angivet
-  if (!is.null(verksamhetsomrade)) {
-    kpier <- Filter(function(k) !is.null(k$operating_area) && k$operating_area == verksamhetsomrade, kpier)
-  }
-  
-  bind_rows(kpier)
-}
-
-#' Hämta specifik KPI baserat på ID
-#'
-#' @param kpi_id KPI-ID att hämta
-#'
-#' @return Lista med KPI-information
-#'
-#' @examples
-#' # Hämta en specifik KPI
-#' kpi <- kolada_kpi_hamta("N00945")
-#' print(kpi$title)
-#' @export
-kolada_kpi_hamta <- function(kpi_id) {
-  resultat <- intern_kolada_request(paste0("kpi/", kpi_id))
-  kpier <- resultat$values %||% list()
-  
-  if (length(kpier) == 0) {
-    stop(sprintf("KPI med ID %s hittades inte", kpi_id))
-  }
-  
-  kpier[[1]]
-}
-
-#' Hämta organisationsenheter från Kolada
-#'
-#' @param sokning Valfri sökterm för att filtrera på namn
-#' @param kommun Filtrera på kommun-ID
-#' @param ou_typ Filtrera på organisationsenhet-typ prefix (t.ex. 'V11' för förskolor)
-#'
-#' @return Data frame med organisationsenhet-information
-#'
-#' @examples
-#' # Hämta alla organisationsenheter
-#' alla_ou <- kolada_hamta_ou()
-#'
-#' # Hämta organisationsenheter för en specifik kommun
-#' ou_stockholm <- kolada_hamta_ou(kommun = "0180")
-#'
-#' # Hämta endast förskolor (V11)
-#' forskolor <- kolada_hamta_ou(ou_typ = "V11")
-#' @export
-kolada_hamta_ou <- function(sokning = NULL, kommun = NULL, ou_typ = NULL) {
-  params <- list()
-  
-  if (!is.null(sokning)) params$title <- sokning
-  if (!is.null(kommun)) params$municipality <- kommun
-  
-  enheter <- intern_kolada_paginera("ou", params, visa_progress = FALSE)
-  
-  # Filtrera på OU-typ om angivet
-  if (!is.null(ou_typ)) {
-    enheter <- Filter(function(u) !is.null(u$id) && startsWith(u$id, ou_typ), enheter)
-  }
-  
-  bind_rows(enheter)
-}
-
-#' Ställ in anpassad rate limiting
-#'
-#' @param max_anrop_per_sekund Maximalt antal anrop per sekund (standard: 5)
-#'
-#' @examples
-#' # Standard är 5 anrop/sekund
-#' # Minska om du får problem:
-#' kolada_satt_rate_limit(max_anrop_per_sekund = 2.0)
-#' @export
-kolada_satt_rate_limit <- function(max_anrop_per_sekund = 5.0) {
-  .kolada_env$min_intervall <- 1.0 / max_anrop_per_sekund
-  message(sprintf("Rate limit satt till %.1f anrop/sekund (%.3f sekunder mellan anrop)", 
-                  max_anrop_per_sekund, .kolada_env$min_intervall))
-}
-
-
-
-
-
-
-
-# hamta_kolada_giltiga_ar <- function(kpi_id, vald_region = "2080"){
-# 
-#   vald_region <- vald_region %>% str_pad(4, pad = "0")
-# 
-#   hamtade_varden <- get_values(
-#     kpi = kpi_id,
-#     municipality = vald_region,
-#     period = 1900:2060
-#   )
-# 
-#   alla_ar <- hamtade_varden$year %>% as.character() %>% unique()
-#   return(alla_ar)
-# }
 
 # hamta_kolada_giltiga_ar <- function(kpi_id, vald_region = "2080") {
 #   # Bygg API URL för v3
@@ -1220,67 +1220,87 @@ kolada_satt_rate_limit <- function(max_anrop_per_sekund = 5.0) {
 
 # Användning:
 # kpi_grupper <- hamta_kolada_kpigrupper_v3()
-# hamta_kolada_df <- function(kpi_id, valda_kommuner, valda_ar = NA, konsuppdelat = TRUE, dop_om_kolumner = TRUE){
-#   
-#   kolnamn_vektor <- c(ar = "year", regionkod = "municipality_id", region = "municipality",
-#                       #regiontyp = "municipality_type", 
-#                       kon = "gender", variabelkod = "kpi",  
-#                       variabel = "fraga", varde = "value") 
-#   
-#   valda_kommuner <- valda_kommuner %>% str_pad(4, pad = "0")
-#   
-#   alla_ar <- hamta_kolada_giltiga_ar(kpi_id, valda_kommuner[1])
-#   senaste_ar <- max(alla_ar)
-#   start_ar <- min(alla_ar)
-#   
-#   #alla_giltiga_ar <- if(valda_ar == "9999") senaste_ar else valda_ar[valda_ar %in% alla_ar]
-#   alla_giltiga_ar <- if(all(valda_ar == "9999")) senaste_ar else valda_ar[valda_ar %in% alla_ar]
-#   
-#   hamta_ar <- if (is.na(valda_ar[1])) alla_ar else alla_giltiga_ar
-#   
-#   #### Dra hem variablerna från Kolada
-#   hamtade_varden <- get_values(
-#     kpi = kpi_id,
-#     municipality = valda_kommuner,
-#     period = hamta_ar
-#   )
-#   
-#   # hämta frågenamnen från Kolada
-#   kpi_df <- get_kpi(kpi_id) %>% select(id, title)
-#   
-#   # Koppla på frågenamn som kolumnnamn samt beräkna om värde är över rikets
-#   retur_df <- hamtade_varden %>% 
-#     left_join(kpi_df, by = c("kpi" = "id")) %>% 
-#     rename(fraga = title) 
-#   
-#   if ("gender" %in% names(retur_df)) {
-#     if (konsuppdelat & nrow(retur_df[retur_df$gender %in% c("K", "M"),])>0) {       # om man valt könsuppdelat och det finns värden för kvinnor eller män
-#       retur_df <- retur_df %>% 
-#         filter(gender != "T")
-#       
-#     } else {
-#       retur_df <- retur_df %>% 
-#         filter(gender == "T")
-#     } # slut if-sats om könsuppdelat är valt och det finns kvinnor och män i datasetet
-#     retur_df <- retur_df %>% 
-#       mutate(gender = case_when(gender == "T" ~ "Båda könen",
-#                                 gender == "K" ~ "Kvinnor",
-#                                 gender == "M" ~ "Män"))
-#     
-#   } # slut if-sats om kön finns med som variabel
-#   
-#   # gör om år till character
-#   retur_df <- retur_df %>% 
-#     mutate(year = year %>% as.character())
-#   
-#   if (dop_om_kolumner) {
-#     retur_df <- retur_df %>% 
-#       select(any_of(kolnamn_vektor)) %>% 
-#       mutate(regionkod = regionkod %>% as.numeric() %>% as.character() %>% str_replace("^0$", "00"),
-#              region = region %>% str_remove("Region "))
-#   }
-#   return(retur_df)
-# }
+
+
+hamta_kolada_df <- function(kpi_id, 
+                            valda_kommuner, 
+                            valda_ar = NA, 
+                            konsuppdelat = TRUE, 
+                            konsuppdelat_total_ta_bort = FALSE,
+                            dop_om_kolumner = TRUE
+                            ){
+
+  kolnamn_vektor <- c(ar = "year", regionkod = "municipality_id", region = "municipality",
+                      #regiontyp = "municipality_type",
+                      kon = "gender", variabelkod = "kpi",
+                      variabel = "fraga", varde = "value")
+
+  valda_kommuner <- valda_kommuner %>% str_pad(4, pad = "0")
+
+  alla_ar <- hamta_kolada_giltiga_ar(kpi_id, valda_kommuner[1])
+  senaste_ar <- max(alla_ar)
+  start_ar <- min(alla_ar)
+
+  #alla_giltiga_ar <- if(valda_ar == "9999") senaste_ar else valda_ar[valda_ar %in% alla_ar]
+  hamta_ar <- if (all(is.na(valda_ar))) {
+    alla_ar
+  } else if (all(valda_ar == "9999", na.rm = TRUE)) {
+    senaste_ar
+  } else {
+    valda_ar[valda_ar %in% alla_ar]
+  }
+  
+  # alla_giltiga_ar <- if(all(valda_ar == "9999", na.rm = TRUE)) senaste_ar else valda_ar[valda_ar %in% alla_ar]
+  # 
+  # hamta_ar <- if (is.na(valda_ar[1])) alla_ar else alla_giltiga_ar
+
+  #### Dra hem variablerna från Kolada
+  hamtade_varden <- get_values(
+    kpi = kpi_id,
+    municipality = valda_kommuner,
+    period = hamta_ar
+  )
+
+  # hämta frågenamnen från Kolada
+  kpi_df <- get_kpi(kpi_id) %>% select(id, title)
+
+  # Koppla på frågenamn som kolumnnamn samt beräkna om värde är över rikets
+  retur_df <- hamtade_varden %>%
+    left_join(kpi_df, by = c("kpi" = "id")) %>%
+    rename(fraga = title)
+
+  if ("gender" %in% names(retur_df)) {
+    if (konsuppdelat & nrow(retur_df[retur_df$gender %in% c("K", "M"),])>0) {       # om man valt könsuppdelat och det finns värden för kvinnor eller män
+      retur_df <- retur_df %>%
+        filter(gender != "T")
+
+    } else {
+      if (konsuppdelat_total_ta_bort) retur_df <- retur_df %>% filter(gender == "T")
+    } # slut if-sats om könsuppdelat är valt och det finns kvinnor och män i datasetet
+    retur_df <- retur_df %>%
+      mutate(gender = case_when(gender == "T" ~ "Båda könen",
+                                gender == "K" ~ "Kvinnor",
+                                gender == "M" ~ "Män"))
+    
+    if (!konsuppdelat) {
+      finns_total_rader <- nrow(retur_df[retur_df$gender %in% c("Båda könen"),])>0
+      if (finns_total_rader) retur_df <- retur_df %>% filter(gender == "Båda könen")
+    }
+
+  } # slut if-sats om kön finns med som variabel
+
+  # gör om år till character
+  retur_df <- retur_df %>%
+    mutate(year = year %>% as.character())
+
+  if (dop_om_kolumner) {
+    retur_df <- retur_df %>%
+      select(any_of(kolnamn_vektor)) %>%
+      mutate(regionkod = regionkod %>% as.numeric() %>% as.character() %>% str_replace("^0$", "00"),
+             region = region %>% str_remove("Region "))
+  }
+  return(retur_df)
+}
 
 # =========================================== Skolvkerket-funktioner =========================================================
 
