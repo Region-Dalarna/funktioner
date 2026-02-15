@@ -1,5 +1,6 @@
 library(DBI)
 library(RPostgres)
+library(sf)
 
 shiny_set_password <- function(service) {
   
