@@ -2180,9 +2180,9 @@ source_utan_cache <- function(url, encoding = NA, echo = FALSE) {
   
   tmp <- tempfile()
   
-  res <- GET(url, add_headers("Cache-Control" = "no-cache"))
-  stop_for_status(res)
-  writeBin(content(res, "raw"), tmp)
+  res <- httr::GET(url, add_headers("Cache-Control" = "no-cache"))
+  httr::stop_for_status(res)
+  writeBin(httr::content(res, "raw"), tmp)
   
   if (!is.na(encoding)) {
     source(tmp, encoding = encoding, echo = echo)  
