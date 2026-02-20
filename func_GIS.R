@@ -82,6 +82,7 @@ hamta_karttabell <- function(){
     add_row(namn = "kommun_lm", id_kol = "kommunkod", lankol = "lankod", kommunkol = "kommunkod", sokord = list(c("kommun_lm", "kommuner_lm", "kommunpolygoner_lm"))) %>% 
     add_row(namn = "lan_scb", id_kol = "lnkod", lankol = "lnkod", kommunkol = NA, sokord = list(c("lan", "lanspolygoner"))) %>% 
     add_row(namn = "lan_lm", id_kol = "lankod", lankol = "lankod", kommunkol = NA, sokord = list(c("lan_lm", "lanspolygoner_lm"))) %>% 
+    add_row(namn = "rike_lm", id_kol = "landskod", lankol = NA, kommunkol = NA, sokord = list(c("rike_lm", "rike", "riket", "Sverige"))) %>% 
     add_row(namn = "tatorter", id_kol = "tatortskod", lankol = "lan", kommunkol = "kommun", sokord = list(c("tatort", "tätort", "tatorter", "tätorter", "tatortspolygoner", "tätortspolygoner"))) %>% 
     add_row(namn = "tatortspunkter", id_kol = "tatortskod", lankol = "lan", kommunkol = "kommun", sokord = list(c("tatortspunkter", "tätortspunkter"))) %>% 
     add_row(namn = "regso", id_kol = "regsokod",  lankol = "lanskod", kommunkol = "kommunkod", sokord = list(c("regso", "regsopolygoner"))) %>% 
@@ -3829,7 +3830,7 @@ pgrouting_klipp_natverk_skapa_tabell <- function(
   
   # Tidtagning
   sluttid <- Sys.time()
-  message(glue("Resultatet har sparats i {output_schema}.{output_tabell}.\n⏱ Processen tog {round(sluttid - starttid, 2)} sekunder att köra"))
+  message(glue("Resultatet har sparats i {output_schema}.{output_tabell}.\n⏱ Processen tog {round(sluttid - starttid, 2)} minuter att köra"))
 }
 
 # ---------- 2. Funktion för att utöka nätverk med nya noder
@@ -4035,8 +4036,6 @@ pgrouting_hitta_narmaste_punkt_pa_natverk <- function(
     lyckad_uppdatering <- FALSE
     
   }, finally = {
-    # Stäng anslutningen om den var temporär
-    if (skapad_i_funktionen) dbDisconnect(con)
     
     # huvudtabellen, tex. nvdb_bil_adresser
     postgres_metadata_uppdatera(
@@ -4070,6 +4069,9 @@ pgrouting_hitta_narmaste_punkt_pa_natverk <- function(
       lyckad_uppdatering = lyckad_uppdatering,
       kommentar = frantabell_ver_db
     )
+    
+    # Stäng anslutningen om den var temporär
+    if (skapad_i_funktionen) dbDisconnect(con)
     
     sluttid <- Sys.time()
     message(sprintf("⏱ Total tid: %.1f sekunder", as.numeric(difftime(sluttid, starttid, units = "secs"))))
@@ -4165,13 +4167,7 @@ pgrouting_tabell_till_pgrgraf <- function(
     lyckad_uppdatering <- FALSE
     
   }, finally = {
-    
-    # Koppla ner om uppkopplingen har skapats i funktionen
-    if(skapad_i_funktionen){
-      dbDisconnect(con)
-      print("Uppkopplingen avslutad!")
-    }
-    
+
     # fyll på metadata-tabellen
     postgres_metadata_uppdatera(
       con = con,
@@ -4182,6 +4178,12 @@ pgrouting_tabell_till_pgrgraf <- function(
       lyckad_uppdatering = lyckad_uppdatering,
       kommentar = frantabell_ver_db
     )
+    
+    # Koppla ner om uppkopplingen har skapats i funktionen
+    if(skapad_i_funktionen){
+      dbDisconnect(con)
+      print("Uppkopplingen avslutad!")
+    }
     
     # Beräkna och skriv ut tidsåtgång
     sluttid <- Sys.time()
@@ -4612,9 +4614,12 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
   # 1. SKapa den nya tabellens namn, en kombination av de två tabellerna fran och till
   
   # först tar vi reda på vilken typ av nätverk det är, tex. "alla" eller "bil"
-  natverkstyp <- str_remove(tabell_graf, fixed(tabell_fran)) %>%
-    str_remove("_$") %>%
-    str_extract("[^_]+$")
+    natverkstyp <- str_extract(tabell_graf, "alla|bil")
+  
+  # gammal lösning:  
+  # natverkstyp <- str_remove(tabell_graf, fixed(tabell_fran)) %>%
+  #   str_remove("_$") %>%
+  #   str_extract("[^_]+$")
   
   if (rlang::is_empty(urval_till_tabell)){
     tabell_ny <- glue("{tabell_fran}_till_{tabell_till}_{natverkstyp}")
@@ -4914,10 +4919,6 @@ pgrouting_skapa_geotabell_rutt_fran_till <- function(
     dplyr::pull(kommentar)
   
   ruttreslutat_ver_db <- glue("{meta_pgr_graf}, fran punkter {meta_punkter_fran}, till punkter {meta_punkter_till}")
-  
-  
-  
-  
   
   
   # fyll på variabler som ska vara till metadatabasen 
