@@ -1818,6 +1818,20 @@ skriptrader_upprepa_om_fel <- function(expr,
                                        returnera_vid_fel = NULL,
                                        upprepa_vid_felmeddelande_som_innehaller = c("recv failure", "connection was reset", "curl_fetch_memory", "timeout")
                                        ) {
+  
+  # kör funktionen "runt" en eller ett antal skriptrader för att testa igen om felmeddelandet innehåller de ord som listas i parametern
+  # upprepa_vid_felmeddelande_som_innehaller. Max antal försök anges med max_forsok och vila_sek anger sekunders vila mellan försöken.
+  #
+  # för att köra funktionen på en skriptrad: 
+  # dataset_df <- skriptrader_upprepa_om_fel(hamta_data())
+  #
+  # för att köra funktionen på flera skriptrader så läggs dessa mellan måsvingar (enligt nedan):
+  # dataset_df <- skriptrader_upprepa_om_fel({
+  #                   hamta_data()
+  #                   bearbeta_data()
+  #                   analysera_data()
+  #                 })
+  
   expr_sub <- substitute(expr)  # fånga uttrycket INNAN det evalueras
   is_fun_input <- is.symbol(expr_sub) && is.function(get(as.character(expr_sub), envir = parent.frame(), inherits = TRUE))
   
