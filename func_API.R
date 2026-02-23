@@ -1818,8 +1818,12 @@ skriptrader_upprepa_om_fel <- function(expr,
                                        returnera_vid_fel = NULL,
                                        upprepa_vid_felmeddelande_som_innehaller = c("recv failure", "connection was reset", "curl_fetch_memory", "timeout")
                                        ) {
-  is_fun_input <- is.function(expr)
-  if (!is_fun_input) expr <- substitute(expr)
+  expr_sub <- substitute(expr)  # fånga uttrycket INNAN det evalueras
+  is_fun_input <- is.symbol(expr_sub) && is.function(get(as.character(expr_sub), envir = parent.frame(), inherits = TRUE))
+  
+  #is_fun_input <- is.function(eval(expr_sub, parent.frame()))  # kolla typen säkert
+  # is_fun_input <- is.function(expr)
+  # if (!is_fun_input) expr <- substitute(expr)
   
   for (i in seq_len(max_forsok)) {
     env <- new.env(parent = parent.frame())
@@ -1827,9 +1831,9 @@ skriptrader_upprepa_om_fel <- function(expr,
     out <- tryCatch(
       {
         if (is_fun_input) {
-          expr()                                   # returnerar funktionsvärdet
+          eval(expr_sub, envir = parent.frame())()                                 # returnerar funktionsvärdet
         } else {
-          res <- eval(expr, envir = env)           # kör kod-rader
+          res <- eval(expr_sub, envir = env)           # kör kod-rader
           obj_namn <- ls(env, all.names = TRUE)
           if (length(obj_namn)) {
             obj_lista <- mget(obj_namn, envir = env)
