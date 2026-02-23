@@ -4719,11 +4719,11 @@ shinyapp_skapa_med_github_repo <- function(
 
   app_dir      <- file.path(sokvag_proj, "app")
   www_dir      <- file.path(app_dir, "www")
-  #r_dir        <- file.path(app_dir, "R")
+  r_dir        <- file.path(app_dir, "R")
   workflows_dir <- file.path(sokvag_proj, ".github", "workflows")
   
   purrr::walk(
-    c(app_dir, www_dir, workflows_dir),
+    c(app_dir, www_dir, r_dir, workflows_dir),
     skapa_mapp_om_den_inte_finns
   )
   
