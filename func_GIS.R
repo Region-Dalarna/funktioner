@@ -2006,26 +2006,46 @@ postgres_tabell_ta_bort <- function(con = "default",
     default_flagga <- FALSE
   }
   
-  # Kontrollera om tabellen existerar
-  tabell_finns <- dbExistsTable(con, Id(schema = schema, table = tabell))
+  # Kontrollera om objektet är en vy eller tabell
+  ar_vy <- nrow(DBI::dbGetQuery(con, glue::glue_sql(
+    "SELECT 1 FROM information_schema.views 
+     WHERE table_schema = {schema} AND table_name = {tabell}",
+    .con = con
+  ))) > 0
   
-  if (!tabell_finns) {
-    message("Tabellen '", schema_tabell, "' existerar inte. Ingen åtgärd vidtogs.")
+  
+  # Kontrollera om objektet existerar
+  if (ar_vy) {
+    finns <- nrow(DBI::dbGetQuery(con, glue::glue_sql(
+      "SELECT 1 FROM information_schema.views 
+       WHERE table_schema = {schema} AND table_name = {tabell}",
+      .con = con
+    ))) > 0
+    drop_typ <- "VIEW"
+    typ_text <- "Vyn"
   } else {
-    # Bygg SQL-frågan baserat på parametern drop_cascade
+    finns <- DBI::dbExistsTable(con, DBI::Id(schema = schema, table = tabell))
+    drop_typ <- "TABLE"
+    typ_text <- "Tabellen"
+  }
+  
+  if (!finns) {
+    message(typ_text, " '", schema_tabell, "' existerar inte. Ingen åtgärd vidtogs.")
+  } else {
+    # Bygg SQL-frågan
     sql <- paste0(
-      "DROP TABLE ", 
+      "DROP ", drop_typ, " ",
       DBI::dbQuoteIdentifier(con, schema), ".", 
       DBI::dbQuoteIdentifier(con, tabell), 
       if (drop_cascade) " CASCADE;" else ";"
     )
     
-    # Utför DROP TABLE
-    dbExecute(con, sql)
+    DBI::dbExecute(con, sql)
+    
     if (drop_cascade) {
-      message("Tabellen '", schema_tabell, "' har tagits bort med CASCADE.")
+      message(typ_text, " '", schema_tabell, "' har tagits bort med CASCADE.")
     } else {
-      message("Tabellen '", schema_tabell, "' har tagits bort.")
+      message(typ_text, " '", schema_tabell, "' har tagits bort.")
     }
   }
   
@@ -2722,6 +2742,7 @@ postgis_sf_till_postgistabell <-
            skapa_spatialt_index = TRUE,
            #nytt_schema_oppet_for_geodata_las = TRUE,    # om TRUE så öppnas läsrättigheter för användaren geodata_las (vilket är det som ska användas om det inte finns mycket goda skäl att låta bli)
            addera_data = FALSE,                         # om TRUE så läggs rader till i en tabell, annars skrivs den över (om den finns, annars skrivs en ny tabell)
+           skriv_over_tabell_om_finns = FALSE,            # TRUE så tar den bort hela tabellen och skriver en ny (tex. bra om man behöver lägga till kolumner), annars är FALSE bra som behåller strukturen på tabellen
            #postgistabell_till_crs,
            meddelande_tid = FALSE
   ) {
@@ -2771,7 +2792,7 @@ postgis_sf_till_postgistabell <-
       } else {
         # Om tabellen finns, töm tabellen men behåll struktur och behörigheter
         dbExecute(con, sprintf("TRUNCATE TABLE %s.%s;", schema, tabell))
-        append_mode <- FALSE
+        append_mode <- !skriv_over_tabell_om_finns               # om append_mode är FALSE så skrivs hela tabellen över som en ny tabell, vid TRUE så  behålls strukturen på tabellen (kolumnerna måste vara samma)
         
       }
       
@@ -3607,6 +3628,7 @@ postgis_databas_skriv_med_metadata <- function(
     postgistabell_geo_kol = "geometry",
     postgistabell_id_kol = NA,            # default är att inte skicka med id-kolumn, om det görs så indexeras id-kolumnen
     postgis_addera_data = FALSE,          # om TRUE töms ej tabellen innan ny data skrivs
+    skriv_over_tabell_om_finns = TRUE,    # skriver över tabell om den finns, behåller inte struktur (FALSE om man vill behålla struktur)
     felmeddelande_medskickat = NA,
     kommentar_metadata = NA
 ) {
@@ -3631,6 +3653,7 @@ postgis_databas_skriv_med_metadata <- function(
                                       postgistabell_id_kol = postgistabell_id_kol,
                                       skapa_spatialt_index = ifelse(is.na(postgistabell_geo_kol), FALSE, TRUE),
                                       addera_data = postgis_addera_data,
+                                      skriv_over_tabell_om_finns = skriv_over_tabell_om_finns
                                       ),
         warn_text = "Invalid time zone 'UTC', falling back to local time.")    # detta specifika varningsmeddelande skrivs inte ut i konsolen
       
