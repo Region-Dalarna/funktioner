@@ -2805,6 +2805,14 @@ postgis_sf_till_postgistabell <-
       )
     })
     
+    if (!all(is.na(postgistabell_geo_kol))) {
+      for (geokol in postgistabell_geo_kol) {
+        DBI::dbExecute(con, glue::glue(
+          "SELECT UpdateGeometrySRID('{schema}', '{tabell}', '{geokol}', {sf::st_crs(inlas_sf)$epsg});"
+        ))
+      }
+    }
+    
     # # skriv rut-lagren till postgis 
     # starttid = Sys.time()
     # st_write(obj = inlas_sf,
