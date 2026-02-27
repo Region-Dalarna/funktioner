@@ -3505,8 +3505,10 @@ postgis_isokroner_skapa <- function(
   
   # Lägg till en kolumn 
   if (restyp != "meter") {
+    geom_kol_namn <- attr(iso_polys, "sf_column")
     iso_polys <- iso_polys %>% 
-      mutate(restyp = restyp)
+      mutate(restyp = restyp) %>% 
+      relocate(restyp, .before = all_of(geom_kol_namn))
   }
   
   # ta bort temptabell och tempschema om de finns
@@ -3703,14 +3705,18 @@ postgis_skapa_omradesnyckel_vy <- function(
     con,
     omrades_schema,
     omrades_tabell,
-    omrade_urval_kolumner = NA,
+    omrade_urval_kolumner = NULL,
     rut_schema = "rutor",
     rut_tabell = "bo_syss_100m_alla_ar",
     rut_id_kol = "rutid",
-    rut_urval_kolumner = NA,
+    rut_urval_kolumner = NULL,
     utdata_schema = "omradesnycklar",
     utdata_vy = NULL,
-    materialiserad = TRUE                # TRUE för materialiserad vy, FALSE för vanlig vy (om data inte är alltför stor kan vanlig vy vara snabbare)
+    fran_rutid_till_x_y_kol = c("Ruta100swX" = 7, "Ruta100swY" = 6),                  # delar upp döper om rutorna med namn och sedan = längd på del av rutid som är x resp y
+                                                                                      # tex så här: fran_rutid_till_x_y_kol = c("Ruta100swX" = 7, "Ruta100swY" = 6), där x är 7 position 1-7 av rutid, och y är position 8-13 av rutid
+                                                                                      #, om NULL så behålls rutid-kolumnen och inga x- eller y-kolumner skapas
+    materialiserad = TRUE,                # TRUE för materialiserad vy, FALSE för vanlig vy (om data inte är alltför stor kan vanlig vy vara snabbare)
+    skriv_over_befintlig_vy = TRUE        # TRUE så tas befintlig vy/materialiserad vy över och så skrivs den nya 
 ) {
   
   # Generera vynamn om inget anges
@@ -3757,7 +3763,7 @@ postgis_skapa_omradesnyckel_vy <- function(
     .con = con
   ))$column_name
   
-  if (!is.na(rut_urval_kolumner)) rut_kolumner <- rut_kolumner[rut_kolumner %in% rut_urval_kolumner]
+  if (!is.null(rut_urval_kolumner)) rut_kolumner <- rut_kolumner[rut_kolumner %in% rut_urval_kolumner]
   if (length(rut_kolumner) == 0) stop("Inga giltiga kolumner valda för rutlagret.")
   
   # Hämta geometrikolumnens namn för områdeslagret
@@ -3777,19 +3783,48 @@ postgis_skapa_omradesnyckel_vy <- function(
     .con = con
   ))$column_name
   
-  if (!all(is.na(omrade_urval_kolumner))) omrades_kolumner <- omrades_kolumner[omrades_kolumner %in% omrade_urval_kolumner]
+  if (!all(is.null(omrade_urval_kolumner))) omrades_kolumner <- omrades_kolumner[omrades_kolumner %in% omrade_urval_kolumner]
   if (length(omrades_kolumner) == 0) stop("Inga giltiga kolumner valda för områdesindelningen.")
   
   # Bygg SELECT-listor med tabellalias
   rut_select <- paste(paste0("r.", rut_kolumner), collapse = ",\n      ")
   omrades_select <- paste(paste0("o.", omrades_kolumner), collapse = ",\n      ")
   
+  # Validera fran_rutid_till_x_y_kol
+  if (!is.null(fran_rutid_till_x_y_kol)) {
+    if (length(fran_rutid_till_x_y_kol) != 2) {
+      message("fran_rutid_till_x_y_kol måste innehålla exakt 2 element. Körs utan uppdelning av rutid.")
+      fran_rutid_till_x_y_kol <- NULL
+    } else if (is.null(names(fran_rutid_till_x_y_kol)) || any(names(fran_rutid_till_x_y_kol) == "")) {
+      message("fran_rutid_till_x_y_kol måste ha namngivna element som kolumnnamn. Körs utan uppdelning av rutid.")
+      fran_rutid_till_x_y_kol <- NULL
+    } else if (!is.numeric(fran_rutid_till_x_y_kol)) {
+      message("Värdena i fran_rutid_till_x_y_kol måste vara numeriska (antal tecken). Körs utan uppdelning av rutid.")
+      fran_rutid_till_x_y_kol <- NULL
+    }
+  }
+  
+  # Bygg eventuell uppdelning av rutid i x- och y-kolumner baserat på positioner i rutid
+  rutid_split <- if (!is.null(fran_rutid_till_x_y_kol)) {
+    kol_namn <- names(fran_rutid_till_x_y_kol)
+    kol_langd <- as.numeric(fran_rutid_till_x_y_kol)
+    start_x <- 1
+    start_y <- kol_langd[1] + 1
+    
+    glue::glue(
+      ",\n      substring(r.{rut_id_kol}, {start_x}, {kol_langd[1]})::numeric AS {kol_namn[1]},
+      substring(r.{rut_id_kol}, {start_y}, {kol_langd[2]})::numeric AS {kol_namn[2]}"
+    )
+  } else {
+    ""
+  }
+  
   # Skapa vy med DISTINCT ON + störst överlappning via ST_Area(ST_Intersection)
   vy_sql <- glue::glue(
     'CREATE {or_replace}{vy_typ} {utdata_schema}."{utdata_vy}" AS
     SELECT DISTINCT ON (r.{rut_id_kol})
       {rut_select},
-      {omrades_select}
+      {omrades_select}{rutid_split}
     FROM {rut_schema}."{rut_tabell}" r
     JOIN {omrades_schema}."{omrades_tabell}" o
       ON ST_Intersects(r.{rut_geom_kol}, o.{omrades_geom_kol})
@@ -3797,6 +3832,20 @@ postgis_skapa_omradesnyckel_vy <- function(
       r.{rut_id_kol},
       ST_Area(ST_Intersection(r.{rut_geom_kol}, o.{omrades_geom_kol})) DESC;'
   )
+  
+  # Droppa befintlig materialiserad vy om den finns
+  if (materialiserad) {
+    mat_vy_finns_redan <- nrow(DBI::dbGetQuery(con, glue::glue_sql(
+      "SELECT 1 FROM pg_matviews 
+       WHERE schemaname = {utdata_schema} AND matviewname = {utdata_vy}",
+      .con = con
+    ))) > 0
+    
+    if (mat_vy_finns_redan & skriv_over_befintlig_vy) {
+      message("Tar bort befintlig materialiserad vy: ", utdata_schema, ".", utdata_vy)
+      DBI::dbExecute(con, glue::glue('DROP MATERIALIZED VIEW {utdata_schema}."{utdata_vy}";'))
+    }
+  }
   
   vy_typ <- if (materialiserad) "materialiserad vy" else "vy"
   
@@ -3807,6 +3856,73 @@ postgis_skapa_omradesnyckel_vy <- function(
   invisible(utdata_vy)
 }
 
+
+postgis_omradesnyckel_exportera_till_mikrodb <- function(
+    con,
+    omradesnyckel_schema = "omradesnycklar",
+    omradesnyckel_tabell,
+    max_chunk_stlk_mb = 10,
+    filnamn = NULL,
+    output_mapp = NULL
+) {
+  
+  if (is.null(output_mapp)) output_mapp <- utskriftsmapp()
+  if (is.null(filnamn)) filnamn <- omradesnyckel_tabell
+  
+  # Hämta data från databasen
+  message("Hämtar data från ", omradesnyckel_schema, ".", omradesnyckel_tabell, "...")
+  alla_rutor_export <- DBI::dbGetQuery(con, glue::glue(
+    "SELECT * FROM {omradesnyckel_schema}.{omradesnyckel_tabell}",
+    .con = con
+  ))
+  message("Mäter storlek på hela datasetet...")
+  df_namn <- if (is.null(filnamn))  omradesnyckel_tabell else filnamn
+  df_list <- list(alla_rutor_export)
+  names(df_list) <- df_namn
+  
+  # Skriv hela datasetet till en temporär fil för att se storleken totalt
+  tmp <- "tempfil.zip"
+  spara_som_csv_i_zip(df_list = df_list,
+                      zipfilnamn = tmp,
+                      output_mapp = output_mapp,
+                      meddelande = FALSE)
+  total_filstorlek <- file.size(paste0(output_mapp, tmp))
+  unlink(paste0(output_mapp, tmp))
+  
+  totalt_rader    <- nrow(alla_rutor_export)
+  bytes_per_rad   <- total_filstorlek / totalt_rader
+  rader_per_chunk <- floor((max_chunk_stlk_mb * 1e6) / bytes_per_rad)
+  antal_chunks    <- ceiling(totalt_rader / rader_per_chunk)
+  
+  # meddela användaren om hur stort datasetet är och om det delas upp i fler delar eller om det ryms i en zipfil
+  if (antal_chunks == 1) {
+    message("Datasetet är ", format(total_filstorlek / 1e6, digits = 2), " MB och kommer att sparas i en fil.")
+  } else {
+    message("Datasetet är ", format(total_filstorlek / 1e6, digits = 2), " MB och kommer att delas upp i ", antal_chunks, " delar.")
+  }
+  
+  # Om det är för många rader så delas dataset upp i flera delar
+  if (antal_chunks < 2) {
+    spara_som_csv_i_zip(df_list = df_list,
+                        zipfilnamn = df_namn,
+                        output_mapp = output_mapp)
+  } else {
+    df_lista <- alla_rutor_export %>%
+      mutate(chunk = ceiling(row_number() / rader_per_chunk)) %>%
+      group_split(chunk) %>%
+      setNames(paste0(df_namn, "_", str_pad(seq_along(.), 2, pad = "0"))) %>%
+      map(~ select(.x, -chunk))
+    
+    iwalk(df_lista, ~ {
+      spara_som_csv_i_zip(df_list = .x,
+                          zipfilnamn = .y,
+                          output_mapp = output_mapp)
+    })
+  }
+  
+  fil_txt <- if (antal_chunks == 1) "fil" else "filer"
+  message("Klar! ", antal_chunks, " ", fil_txt, " sparade i ", output_mapp)
+}
 
 # ======================================= pgrouting-funktioner ================================================
 
