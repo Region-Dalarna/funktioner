@@ -2007,22 +2007,28 @@ postgres_tabell_ta_bort <- function(con = "default",
   }
   
   # Kontrollera om objektet är en vy eller tabell
+  # Kontrollera om objektet är en vy eller tabell
   ar_vy <- nrow(DBI::dbGetQuery(con, glue::glue_sql(
     "SELECT 1 FROM information_schema.views 
      WHERE table_schema = {schema} AND table_name = {tabell}",
     .con = con
   ))) > 0
   
+  ar_mat_vy <- nrow(DBI::dbGetQuery(con, glue::glue_sql(
+    "SELECT 1 FROM pg_matviews 
+     WHERE schemaname = {schema} AND matviewname = {tabell}",
+    .con = con
+  ))) > 0
   
   # Kontrollera om objektet existerar
   if (ar_vy) {
-    finns <- nrow(DBI::dbGetQuery(con, glue::glue_sql(
-      "SELECT 1 FROM information_schema.views 
-       WHERE table_schema = {schema} AND table_name = {tabell}",
-      .con = con
-    ))) > 0
+    finns <- TRUE
     drop_typ <- "VIEW"
     typ_text <- "Vyn"
+  } else if (ar_mat_vy) {
+    finns <- TRUE
+    drop_typ <- "MATERIALIZED VIEW"
+    typ_text <- "Den materialiserade vyn"
   } else {
     finns <- DBI::dbExistsTable(con, DBI::Id(schema = schema, table = tabell))
     drop_typ <- "TABLE"
@@ -3691,6 +3697,115 @@ postgis_databas_skriv_med_metadata <- function(
     )
   })
 } # slut funktion
+
+
+postgis_skapa_omradesnyckel_vy <- function(
+    con,
+    omrades_schema,
+    omrades_tabell,
+    omrade_urval_kolumner = NA,
+    rut_schema = "rutor",
+    rut_tabell = "bo_syss_100m_alla_ar",
+    rut_id_kol = "rutid",
+    rut_urval_kolumner = NA,
+    utdata_schema = "omradesnycklar",
+    utdata_vy = NULL,
+    materialiserad = TRUE                # TRUE för materialiserad vy, FALSE för vanlig vy (om data inte är alltför stor kan vanlig vy vara snabbare)
+) {
+  
+  # Generera vynamn om inget anges
+  if (is.null(utdata_vy)) {
+    utdata_vy <- omrades_tabell
+  }
+  
+  # Kontrollera att rutlagret finns
+  if (!DBI::dbExistsTable(con, DBI::Id(schema = rut_schema, table = rut_tabell))) {
+    stop("Rutlagret '", rut_schema, ".", rut_tabell, "' hittades inte i databasen.")
+  }
+  
+  # Kontrollera att områdeslagret finns
+  if (!DBI::dbExistsTable(con, DBI::Id(schema = omrades_schema, table = omrades_tabell))) {
+    stop("Områdeslagret '", omrades_schema, ".", omrades_tabell, "' hittades inte i databasen.")
+  }
+  
+  # Välj vytyp
+  vy_typ <- if (materialiserad) "MATERIALIZED VIEW" else "VIEW"
+  or_replace <- if (materialiserad) "" else "OR REPLACE "
+  
+  # kontrollera att utdata_schema finns, annars skapa det
+  postgres_schema_skapa_om_inte_finns(con = con, schema_namn = utdata_schema)
+  
+  # Hämta geometrikolumnens namn för rutlagret
+  rut_geom_kol <- DBI::dbGetQuery(con, glue::glue_sql(
+    "SELECT f_geometry_column FROM geometry_columns 
+     WHERE f_table_schema = {rut_schema} AND f_table_name = {rut_tabell}",
+    .con = con
+  ))$f_geometry_column
+  
+  # Hämta kolumnnamn från rutlagret (exkl. geometri)
+  rut_kolumner <- DBI::dbGetQuery(con, glue::glue_sql(
+    "SELECT column_name 
+     FROM information_schema.columns 
+     WHERE table_schema = {rut_schema}
+       AND table_name = {rut_tabell}
+       AND column_name NOT IN (
+         SELECT f_geometry_column 
+         FROM geometry_columns 
+         WHERE f_table_schema = {rut_schema}
+           AND f_table_name = {rut_tabell}
+       )",
+    .con = con
+  ))$column_name
+  
+  if (!is.na(rut_urval_kolumner)) rut_kolumner <- rut_kolumner[rut_kolumner %in% rut_urval_kolumner]
+  if (length(rut_kolumner) == 0) stop("Inga giltiga kolumner valda för rutlagret.")
+  
+  # Hämta geometrikolumnens namn för områdeslagret
+  omrades_geom_kol <- DBI::dbGetQuery(con, glue::glue_sql(
+    "SELECT f_geometry_column FROM geometry_columns 
+     WHERE f_table_schema = {omrades_schema} AND f_table_name = {omrades_tabell}",
+    .con = con
+  ))$f_geometry_column
+  
+  # Hämta kolumnnamn från områdesindelningen (exkl. geometri)
+  omrades_kolumner <- DBI::dbGetQuery(con, glue::glue_sql(
+    "SELECT column_name 
+     FROM information_schema.columns 
+     WHERE table_schema = {omrades_schema}
+       AND table_name = {omrades_tabell}
+       AND column_name != {omrades_geom_kol}",
+    .con = con
+  ))$column_name
+  
+  if (!all(is.na(omrade_urval_kolumner))) omrades_kolumner <- omrades_kolumner[omrades_kolumner %in% omrade_urval_kolumner]
+  if (length(omrades_kolumner) == 0) stop("Inga giltiga kolumner valda för områdesindelningen.")
+  
+  # Bygg SELECT-listor med tabellalias
+  rut_select <- paste(paste0("r.", rut_kolumner), collapse = ",\n      ")
+  omrades_select <- paste(paste0("o.", omrades_kolumner), collapse = ",\n      ")
+  
+  # Skapa vy med DISTINCT ON + störst överlappning via ST_Area(ST_Intersection)
+  vy_sql <- glue::glue(
+    'CREATE {or_replace}{vy_typ} {utdata_schema}."{utdata_vy}" AS
+    SELECT DISTINCT ON (r.{rut_id_kol})
+      {rut_select},
+      {omrades_select}
+    FROM {rut_schema}."{rut_tabell}" r
+    JOIN {omrades_schema}."{omrades_tabell}" o
+      ON ST_Intersects(r.{rut_geom_kol}, o.{omrades_geom_kol})
+    ORDER BY
+      r.{rut_id_kol},
+      ST_Area(ST_Intersection(r.{rut_geom_kol}, o.{omrades_geom_kol})) DESC;'
+  )
+  
+  vy_typ <- if (materialiserad) "materialiserad vy" else "vy"
+  
+  message(glue("Skapar {vy_typ}: {utdata_schema}.{utdata_vy}"))
+  DBI::dbExecute(con, vy_sql)
+  message(glue("Klar! {str_to_sentence(vy_typ)} skapad: {utdata_schema}.{utdata_vy}"))
+  
+  invisible(utdata_vy)
+}
 
 
 # ======================================= pgrouting-funktioner ================================================
