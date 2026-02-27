@@ -2283,6 +2283,47 @@ excelfil_spara_formaterad <- function(indata,
 }
 
 
+
+spara_som_csv_i_zip <- function(df_list,
+                                output_mapp = NULL,
+                                zipfilnamn = NA,
+                                pre_namn_csv_fil_utan_namn = "df_",
+                                meddelande = TRUE
+                                ) {
+  
+  # Om det är en dataframe och inte en lista så gör vi om den till en lista
+  if (is.data.frame(df_list)) {
+    namn_df  <- deparse(substitute(df_list))
+    df_list  <- list(df_list)
+    names(df_list) <- namn_df
+  }
+  
+  if (is.null(output_mapp)) output_mapp <- utskriftsmapp()
+  
+  # Spara dataseten i varsin csv-fil
+  csvfil_lista <- imap(df_list, ~ {
+    filnamn_pre <- .y
+    
+    # Om det inte finns något namn döps den till "df_[siffra]"
+    if (str_detect(filnamn_pre, "^\\.[0-9]+")) filnamn_pre <- paste0(pre_namn_csv_fil_utan_namn, .y)
+    
+    csv_fil <- paste0(utmapp, paste0(filnamn_pre, ".csv"))
+    #if (str_count(csv_fil, "df_")) csv_fil <- csv_fil %>% str_remove("df_")
+    write_csv(.x, csv_fil)
+    return(csv_fil)
+  }) %>% unlist()
+  
+  # Skapa ett zipfilnamn om det inte finns något redan
+  if (is.na(zipfilnamn)) zipfilnamn <- csvfil_lista %>% basename() %>% str_remove("[0-9]") %>% unique() %>% .[1] %>% str_replace(".csv", ".zip")
+  if (str_sub(zipfilnamn, nchar(zipfilnamn)-3) != ".zip") zipfilnamn <- paste0(zipfilnamn, ".zip")
+  
+  zip_full <- paste0(utmapp, zipfilnamn)
+  if (file.exists(zip_full)) invisible(file.remove(zip_full))
+  zip(zip_full, csvfil_lista, flags = "-q", extras = '-j')
+  invisible(file.remove(csvfil_lista))
+  if (meddelande) print(paste0("Filen ", zipfilnamn, " har sparats i mappen ", utmapp))
+}
+
 # ================================================= Ladda ner data utan API ==============================================
 
 hamta_fk_json_dataset_med_url <- function(url_fk) {
