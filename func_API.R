@@ -2988,9 +2988,9 @@ github_commit_push <- function(
                                                  skriv_source_konsol = FALSE)$namn
       
       # Filklassificering
-      filer_tillagda  <- unique(c(staged_added, untracked_files))                 #[!untracked_files %in% github_fillista]))
-      filer_andrade   <- unique(c(staged_modified, unstaged_modified))
-      filer_borttagna <- unique(c(staged_deleted,  unstaged_deleted))
+      filer_tillagda  <- unique(c(unlist(staged_added), unlist(untracked_files)))                 #[!untracked_files %in% github_fillista]))
+      filer_andrade   <- unique(c(unlist(staged_modified), unlist(unstaged_modified)))
+      filer_borttagna <- unique(c(unlist(staged_deleted),  unlist(unstaged_deleted)))
       
       # Sammanställningsmeddelanden
       konsolmeddelande <- paste0(
@@ -3035,7 +3035,7 @@ github_commit_push <- function(
     
     # Lägg till och comitta alla ändrade filer
     if (exists("filer_tillagda")) {
-      git2r::add(push_repo, path = c(filer_tillagda, filer_andrade, filer_borttagna) %>% as.character())
+      git2r::add(push_repo, path = unlist(c(filer_tillagda, filer_andrade, filer_borttagna)))
     } else {
       git2r::add(push_repo, path = ".")
     } 
