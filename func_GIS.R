@@ -475,7 +475,6 @@ unzip_zipfil_med_zipfiler <- function(skickad_url){
   
   zipfillista <- list.files(out_directory, full.names = TRUE)
   return(zipfillista)
-  
 }
 
 

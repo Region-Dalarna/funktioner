@@ -2965,15 +2965,22 @@ github_commit_push <- function(
   
   
   push_repo <- git2r::repository(lokal_sokvag_repo)
-  repo_status <- git2r::status(push_repo)
+  #repo_status <- git2r::status(push_repo)
+  repo_status <- system2("git", args = c("-C", lokal_sokvag_repo, "status", "--porcelain"), stdout = TRUE)
   
   # Kategorisera filer
-  untracked_files <- repo_status$untracked
-  unstaged_modified <- repo_status$unstaged$modified
-  unstaged_deleted <- repo_status$unstaged$deleted
-  staged_added <- repo_status$staged$added
-  staged_modified <- repo_status$staged$modified
-  staged_deleted <- repo_status$staged$deleted
+  untracked_files   <- sub("^.. ", "", repo_status[grepl("^\\?\\?", repo_status)])
+  unstaged_modified <- sub("^.. ", "", repo_status[grepl("^ M", repo_status)])
+  unstaged_deleted  <- sub("^.. ", "", repo_status[grepl("^ D", repo_status)])
+  staged_added      <- sub("^.. ", "", repo_status[grepl("^A", repo_status)])
+  staged_modified   <- sub("^.. ", "", repo_status[grepl("^M ", repo_status)])
+  staged_deleted    <- sub("^.. ", "", repo_status[grepl("^D ", repo_status)])
+  # untracked_files <- repo_status$untracked
+  # unstaged_modified <- repo_status$unstaged$modified
+  # unstaged_deleted <- repo_status$unstaged$deleted
+  # staged_added <- repo_status$staged$added
+  # staged_modified <- repo_status$staged$modified
+  # staged_deleted <- repo_status$staged$deleted
   
   #if (length(untracked_files) + length(unstaged_modified) + length(unstaged_deleted) > 0) {
   if (any(lengths(list(untracked_files, unstaged_modified, unstaged_deleted,
@@ -3024,13 +3031,14 @@ github_commit_push <- function(
       }
     }
 
-    print(unlist(c(filer_tillagda, filer_andrade, filer_borttagna)))
+    
     # Lägg till och comitta alla ändrade filer
-    if (exists("filer_tillagda")) {
-      git2r::add(push_repo, path = unlist(c(filer_tillagda, filer_andrade, filer_borttagna)))
-    } else {
-      git2r::add(push_repo, path = ".")
-    } 
+    system2("git", args = c("-C", lokal_sokvag_repo, "add", "."))
+    # if (exists("filer_tillagda")) {
+    #   git2r::add(push_repo, path = unlist(c(filer_tillagda, filer_andrade, filer_borttagna)))
+    # } else {
+    #   git2r::add(push_repo, path = ".")
+    # } 
     
     git2r::commit(push_repo, commit_txt)
     
