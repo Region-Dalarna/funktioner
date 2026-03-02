@@ -3024,6 +3024,7 @@ github_commit_push <- function(
       }
     }
 
+    print(unlist(c(filer_tillagda, filer_andrade, filer_borttagna)))
     # Lägg till och comitta alla ändrade filer
     if (exists("filer_tillagda")) {
       git2r::add(push_repo, path = unlist(c(filer_tillagda, filer_andrade, filer_borttagna)))
