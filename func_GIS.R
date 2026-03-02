@@ -452,7 +452,6 @@ las_gisfil_fran_zipfil_via_url <- function(skickad_url){
   
 }
 
-
 las_gisfil_fran_zipfil_via_sokvag <- function(skickad_sokvag) {
   
   # läs en gisfil direkt från en zipfil
