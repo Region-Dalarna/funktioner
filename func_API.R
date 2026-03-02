@@ -3031,9 +3031,16 @@ github_commit_push <- function(
       }
     }
 
-    
     # Lägg till och comitta alla ändrade filer
-    system2("git", args = c("-C", lokal_sokvag_repo, "add", "."))
+    stderr_output <- system2("git", args = c("-C", lokal_sokvag_repo, "add", "."), 
+                             stdout = TRUE, stderr = TRUE)
+    
+    # Filtrera bort LF/CRLF-varningar
+    relevanta_fel <- stderr_output[!grepl("LF will be replaced by CRLF|CRLF will be replaced by LF", 
+                                          stderr_output)]
+    
+    if (length(relevanta_fel) > 0) warning(paste(relevanta_fel, collapse = "\n"))
+    
     # if (exists("filer_tillagda")) {
     #   git2r::add(push_repo, path = unlist(c(filer_tillagda, filer_andrade, filer_borttagna)))
     # } else {

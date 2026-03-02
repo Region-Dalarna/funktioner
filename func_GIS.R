@@ -572,7 +572,6 @@ geopackage_skapa_fran_rutor_csv_xlsx_supercross <- function(sokvag_filnamn_vekt,
 } # slut funktion
 
 
-
 skapa_supercross_recode_fran_rutlager <- function(gis_lager,
                                                   rutid_kol = NA,      # finns en funktion för att hitta rutid-kolumnen men man kan skicka med den här 
                                                   recode_kol,
