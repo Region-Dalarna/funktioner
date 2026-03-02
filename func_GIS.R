@@ -167,8 +167,6 @@ hamta_karta <- function(karttyp = "kommuner", regionkoder = NA, tabellnamn = NA)
   
 } # slut funktion
 
-
-
 # ========================================== hantera rutor med GIS ========================================================
 
 sf_fran_df_med_x_y_kol <- function(skickad_df, 
@@ -405,7 +403,6 @@ skapa_linje_langs_med_punkter <- function(skickad_sf,                   # skicka
     #   st_coordinates() %>% 
     #   st_linestring() %>% 
     #   st_sfc(crs = skickad_sf_crs)  
-    
     
     # a single row of results dataframe
     
