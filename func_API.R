@@ -3024,15 +3024,7 @@ github_commit_push <- function(
         message("⚠️ Ingen upstream-branch är satt – skippar git pull.")
       }
     }
-    
-    # # Kolla om det ligger filer stage:ade sedan tidigare (oftast gör det inte det) - och i så fall skriver vi det i konsolen
-    # if (length(c(staged_added, staged_modified, staged_deleted)) > 0) {
-    #   cat("Filer som redan är staged för commit:\n")
-    #   if (length(staged_added) > 0) cat("Tillagda:\n", paste(staged_added, collapse = "\n"), "\n")
-    #   if (length(staged_modified) > 0) cat("Ändrade:\n", paste(staged_modified, collapse = "\n"), "\n")
-    #   if (length(staged_deleted) > 0) cat("Borttagna:\n", paste(staged_deleted, collapse = "\n"), "\n")
-    # }
-    
+
     # Lägg till och comitta alla ändrade filer
     if (exists("filer_tillagda")) {
       git2r::add(push_repo, path = unlist(c(filer_tillagda, filer_andrade, filer_borttagna)))
@@ -3054,7 +3046,6 @@ github_commit_push <- function(
     #   '@github.com/', repo_org, '/', repo, '.git'
     # )) 
     #   
-    
     
     cat(paste0("Commit och push till ", repo, " på ", repo_org ,"s Github är klar.\n\n", konsolmeddelande))
     
