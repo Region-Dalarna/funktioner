@@ -3040,27 +3040,12 @@ github_commit_push <- function(
                                           stderr_output)]
     
     if (length(relevanta_fel) > 0) warning(paste(relevanta_fel, collapse = "\n"))
-    
-    # if (exists("filer_tillagda")) {
-    #   git2r::add(push_repo, path = unlist(c(filer_tillagda, filer_andrade, filer_borttagna)))
-    # } else {
-    #   git2r::add(push_repo, path = ".")
-    # } 
-    
+
     git2r::commit(push_repo, commit_txt)
     
     git2r::push(object = push_repo,
                 credentials = cred_user_pass( username = key_list(service = "github_token")$username,
                                               password = key_get("github_token", key_list(service = "github_token")$username)))
-    
-    # # Push med system-kommando (för att hantera token)
-    # system(paste0(
-    #   'git -C ', lokal_sokvag_repo, ' push https://', 
-    #   key_list(service = "github_token")$username, ':', 
-    #   key_get("github_token", key_list(service = "github_token")$username), 
-    #   '@github.com/', repo_org, '/', repo, '.git'
-    # )) 
-    #   
     
     cat(paste0("Commit och push till ", repo, " på ", repo_org ,"s Github är klar.\n\n", konsolmeddelande))
     

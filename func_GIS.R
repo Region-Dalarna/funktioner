@@ -710,7 +710,6 @@ skapa_sf_fran_csv_eller_excel_supercross <- function(fil_med_sokvag,            
   
 } # slut funktion
 
-
 # ============================== postgres-funktioner (för att hantera databaser) ============================================
 
 
