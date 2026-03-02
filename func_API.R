@@ -2551,7 +2551,6 @@ hamta_excel_dataset_med_url <- function(url_excel,
   #GET(url_excel, write_disk(excel_fil, overwrite = TRUE))                                # ladda ner temporär fil
   curl_fetch_disk(url_excel, path = excel_fil)
   
-  
   flikar <- excel_sheets(excel_fil)                                                      # läs in flikar
   if (!is.na(hoppa_over_flikar)) flikar <- flikar[!flikar %in% hoppa_over_flikar]        # ta bort flikar som läses in om det finns värden i hoppa_over_flikar
   
