@@ -464,7 +464,6 @@ las_gisfil_fran_zipfil_via_sokvag <- function(skickad_sokvag) {
   
 }
 
-
 unzip_zipfil_med_zipfiler <- function(skickad_url){
   
   # det här är en specialfunktion som används för att ladda ner polygoner för FA- och LA-regioner samt
