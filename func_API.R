@@ -2779,7 +2779,7 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
           path = paste0(path, item$name, "/")
         )
       }, error = function(e) {
-        cat("Varning: Kunde inte läsa mapp:", new_path, "\n")
+        cat("Varning: Kunde inte läsa mapp:", path, item$name, "/", "\n")
         cat("Felmeddelande:", e$message, "\n")
         return(tibble::tibble())  # Returnera tom tibble vid fel
       }) 
