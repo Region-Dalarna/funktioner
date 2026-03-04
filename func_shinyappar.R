@@ -125,7 +125,7 @@ shiny_list_passwords <- function() {
   services <- sub("_PWD=.*$", "", matches)
   
   cat("Tjänster med sparade lösenord:\n")
-  for (s in services) cat(" - ", s, "\n", sep = "")
+  #for (s in services) cat(" - ", s, "\n", sep = "")
   
   return(services)
 }
