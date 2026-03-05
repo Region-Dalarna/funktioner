@@ -2803,21 +2803,6 @@ postgis_sf_till_postgistabell <-
       )
     })
     
-    if (!all(is.na(postgistabell_geo_kol))) {
-      for (geokol in postgistabell_geo_kol) {
-        DBI::dbExecute(con, glue::glue(
-          "SELECT UpdateGeometrySRID('{schema}', '{tabell}', '{geokol}', {sf::st_crs(inlas_sf)$epsg});"
-        ))
-      }
-    }
-    
-    # # skriv rut-lagren till postgis 
-    # starttid = Sys.time()
-    # st_write(obj = inlas_sf,
-    #          dsn = con,
-    #          Id(schema=schema, table = tabell))
-    # print(paste0("Det tog ", round(difftime(Sys.time(), starttid, units = "sec"),1), " sekunder att läsa in ", tabell, " till postgis."))
-    
     # skapa spatialt index, finns det sedan tidigare, ta bort - loopa så att man kan skicka fler geokolumner
     if (skapa_spatialt_index) {
       for (geokol in 1:length(postgistabell_geo_kol)) {
@@ -2825,15 +2810,26 @@ postgis_sf_till_postgistabell <-
         dbExecute(con, paste0("CREATE INDEX ", postgistabell_geo_kol[geokol], "_idx ON ", schema, ".", tabell, " USING GIST (", postgistabell_geo_kol[geokol], ");"))
       }  
     }
-    # gör id_kol till id-kolumn i tabellen
+    # gör id_kol till id-kolumn i tabellen om det inte redan finns, då låter vi det vara som det är
     if (!is.na(postgistabell_id_kol)) {
-      dbExecute(con, paste0("ALTER TABLE ", schema, ".", tabell, " ADD PRIMARY KEY (", postgistabell_id_kol ,");"))
+      pk_finns <- nrow(DBI::dbGetQuery(con, glue::glue_sql(
+        "SELECT 1 FROM information_schema.table_constraints 
+            WHERE table_schema = {schema} 
+            AND table_name = {tabell} 
+            AND constraint_type = 'PRIMARY KEY'",
+        .con = con
+      ))) > 0
+      
+      if (!pk_finns) {
+        dbExecute(con, paste0("ALTER TABLE ", schema, ".", tabell, " ADD PRIMARY KEY (", postgistabell_id_kol, ");"))
+      }
     }
+    
     if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
     berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
     if (meddelande_tid) cat(glue("Processen tog {berakningstid} sekunder att köra"))
     
-  } # slut funktion
+} # slut funktion
 
 postgis_postgistabell_till_sf <- function(
     con = "default",
@@ -3693,7 +3689,7 @@ postgis_databas_skriv_med_metadata <- function(
 } # slut funktion
 
 
-postgis_skapa_omradesnyckel_vy <- function(
+postgis_skapa_omradesnyckel_tabell_vy <- function(
     con,
     omrades_schema,
     omrades_tabell,
@@ -3707,8 +3703,8 @@ postgis_skapa_omradesnyckel_vy <- function(
     fran_rutid_till_x_y_kol = c("Ruta100swX" = 7, "Ruta100swY" = 6),                  # delar upp döper om rutorna med namn och sedan = längd på del av rutid som är x resp y
                                                                                       # tex så här: fran_rutid_till_x_y_kol = c("Ruta100swX" = 7, "Ruta100swY" = 6), där x är 7 position 1-7 av rutid, och y är position 8-13 av rutid
                                                                                       #, om NULL så behålls rutid-kolumnen och inga x- eller y-kolumner skapas
-    materialiserad = TRUE,                # TRUE för materialiserad vy, FALSE för vanlig vy (om data inte är alltför stor kan vanlig vy vara snabbare)
-    skriv_over_befintlig_vy = TRUE        # TRUE så tas befintlig vy/materialiserad vy över och så skrivs den nya 
+    databas_typ = "vy",                # # "tabell", "materialiserad_vy" eller "vy"
+    skriv_over_befintlig_tabell_vy = TRUE        # TRUE så tas befintlig vy/materialiserad vy över och så skrivs den nya 
 ) {
   
   # Generera vynamn om inget anges
@@ -3726,9 +3722,14 @@ postgis_skapa_omradesnyckel_vy <- function(
     stop("Områdeslagret '", omrades_schema, ".", omrades_tabell, "' hittades inte i databasen.")
   }
   
-  # Välj vytyp
-  vy_typ <- if (materialiserad) "MATERIALIZED VIEW" else "VIEW"
-  or_replace <- if (materialiserad) "" else "OR REPLACE "
+  # Välj vy- eller tabelltyp
+  tabell_vy_typ <- switch(databas_typ,
+                   "tabell"          = "TABLE",
+                   "materialiserad_vy" = "MATERIALIZED VIEW",
+                   "vy"              = "VIEW",
+                   stop("databas_typ måste vara 'tabell', 'materialiserad_vy' eller 'vy'.")
+  )
+  or_replace <- if (databas_typ == "vy") "OR REPLACE " else ""
   
   # kontrollera att utdata_schema finns, annars skapa det
   postgres_schema_skapa_om_inte_finns(con = con, schema_namn = utdata_schema)
@@ -3812,38 +3813,57 @@ postgis_skapa_omradesnyckel_vy <- function(
   }
   
   # Skapa vy med DISTINCT ON + störst överlappning via ST_Area(ST_Intersection)
-  vy_sql <- glue::glue(
-    'CREATE {or_replace}{vy_typ} {utdata_schema}."{utdata_vy}" AS
-    SELECT DISTINCT ON (r.{rut_id_kol})
-      {rut_select},
-      {omrades_select}{rutid_split}
-    FROM {rut_schema}."{rut_tabell}" r
-    JOIN {omrades_schema}."{omrades_tabell}" o
-      ON ST_Intersects(r.{rut_geom_kol}, o.{omrades_geom_kol})
-    ORDER BY
-      r.{rut_id_kol},
-      ST_Area(ST_Intersection(r.{rut_geom_kol}, o.{omrades_geom_kol})) DESC;'
+  select_sql <- glue::glue(
+    'SELECT DISTINCT ON (r.{rut_id_kol})
+    {rut_select},
+    {omrades_select}{rutid_split}
+      FROM {rut_schema}."{rut_tabell}" r
+      JOIN {omrades_schema}."{omrades_tabell}" o
+        ON ST_Intersects(r.{rut_geom_kol}, o.{omrades_geom_kol})
+      ORDER BY
+    r.{rut_id_kol},
+    ST_Area(ST_Intersection(r.{rut_geom_kol}, o.{omrades_geom_kol})) DESC'
   )
   
-  # Droppa befintlig materialiserad vy om den finns
-  if (materialiserad) {
-    mat_vy_finns_redan <- nrow(DBI::dbGetQuery(con, glue::glue_sql(
-      "SELECT 1 FROM pg_matviews 
-       WHERE schemaname = {utdata_schema} AND matviewname = {utdata_vy}",
+  tabell_vy_sql <- if (databas_typ == "tabell") {
+    glue::glue('CREATE TABLE {utdata_schema}."{utdata_vy}" AS {select_sql};')
+  } else {
+    glue::glue('CREATE {or_replace}{tabell_vy_typ} {utdata_schema}."{utdata_vy}" AS {select_sql};')
+  }
+  
+  # Droppa befintlig materialiserad vy eller tabell om den finns
+  if (skriv_over_befintlig_tabell_vy) {
+    befintlig_typ <- DBI::dbGetQuery(con, glue::glue_sql(
+      "SELECT 
+       CASE 
+         WHEN EXISTS (SELECT 1 FROM pg_matviews WHERE schemaname = {utdata_schema} AND matviewname = {utdata_vy}) THEN 'materialiserad_vy'
+         WHEN EXISTS (SELECT 1 FROM pg_views WHERE schemaname = {utdata_schema} AND viewname = {utdata_vy}) THEN 'vy'
+         WHEN EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = {utdata_schema} AND tablename = {utdata_vy}) THEN 'tabell'
+         ELSE NULL
+       END AS typ",
       .con = con
-    ))) > 0
+    ))$typ
     
-    if (mat_vy_finns_redan & skriv_over_befintlig_vy) {
-      message("Tar bort befintlig materialiserad vy: ", utdata_schema, ".", utdata_vy)
-      DBI::dbExecute(con, glue::glue('DROP MATERIALIZED VIEW {utdata_schema}."{utdata_vy}";'))
+    if (!is.na(befintlig_typ)) {
+      drop_sql <- switch(befintlig_typ,
+                         "tabell"            = glue::glue('DROP TABLE {utdata_schema}."{utdata_vy}";'),
+                         "materialiserad_vy" = glue::glue('DROP MATERIALIZED VIEW {utdata_schema}."{utdata_vy}";'),
+                         "vy"                = glue::glue('DROP VIEW {utdata_schema}."{utdata_vy}";')
+      )
+      message("Tar bort befintlig ", befintlig_typ, ": ", utdata_schema, ".", utdata_vy)
+      DBI::dbExecute(con, drop_sql)
     }
   }
   
-  vy_typ <- if (materialiserad) "materialiserad vy" else "vy"
+  tabell_vy_typ_text <- switch(databas_typ,
+                        "tabell"           = "tabell",
+                        "materialiserad_vy" = "materialiserad vy",
+                        "vy"               = "vy"
+  )
   
-  message(glue("Skapar {vy_typ}: {utdata_schema}.{utdata_vy}"))
-  DBI::dbExecute(con, vy_sql)
-  message(glue("Klar! {str_to_sentence(vy_typ)} skapad: {utdata_schema}.{utdata_vy}"))
+  message(glue("Skapar {tabell_vy_typ_text}: {utdata_schema}.{utdata_vy}"))
+  DBI::dbExecute(con, tabell_vy_sql)
+  message(glue("Klar! {str_to_sentence(tabell_vy_typ_text)} skapad: {utdata_schema}.{utdata_vy}"))
   
   invisible(utdata_vy)
 }
@@ -3869,21 +3889,18 @@ postgis_omradesnyckel_exportera_till_mikrodb <- function(
   ))
   message("Mäter storlek på hela datasetet...")
   df_namn <- if (is.null(filnamn))  omradesnyckel_tabell else filnamn
-  df_list <- list(alla_rutor_export)
-  names(df_list) <- df_namn
+  #df_list <- list(alla_rutor_export)
+  #names(df_list) <- df_namn
   
   # Skriv hela datasetet till en temporär fil för att se storleken totalt
-  tmp <- "tempfil.zip"
-  spara_som_csv_i_zip(df_list = df_list,
-                      zipfilnamn = tmp,
-                      output_mapp = output_mapp,
-                      meddelande = FALSE)
+  tmp <- "tempfil.csv"
+  fwrite(alla_rutor_export, file = paste0(output_mapp, tmp))
   total_filstorlek <- file.size(paste0(output_mapp, tmp))
   unlink(paste0(output_mapp, tmp))
   
   totalt_rader    <- nrow(alla_rutor_export)
   bytes_per_rad   <- total_filstorlek / totalt_rader
-  rader_per_chunk <- floor((max_chunk_stlk_mb * 1e6) / bytes_per_rad)
+  rader_per_chunk <- floor((max_chunk_stlk_mb * 1e6 * 0.9) / bytes_per_rad)
   antal_chunks    <- ceiling(totalt_rader / rader_per_chunk)
   
   # meddela användaren om hur stort datasetet är och om det delas upp i fler delar eller om det ryms i en zipfil
@@ -3893,11 +3910,12 @@ postgis_omradesnyckel_exportera_till_mikrodb <- function(
     message("Datasetet är ", format(total_filstorlek / 1e6, digits = 2), " MB och kommer att delas upp i ", antal_chunks, " delar.")
   }
   
+  # ta bort .csv på slutet av filnamn om det finns med
+  filnamn <- if (str_sub(filnamn, -4) == ".csv") str_sub(filnamn, 1, -5) else filnamn
+
   # Om det är för många rader så delas dataset upp i flera delar
   if (antal_chunks < 2) {
-    spara_som_csv_i_zip(df_list = df_list,
-                        zipfilnamn = df_namn,
-                        output_mapp = output_mapp)
+    fread(alla_rutor_export, file = paste0(output_mapp, filnamn, ".csv"))
   } else {
     df_lista <- alla_rutor_export %>%
       mutate(chunk = ceiling(row_number() / rader_per_chunk)) %>%
@@ -3906,9 +3924,7 @@ postgis_omradesnyckel_exportera_till_mikrodb <- function(
       map(~ select(.x, -chunk))
     
     iwalk(df_lista, ~ {
-      spara_som_csv_i_zip(df_list = .x,
-                          zipfilnamn = .y,
-                          output_mapp = output_mapp)
+      fwrite(.x, file = paste0(output_mapp, .y, ".csv"))
     })
   }
   
