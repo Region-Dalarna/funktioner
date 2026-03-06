@@ -66,35 +66,27 @@ kartifiera <- function(skickad_df,
 }
 
 hamta_karttabell <- function(){
-  
-  # här lägger vi till nya kolumner om det behövs
-  kolumn_namn <- c("namn", "id_kol", "lankol", "kommunkol", "sokord")
-  
-  antal_kol <- length(kolumn_namn)                            # räkna kolumnnamn i vektorn som vi skapar ovan
-  karttabell_df <- as.data.frame(matrix(nrow = 0, ncol = antal_kol)) %>%             # skapa df med 0 rader och lika många kolumner som vi har kolumnnamn ovan
-    setNames(kolumn_namn) %>%                                              # döp kolumnnamn efter vektorn vi skapade ovan
-    mutate(across(1:(antal_kol-1), as.character),                          # alla kolumner ska vara text, utom sista kolumnen som ska vara en lista med sökord
-           sokord = sokord %>% as.list())                                  # som vi initierar här
-  
-  # här lägger vi till rader (dvs. tabeller) som ska vara hämtbara från geodatabasen med hamta_karta()-funktionen
-  karttabell_df <- karttabell_df %>%  
-    add_row(namn = "kommun_scb", id_kol = "knkod", lankol = "lanskod_tx", kommunkol = "knkod", sokord = list(c("kommun", "kommuner", "kommunpolygoner"))) %>% 
-    add_row(namn = "kommun_lm", id_kol = "kommunkod", lankol = "lankod", kommunkol = "kommunkod", sokord = list(c("kommun_lm", "kommuner_lm", "kommunpolygoner_lm"))) %>% 
-    add_row(namn = "lan_scb", id_kol = "lnkod", lankol = "lnkod", kommunkol = NA_character_ , sokord = list(c("lan", "lanspolygoner"))) %>% 
-    add_row(namn = "lan_lm", id_kol = "lankod", lankol = "lankod", kommunkol = NA_character_ , sokord = list(c("lan_lm", "lanspolygoner_lm"))) %>% 
-    add_row(namn = "rike_lm", id_kol = "landskod", lankol = NA_character_ , kommunkol = NA_character_ , sokord = list(c("rike_lm", "rike", "riket", "Sverige"))) %>% 
-    add_row(namn = "tatorter", id_kol = "tatortskod", lankol = "lan", kommunkol = "kommun", sokord = list(c("tatort", "tätort", "tatorter", "tätorter", "tatortspolygoner", "tätortspolygoner"))) %>% 
-    add_row(namn = "tatortspunkter", id_kol = "tatortskod", lankol = "lan", kommunkol = "kommun", sokord = list(c("tatortspunkter", "tätortspunkter"))) %>% 
-    add_row(namn = "regso", id_kol = "regsokod",  lankol = "lanskod", kommunkol = "kommunkod", sokord = list(c("regso", "regsopolygoner"))) %>% 
-    add_row(namn = "deso", id_kol = "deso", lankol = "lanskod", kommunkol = "kommunkod", sokord = list(c("deso", "desopolygoner"))) %>% 
-    add_row(namn = "distrikt", id_kol = "distriktskod", lankol = "lankod", kommunkol = "kommunkod", sokord = list(c("distrikt"))) %>% 
-    add_row(namn = "nuts2", id_kol = "nuts_id", lankol = "cntr_code", kommunkol = "geo", sokord = list(c("nuts2", "nuts2-områden"))) %>% 
-    add_row(namn = "nuts3", id_kol = "nuts_id", lankol = "cntr_code", kommunkol = "geo", sokord = list(c("nuts3", "nuts3-områden"))) %>% 
-    add_row(namn = "laregion_scb", id_kol = "lakod", lankol = "lan", kommunkol = "kommun", sokord = list(c("la", "laomraden", "la-omraden", "la-områden", "la-omraden"))) %>% 
-    add_row(namn = "varlden", id_kol = "Landskod", lankol = NA_character_ , kommunkol = NA_character_ , sokord = list(c("varlden", "varldskarta", "världen", "världskarta"))) %>% 
-    add_row(namn = "varldsdelar", id_kol = "Landskod", lankol = NA_character_ , kommunkol = NA_character_ , sokord = list(c("varldsdelskarta", "varldsdelar", "världsdelskarta", "världsdelar")))
-  
-  return(karttabell_df)
+  # tabell med kartor som går att nå med hamta_karta()-funktionen, bör rimligtvis vara alla kartor i schemat "karta" i databasen geodata
+  # sokord = de ord som man skickar med som parameter i funktionen hamta_karta()
+    tribble(
+      ~namn,            ~id_kol,        ~lankol,       ~kommunkol,    ~sokord,
+      "kommun_scb",     "knkod",        "lanskod_tx",  "knkod",       c("kommun", "kommuner", "kommunpolygoner"),
+      "kommun_lm",      "kommunkod",    "lankod",      "kommunkod",   c("kommun_lm", "kommuner_lm", "kommunpolygoner_lm"),
+      "lan_scb",        "lnkod",        "lnkod",       NA_character_, c("lan", "lanspolygoner"),
+      "lan_lm",         "lankod",       "lankod",      NA_character_, c("lan_lm", "lanspolygoner_lm"),
+      "rike_lm",        "landskod",     NA_character_, NA_character_, c("rike_lm", "rike", "riket", "Sverige"),
+      "tatorter",       "tatortskod",   "lan",         "kommun",      c("tatort", "tätort", "tatorter", "tätorter", "tatortspolygoner", "tätortspolygoner"),
+      "tatortspunkter", "tatortskod",   "lan",         "kommun",      c("tatortspunkter", "tätortspunkter"),
+      "regso",          "regsokod",     "lanskod",     "kommunkod",   c("regso", "regsopolygoner"),
+      "deso",           "deso",         "lanskod",     "kommunkod",   c("deso", "desopolygoner"),
+      "distrikt",       "distriktskod", "lankod",      "kommunkod",   c("distrikt"),
+      "nuts2",          "nuts_id",      "cntr_code",   "geo",         c("nuts2", "nuts2-områden"),
+      "nuts3",          "nuts_id",      "cntr_code",   "geo",         c("nuts3", "nuts3-områden"),
+      "laregion_scb",   "lakod",        "lan",         "kommun",      c("la", "laomraden", "la-områden", "la-omraden"),
+      "varlden",        "Landskod",     NA_character_, NA_character_, c("varlden", "varldskarta", "världen", "världskarta"),
+      "varldsdelar",    "Landskod",     NA_character_, NA_character_, c("varldsdelskarta", "varldsdelar", "världsdelskarta", "världsdelar")
+    ) %>% as.data.frame()
+
 }
 
 hamta_karta <- function(karttyp = "kommuner", regionkoder = NA, tabellnamn = NA) {
