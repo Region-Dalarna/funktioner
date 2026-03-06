@@ -80,9 +80,9 @@ hamta_karttabell <- function(){
   karttabell_df <- karttabell_df %>%  
     add_row(namn = "kommun_scb", id_kol = "knkod", lankol = "lanskod_tx", kommunkol = "knkod", sokord = list(c("kommun", "kommuner", "kommunpolygoner"))) %>% 
     add_row(namn = "kommun_lm", id_kol = "kommunkod", lankol = "lankod", kommunkol = "kommunkod", sokord = list(c("kommun_lm", "kommuner_lm", "kommunpolygoner_lm"))) %>% 
-    add_row(namn = "lan_scb", id_kol = "lnkod", lankol = "lnkod", kommunkol = NA, sokord = list(c("lan", "lanspolygoner"))) %>% 
-    add_row(namn = "lan_lm", id_kol = "lankod", lankol = "lankod", kommunkol = NA, sokord = list(c("lan_lm", "lanspolygoner_lm"))) %>% 
-    add_row(namn = "rike_lm", id_kol = "landskod", lankol = NA, kommunkol = NA, sokord = list(c("rike_lm", "rike", "riket", "Sverige"))) %>% 
+    add_row(namn = "lan_scb", id_kol = "lnkod", lankol = "lnkod", kommunkol = NA_character_ , sokord = list(c("lan", "lanspolygoner"))) %>% 
+    add_row(namn = "lan_lm", id_kol = "lankod", lankol = "lankod", kommunkol = NA_character_ , sokord = list(c("lan_lm", "lanspolygoner_lm"))) %>% 
+    add_row(namn = "rike_lm", id_kol = "landskod", lankol = NA_character_ , kommunkol = NA_character_ , sokord = list(c("rike_lm", "rike", "riket", "Sverige"))) %>% 
     add_row(namn = "tatorter", id_kol = "tatortskod", lankol = "lan", kommunkol = "kommun", sokord = list(c("tatort", "tätort", "tatorter", "tätorter", "tatortspolygoner", "tätortspolygoner"))) %>% 
     add_row(namn = "tatortspunkter", id_kol = "tatortskod", lankol = "lan", kommunkol = "kommun", sokord = list(c("tatortspunkter", "tätortspunkter"))) %>% 
     add_row(namn = "regso", id_kol = "regsokod",  lankol = "lanskod", kommunkol = "kommunkod", sokord = list(c("regso", "regsopolygoner"))) %>% 
@@ -91,8 +91,8 @@ hamta_karttabell <- function(){
     add_row(namn = "nuts2", id_kol = "nuts_id", lankol = "cntr_code", kommunkol = "geo", sokord = list(c("nuts2", "nuts2-områden"))) %>% 
     add_row(namn = "nuts3", id_kol = "nuts_id", lankol = "cntr_code", kommunkol = "geo", sokord = list(c("nuts3", "nuts3-områden"))) %>% 
     add_row(namn = "laregion_scb", id_kol = "lakod", lankol = "lan", kommunkol = "kommun", sokord = list(c("la", "laomraden", "la-omraden", "la-områden", "la-omraden"))) %>% 
-    add_row(namn = "varlden", id_kol = "Landskod", lankol = NA, kommunkol = NA, sokord = list(c("varlden", "varldskarta", "världen", "världskarta"))) %>% 
-    add_row(namn = "varldsdelar", id_kol = "Landskod", lankol = NA, kommunkol = NA, sokord = list(c("varldsdelskarta", "varldsdelar", "världsdelskarta", "världsdelar")))
+    add_row(namn = "varlden", id_kol = "Landskod", lankol = NA_character_ , kommunkol = NA_character_ , sokord = list(c("varlden", "varldskarta", "världen", "världskarta"))) %>% 
+    add_row(namn = "varldsdelar", id_kol = "Landskod", lankol = NA_character_ , kommunkol = NA_character_ , sokord = list(c("varldsdelskarta", "varldsdelar", "världsdelskarta", "världsdelar")))
   
   return(karttabell_df)
 }
