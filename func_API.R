@@ -2955,6 +2955,20 @@ github_commit_push <- function(
     fran_rmarkdown = FALSE,
     pull_forst = TRUE) {
   
+  # Testa om git fungerar med nuvarande HOME, annars prova USERPROFILE
+  git_test <- suppress_specific_warning(system2("git", args = "--version", stdout = TRUE, stderr = TRUE), warn_text = "status 128")
+  if (isTRUE(attr(git_test, "status") == 128)) {
+    old_home <- Sys.getenv("HOME")
+    Sys.setenv(HOME = Sys.getenv("USERPROFILE"))
+    on.exit(Sys.setenv(HOME = old_home), add = TRUE, after = FALSE)
+    
+    # Verifiera att det faktiskt fungerade
+    git_test2 <- system2("git", args = "--version", stdout = TRUE, stderr = TRUE)
+    if (isTRUE(attr(git_test2, "status") == 128)) {
+      stop("Kan inte nå git, varken med HOME eller USERPROFILE. Kontrollera nätverksuppkopplingen.")
+    }
+  }
+  
   lokal_sokvag_repo <- paste0(sokvag_lokal_repo, repo)
   
   # Skydd mot parallell körning (låser processen)
@@ -2975,15 +2989,8 @@ github_commit_push <- function(
   staged_added      <- sub("^.. ", "", repo_status[grepl("^A", repo_status)])
   staged_modified   <- sub("^.. ", "", repo_status[grepl("^M ", repo_status)])
   staged_deleted    <- sub("^.. ", "", repo_status[grepl("^D ", repo_status)])
-  # untracked_files <- repo_status$untracked
-  # unstaged_modified <- repo_status$unstaged$modified
-  # unstaged_deleted <- repo_status$unstaged$deleted
-  # staged_added <- repo_status$staged$added
-  # staged_modified <- repo_status$staged$modified
-  # staged_deleted <- repo_status$staged$deleted
-  
-  #if (length(untracked_files) + length(unstaged_modified) + length(unstaged_deleted) > 0) {
-  if (any(lengths(list(untracked_files, unstaged_modified, unstaged_deleted,
+ 
+    if (any(lengths(list(untracked_files, unstaged_modified, unstaged_deleted,
                        staged_added, staged_modified, staged_deleted)) > 0)) {
     
     if (!fran_rmarkdown) {
