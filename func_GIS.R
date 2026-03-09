@@ -3692,9 +3692,9 @@ postgis_skapa_omradesnyckel_tabell_vy <- function(
     rut_urval_kolumner = NULL,
     utdata_schema = "omradesnycklar",
     utdata_vy = NULL,
-    fran_rutid_till_x_y_kol = c("Ruta100swX" = 7, "Ruta100swY" = 6),                  # delar upp döper om rutorna med namn och sedan = längd på del av rutid som är x resp y
-                                                                                      # tex så här: fran_rutid_till_x_y_kol = c("Ruta100swX" = 7, "Ruta100swY" = 6), där x är 7 position 1-7 av rutid, och y är position 8-13 av rutid
-                                                                                      #, om NULL så behålls rutid-kolumnen och inga x- eller y-kolumner skapas
+    fran_rutid_till_x_y_kol = list("Ruta100swX" = c(7, 13), "Ruta100swY" = c(1, 6)),                  # delar upp döper om rutorna med namn och sedan = start- och slutposition på del av rutid som tillhör respektive namn
+                                                                                                      # tex så här: fran_rutid_till_x_y_kol = list("Ruta100swX" = c(7, 13), "Ruta100swY" = c(1, 6)), där x är 7 tecken från position 7-13 av rutid, och y är position 1-6 av rutid
+                                                                                                      #, om NULL så behålls rutid-kolumnen och inga x- eller y-kolumner skapas
     databas_typ = "vy",                # # "tabell", "materialiserad_vy" eller "vy"
     skriv_over_befintlig_tabell_vy = TRUE        # TRUE så tas befintlig vy/materialiserad vy över och så skrivs den nya 
 ) {
@@ -3783,8 +3783,8 @@ postgis_skapa_omradesnyckel_tabell_vy <- function(
     } else if (is.null(names(fran_rutid_till_x_y_kol)) || any(names(fran_rutid_till_x_y_kol) == "")) {
       message("fran_rutid_till_x_y_kol måste ha namngivna element som kolumnnamn. Körs utan uppdelning av rutid.")
       fran_rutid_till_x_y_kol <- NULL
-    } else if (!is.numeric(fran_rutid_till_x_y_kol)) {
-      message("Värdena i fran_rutid_till_x_y_kol måste vara numeriska (antal tecken). Körs utan uppdelning av rutid.")
+    } else if (!all(sapply(fran_rutid_till_x_y_kol, function(x) is.numeric(x) && length(x) == 2))) {
+      message("Värdena i fran_rutid_till_x_y_kol måste vara numeriska vektorer med start- och slutposition. Körs utan uppdelning av rutid.")
       fran_rutid_till_x_y_kol <- NULL
     }
   }
@@ -3792,14 +3792,10 @@ postgis_skapa_omradesnyckel_tabell_vy <- function(
   # Bygg eventuell uppdelning av rutid i x- och y-kolumner baserat på positioner i rutid
   rutid_split <- if (!is.null(fran_rutid_till_x_y_kol)) {
     kol_namn <- names(fran_rutid_till_x_y_kol)
-    kol_langd <- as.numeric(fran_rutid_till_x_y_kol)
-    start_x <- 1
-    start_y <- kol_langd[1] + 1
     
-    glue::glue(
-      ",\n      substring(r.{rut_id_kol}, {start_x}, {kol_langd[1]})::numeric AS {kol_namn[1]},
-      substring(r.{rut_id_kol}, {start_y}, {kol_langd[2]})::numeric AS {kol_namn[2]}"
-    )
+    paste(mapply(function(namn, pos) {
+      glue::glue(",\n      substring(r.{rut_id_kol}, {pos[1]}, {pos[2] - pos[1] + 1})::numeric AS {namn}")
+    }, names(fran_rutid_till_x_y_kol), fran_rutid_till_x_y_kol), collapse = "")
   } else {
     ""
   }
