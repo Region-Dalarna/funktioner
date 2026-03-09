@@ -3863,8 +3863,27 @@ postgis_omradesnyckel_exportera_till_mikrodb <- function(
     omradesnyckel_tabell,
     max_chunk_stlk_mb = 10,
     filnamn = NULL,
-    output_mapp = NULL
+    output_mapp = NULL,
+    kolumner_namn = NULL,                              # skickas som namngiven vektor för att döpa om befintliga kolumner till nya namn
+    kolumner_lista = FALSE                             # används för att lista kolumner i aktuellt område (dvs. omradesnyckel_schema.omradesnyckel_tabell)
 ) {
+  
+  if (kolumner_lista) {
+    kolumner <- DBI::dbGetQuery(con, glue::glue_sql(
+      "SELECT column_name FROM information_schema.columns
+     WHERE table_schema = {omradesnyckel_schema}
+       AND table_name = {omradesnyckel_tabell}
+     ORDER BY ordinal_position",
+      .con = con
+    ))$column_name
+    cat("Kolumner i ", omradesnyckel_schema, ".", omradesnyckel_tabell, ":\n")
+    message(paste0("  - ", kolumner, collapse = "\n"), "\n\n")
+    cat("Vektor att använda med 'kolumner_namn' för att döpa om kolumner till det exporterade datasetet (ligger i urklippshanteraren, nås med ctrl+v):\n")
+    cat("Värdet till vänster om '=' är det nya namnet och det till höger är befintligt kolumnnamn.\n")
+    message(paste0('kolumner_namn = c(', paste0(kolumner, ' = "', kolumner, '"', collapse = ", "), ')'))
+    clipr::write_clip(paste0('kolumner_namn = c(', paste0(kolumner, ' = "', kolumner, '"', collapse = ", "), ')'))            # lägg i urklippshanteraren
+    return(invisible(setNames(kolumner, kolumner)))
+  }
   
   if (is.null(output_mapp)) output_mapp <- utskriftsmapp()
   if (is.null(filnamn)) filnamn <- omradesnyckel_tabell
@@ -3875,10 +3894,17 @@ postgis_omradesnyckel_exportera_till_mikrodb <- function(
     "SELECT * FROM {omradesnyckel_schema}.{omradesnyckel_tabell}",
     .con = con
   ))
+  
+  # om användaren vill döpa om kolumner så görs det här om kolumner_namn inte är NULL, kolumner_namn ska skickas som en namngiven vektor där 
+  # det nya namnet är namnet på elementet och det gamla kolumnnamnet är värdet, tex: 
+  # kolumner_namn = c(nytt_namn1 = "gammalt_namn1", nytt_namn2 = "gammalt_namn2")
+  if (!is.null(kolumner_namn)) {
+    alla_rutor_export <- alla_rutor_export %>%
+      rename(any_of(kolumner_namn))
+  }
+  
   message("Mäter storlek på hela datasetet...")
   df_namn <- if (is.null(filnamn))  omradesnyckel_tabell else filnamn
-  #df_list <- list(alla_rutor_export)
-  #names(df_list) <- df_namn
   
   # Skriv hela datasetet till en temporär fil för att se storleken totalt
   tmp <- "tempfil.csv"
