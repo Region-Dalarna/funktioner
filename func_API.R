@@ -4762,14 +4762,15 @@ shinyapp_skapa_med_github_repo <- function(
 
   # ==== Skapa R-projekt ========================================================
 
-  gitprojekt_sokvag <- if (stringr::str_sub(sokvag_proj, -1, -1) == "/") {
+  gitprojekt_
+  sokvag <- if (stringr::str_sub(sokvag_proj, -1, -1) == "/") {
     stringr::str_sub(sokvag_proj, 1, -2)
   } else {
     sokvag_proj
   }
   
   usethis::create_project(gitprojekt_sokvag, open = FALSE)
-  
+  unlink(file.path(sokvag_proj, "R"), recursive = TRUE)             # ta bort mappen R som ligger direkt i repositoryt
 
   # ==== Skapa app-struktur: app/, www/, R/ ====================================
 
@@ -4938,6 +4939,10 @@ gert::git_init()
 gert::git_add(".")
 gert::git_commit("Initiera Shinyapp-projekt")
 
+if (Sys.getenv("GITHUB_PAT") == "") {
+  gh_user  <- keyring::key_list(service = "github_token")$username
+  Sys.setenv(GITHUB_PAT = keyring::key_get("github_token", gh_user))
+} 
 
 # Skapa repo på GitHub
 if (is.null(github_org)) {
