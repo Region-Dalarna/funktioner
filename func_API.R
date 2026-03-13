@@ -2584,12 +2584,7 @@ oppnadata_hamta <- function(
   
   # kontrollera om alla nödvändiga funktioner redan är laddade
   funktioner_ar_laddade <- funktioner_nodvandiga[funktioner_nodvandiga %in% ls(envir = .GlobalEnv)]
-  if (length(funktioner_ar_laddade) == 0){
-    funktioner_behover_laddas <- funktioner_nodvandiga
-  } else {
-    funktioner_behover_laddas <- funktioner_nodvandiga[!funktioner_ar_laddade %in% ls(envir = .GlobalEnv)]  
-  }
-  
+  funktioner_behover_laddas <- funktioner_nodvandiga[!funktioner_nodvandiga %in% ls(envir = .GlobalEnv)]       # kontrollera om alla nödvändiga funktioner redan är laddade
   
   # om inte alla nödvändiga funktioner redan är laddade så laddas de in från rätt fil
   if (length(funktioner_behover_laddas) > 0) {
@@ -2605,6 +2600,114 @@ oppnadata_hamta <- function(
   
   return(retur_df)  
 }
+
+intern_lupp_test_och_funktioner_som_ska_laddas <- function(con) {
+  
+  # Kontrollera att con är en databasuppkoppling
+  if (!inherits(con, "PqConnection") || !dbIsValid(con)) {
+    stop("con måste vara en aktiv PostgreSQL-uppkoppling (RPostgres)")
+  }
+  
+  aktuell_db <- dbGetQuery(con, "SELECT current_database()")$current_database
+  if (aktuell_db != "sekretess") {
+    stop(glue::glue("Fel databas: '{aktuell_db}'. Måste vara uppkopplad mot 'sekretess'"))
+  }
+  
+  # Kontrollera behörighet genom att testa åtkomst till lupp-schemat
+  tryCatch(
+    invisible(dbGetQuery(con, "SELECT 1 FROM lupp.fragenyckel LIMIT 1")),
+    error = function(e) stop("Saknar behörighet till databasen 'sekretess'")
+  )
+  
+  
+  # vi source:ar in enbart de funktioner som behövs från func_GIS.R för att köra denna 
+  # funktion, så att vi inte kladdar ner global environment för mycket. 
+  
+  funktioner_nodvandiga <- c("uppkoppling_adm", "postgres_tabell_till_df")
+  funktioner_behover_laddas <- funktioner_nodvandiga[!funktioner_nodvandiga %in% ls(envir = .GlobalEnv)]       # kontrollera om alla nödvändiga funktioner redan är laddade
+ 
+  # om inte alla nödvändiga funktioner redan är laddade så laddas de in från rätt fil
+  if (length(funktioner_behover_laddas) > 0) {
+    source_funktioner("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R",
+                      funktioner_behover_laddas)
+  }
+
+}
+
+# hämta lupp-data och annat som behövs =========================
+lupp_dataset_hamta <- function(con) {
+  # funktion för att hämta lupp-data i geodatabasen
+  
+  intern_lupp_test_och_funktioner_som_ska_laddas(con)
+
+  retur_df <- postgres_tabell_till_df(
+    con = con,
+    schema = "lupp",
+    tabell = "dataset"
+  )
+  
+  return(retur_df)  
+}
+
+lupp_fragenyckel_hamta <- function(con) {
+  # funktion för att hämta lupp-data i geodatabasen
+  
+  intern_lupp_test_och_funktioner_som_ska_laddas(con)
+  
+  retur_df <- postgres_tabell_till_df(
+    con = con,
+    schema = "lupp",
+    tabell = "fragenyckel"
+  ) %>% 
+    mutate(
+      gruppering_vektor = pmap(
+        list(`grupp 1`, `grupp 2`, `grupp 3`, `grupp 4`, `grupp 5`),
+        ~ na.omit(c(...))
+      ),
+      gruppering_minus_vektor = pmap(
+        list(`minus 1`, `minus 2`),
+        ~ na.omit(c(...))
+      )
+    )
+  
+  return(retur_df)  
+}
+
+lupp_svarssortering_hamta <- function(con) {
+  # funktion för att hämta lupp-data i geodatabasen
+  
+  intern_lupp_test_och_funktioner_som_ska_laddas(con)
+  
+  retur_df <- postgres_tabell_till_df(
+    con = con,
+    schema = "lupp",
+    tabell = "svarssortering"
+  ) %>%
+    mutate(values = map(values, ~ strsplit(.x, "\\|")[[1]]))
+  
+  return(retur_df)  
+}
+
+lupp_fargvektorer_hamta <- function(con) {
+  # funktion för att hämta lupp-data i geodatabasen
+  
+  intern_lupp_test_och_funktioner_som_ska_laddas(con)
+  
+  inlas_df <- postgres_tabell_till_df(
+    con = con,
+    schema = "lupp",
+    tabell = "fargvektorer"
+  ) 
+  
+  retur_list <- split(inlas_df, inlas_df$kategori) %>%
+    purrr::map(~ list(
+      fargvektor     = setNames(.x$fargkod, .x$etikett),
+      fargkategorier = unique(sub("\\..*", "", .x$etikett))
+    ))
+  
+  return(retur_list)  
+}
+
 
 # ================================================= github-funktioner ========================================================
 
