@@ -317,7 +317,7 @@ hamta_gtfs_data <- function(gtfs_dataset = "20",   #
     
     # calendar
     if (file.exists(file.path(unzip_dir, "calendar.txt"))) {
-      calendar <- read.csv2(file.path(unzip_dir, "shapes.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
+      calendar <- read.csv2(file.path(unzip_dir, "calendar.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
     } else {
       calendar <- gtfs_fyll_calendar_dagar(calendar_dates)          # funktion för att skapa calendar-dataset om bara calendar_dates finns, calendar-datasetet behövs för vissa funktioner, tex. gtfsrouter-paketet i r
     }
