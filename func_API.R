@@ -2661,11 +2661,11 @@ lupp_fragenyckel_hamta <- function(con) {
   ) %>% 
     mutate(
       gruppering_vektor = pmap(
-        list(`grupp 1`, `grupp 2`, `grupp 3`, `grupp 4`, `grupp 5`),
+        list(`Grupp 1`, `Grupp 2`, `Grupp 3`, `Grupp 4`, `Grupp 5`),
         ~ na.omit(c(...))
       ),
       gruppering_minus_vektor = pmap(
-        list(`minus 1`, `minus 2`),
+        list(`Minus 1`, `Minus 2`),
         ~ na.omit(c(...))
       )
     )
@@ -2683,7 +2683,8 @@ lupp_svarssortering_hamta <- function(con) {
     schema = "lupp",
     tabell = "svarssortering"
   ) %>%
-    mutate(values = map(values, ~ strsplit(.x, "\\|")[[1]]))
+    mutate(values = stringr::str_split(values, "\\|")) %>% 
+    tibble::as_tibble()
   
   return(retur_df)  
 }

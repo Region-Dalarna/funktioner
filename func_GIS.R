@@ -1827,7 +1827,9 @@ postgres_df_till_postgrestabell <- function(con = "default",
                                             tabell,                                      # det tabellnamn den nya filen ska få i postgis
                                             id_kol = NA,                   # den kolumn som innehåller ett unikt ID och görs till primärnyckelkolumn
                                             addera_data = FALSE,                         # om TRUE så läggs rader till i en tabell, annars skrivs den över (om den finns, annars skrivs en ny tabell)                                            
-                                            meddelande_tid = FALSE
+                                            meddelande_tid = FALSE,
+                                            tabellnamn_till_gemener = TRUE,
+                                            kolumnnamn_till_gemener = TRUE
   ) {
 
     starttid <- Sys.time()                                        # Starta tidstagning
@@ -1840,13 +1842,13 @@ postgres_df_till_postgrestabell <- function(con = "default",
     
     
     # säkerställ att alla kolumnnamn är i gemener, ställer inte till problem i postgis då
-    names(inlas_df) <- tolower(names(inlas_df))
-    tabell <- tabell %>% tolower()
+    if (kolumnnamn_till_gemener) names(inlas_df) <- tolower(names(inlas_df))
+    if (tabellnamn_till_gemener) tabell <- tabell %>% tolower()
     
     # kör sql-kod för att skapa ett nytt schema med namn definierat ovan om det inte redan finns
     schema_finns <- postgres_schema_finns(con, schema)
     
-    if (!schema_finns) dbExecute(con, paste0("create schema if not exists ", schema, ";"))
+    if (!schema_finns) DBI::dbExecute(con, glue::glue_sql("CREATE SCHEMA IF NOT EXISTS {`schema`};", .con = con))
     
     # Kontrollera om tabellen redan finns
     tabell_finns <- DBI::dbExistsTable(con, DBI::Id(schema = schema, table = tabell))
@@ -1862,7 +1864,7 @@ postgres_df_till_postgrestabell <- function(con = "default",
         
       } else {
         # Om tabellen finns, töm tabellen men behåll struktur och behörigheter
-        dbExecute(con, sprintf("TRUNCATE TABLE %s.%s;", schema, tabell))
+        DBI::dbExecute(con, glue::glue_sql("TRUNCATE TABLE {`schema`}.{`tabell`};", .con = con))
         append_mode <- FALSE
         
       }
@@ -1876,7 +1878,7 @@ postgres_df_till_postgrestabell <- function(con = "default",
     
     # gör id_kol till id-kolumn i tabellen
     if (!is.na(id_kol)) {
-      dbExecute(con, paste0("ALTER TABLE ", schema, ".", tabell, " ADD PRIMARY KEY (", id_kol ,");"))
+      DBI::dbExecute(con, glue::glue_sql("ALTER TABLE {`schema`}.{`tabell`} ADD PRIMARY KEY ({`id_kol`});", .con = con))
     }
     if(default_flagga) dbDisconnect(con)                                                    # Koppla ner om defaultuppkopplingen har använts
         berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
@@ -2324,7 +2326,9 @@ postgres_databas_skriv_med_metadata <- function(
     id_kol = NA,
     postgis_addera_data = FALSE,          # om TRUE töms ej tabellen innan ny data skrivs
     felmeddelande_medskickat = NA,
-    kommentar_metadata = NA
+    kommentar_metadata = NA,
+    tabellnamn_till_gemener = TRUE,
+    kolumnnamn_till_gemener = TRUE
 ) {
   # Det här är egentligen bara en wrapper kring funktionen postgis_databas_skriv_med_metadata() som
   # kom först pga att vi skapade geodatabasen först. Men geokolumnen är NA per default och går inte att 
@@ -2339,7 +2343,9 @@ postgres_databas_skriv_med_metadata <- function(
     postgistabell_id_kol = id_kol,
     postgis_addera_data = postgis_addera_data,
     felmeddelande_medskickat = felmeddelande_medskickat,
-    kommentar_metadata = kommentar_metadata
+    kommentar_metadata = kommentar_metadata,
+    tabellnamn_till_gemener = tabellnamn_till_gemener,
+    kolumnnamn_till_gemener = kolumnnamn_till_gemener
   )
 } # slut funktion postgres_databas_skriv_med_metadata
 
@@ -2734,7 +2740,9 @@ postgis_sf_till_postgistabell <-
            addera_data = FALSE,                         # om TRUE så läggs rader till i en tabell, annars skrivs den över (om den finns, annars skrivs en ny tabell)
            skriv_over_tabell_om_finns = FALSE,            # TRUE så tar den bort hela tabellen och skriver en ny (tex. bra om man behöver lägga till kolumner), annars är FALSE bra som behåller strukturen på tabellen
            #postgistabell_till_crs,
-           meddelande_tid = FALSE
+           meddelande_tid = FALSE,
+           tabellnamn_till_gemener = TRUE,
+           kolumnnamn_till_gemener = TRUE
   ) {
     #
     # Följande parametrar skickas med funktionen:
@@ -2759,13 +2767,14 @@ postgis_sf_till_postgistabell <-
     
     
     # säkerställ att alla kolumnnamn är i gemener, ställer inte till problem i postgis då
-    names(inlas_sf) <- tolower(names(inlas_sf))
-    tabell <- tabell %>% tolower()
+    if (kolumnnamn_till_gemener) names(inlas_sf) <- tolower(names(inlas_sf))
+    if (tabellnamn_till_gemener) tabell <- tabell %>% tolower()
     
     # kör sql-kod för att skapa ett nytt schema med namn definierat ovan om det inte redan finns
     schema_finns <- postgres_schema_finns(con, schema)
     
-    if (!schema_finns) dbExecute(con, paste0("create schema if not exists ", schema, ";"))
+    if (!schema_finns) DBI::dbExecute(con, glue::glue_sql("CREATE SCHEMA IF NOT EXISTS {`schema`};", .con = con))
+    
   
     # Kontrollera om tabellen redan finns
     tabell_finns <- DBI::dbExistsTable(con, DBI::Id(schema = schema, table = tabell))
@@ -2781,7 +2790,7 @@ postgis_sf_till_postgistabell <-
         
       } else {
         # Om tabellen finns, töm tabellen men behåll struktur och behörigheter
-        dbExecute(con, sprintf("TRUNCATE TABLE %s.%s;", schema, tabell))
+        DBI::dbExecute(con, glue::glue_sql("TRUNCATE TABLE {`schema`}.{`tabell`};", .con = con))
         append_mode <- !skriv_over_tabell_om_finns               # om append_mode är FALSE så skrivs hela tabellen över som en ny tabell, vid TRUE så  behålls strukturen på tabellen (kolumnerna måste vara samma)
         
       }
@@ -2797,23 +2806,42 @@ postgis_sf_till_postgistabell <-
     
     # skapa spatialt index, finns det sedan tidigare, ta bort - loopa så att man kan skicka fler geokolumner
     if (skapa_spatialt_index) {
-      for (geokol in 1:length(postgistabell_geo_kol)) {
-        dbExecute(con, paste0("DROP INDEX IF EXISTS ", schema, ".", postgistabell_geo_kol[geokol], "_idx;")) 
-        dbExecute(con, paste0("CREATE INDEX ", postgistabell_geo_kol[geokol], "_idx ON ", schema, ".", tabell, " USING GIST (", postgistabell_geo_kol[geokol], ");"))
-      }  
-    }
-    # gör id_kol till id-kolumn i tabellen om det inte redan finns, då låter vi det vara som det är
+      
+      # Skydda mot NULL/NA och tomma vektorer
+      if (!all(is.na(postgistabell_geo_kol)) && length(postgistabell_geo_kol) > 0) {
+        
+        for (geokol in postgistabell_geo_kol) {
+          # Indexnamn per geokolumn, t.ex. geom -> geom_idx
+          idx_namn <- paste0(geokol, "_idx")
+          
+          # DROP INDEX IF EXISTS schema.indexnamn (schema-kvalificerat index)
+          DBI::dbExecute(con, glue::glue_sql("DROP INDEX IF EXISTS {`schema`}.{`idx_namn`};", .con = con))
+          
+          # CREATE INDEX indexnamn ON schema.tabell USING GIST (geokolumn)
+          DBI::dbExecute(con, glue::glue_sql("CREATE INDEX {`idx_namn`} ON {`schema`}.{`tabell`} USING GIST ({`geokol`});", .con = con))
+        }
+        
+      } else {
+        warning("skapa_spatialt_index = TRUE men 'postgistabell_geo_kol' är tom/NA. Inget index skapas.")
+      } # slut test om postgistabell_geo_kol finns
+  
+    } # slut test om skapa_spatialt_index är TRUE
+  
+      # gör id_kol till id-kolumn i tabellen om det inte redan finns, då låter vi det vara som det är
     if (!is.na(postgistabell_id_kol)) {
+      
+      
       pk_finns <- nrow(DBI::dbGetQuery(con, glue::glue_sql(
-        "SELECT 1 FROM information_schema.table_constraints 
-            WHERE table_schema = {schema} 
-            AND table_name = {tabell} 
-            AND constraint_type = 'PRIMARY KEY'",
+        "SELECT 1
+       FROM information_schema.table_constraints
+      WHERE table_schema   = {schema}
+        AND table_name     = {tabell}
+        AND constraint_type = 'PRIMARY KEY'",
         .con = con
       ))) > 0
       
       if (!pk_finns) {
-        dbExecute(con, paste0("ALTER TABLE ", schema, ".", tabell, " ADD PRIMARY KEY (", postgistabell_id_kol, ");"))
+        DBI::dbExecute(con, glue::glue_sql("ALTER TABLE {`schema`}.{`tabell`} ADD PRIMARY KEY ({`postgistabell_id_kol`});", .con = con))
       }
     }
     
@@ -3626,7 +3654,9 @@ postgis_databas_skriv_med_metadata <- function(
     postgis_addera_data = FALSE,          # om TRUE töms ej tabellen innan ny data skrivs
     skriv_over_tabell_om_finns = TRUE,    # skriver över tabell om den finns, behåller inte struktur (FALSE om man vill behålla struktur)
     felmeddelande_medskickat = NA,
-    kommentar_metadata = NA
+    kommentar_metadata = NA,
+    tabellnamn_till_gemener = TRUE,
+    kolumnnamn_till_gemener = TRUE
 ) {
   # en funktion som används vid uppdatering av data i geodatabasen och andra databaser. Funktionen använder
   # tryCatch, det finns möjlighet att skicka med ett felmeddelande som kan läggas in i metadata om felet uppstått
@@ -3649,7 +3679,9 @@ postgis_databas_skriv_med_metadata <- function(
                                       postgistabell_id_kol = postgistabell_id_kol,
                                       skapa_spatialt_index = ifelse(is.na(postgistabell_geo_kol), FALSE, TRUE),
                                       addera_data = postgis_addera_data,
-                                      skriv_over_tabell_om_finns = skriv_over_tabell_om_finns
+                                      skriv_over_tabell_om_finns = skriv_over_tabell_om_finns,
+                                      tabellnamn_till_gemener = tabellnamn_till_gemener,
+                                      kolumnnamn_till_gemener = kolumnnamn_till_gemener
                                       ),
         warn_text = "Invalid time zone 'UTC', falling back to local time.")    # detta specifika varningsmeddelande skrivs inte ut i konsolen
       
