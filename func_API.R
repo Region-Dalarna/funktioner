@@ -2644,7 +2644,17 @@ lupp_dataset_hamta <- function(con) {
     con = con,
     schema = "lupp",
     tabell = "dataset"
-  )
+  ) %>% 
+    mutate(
+      Kön = factor(Kön,
+                   levels = c("Tjej", "Kille", "Annan könstillhörighet")),
+      Undersökning = factor(Undersökning,
+                            levels = c("Högstadiet", "Gymnasiet", "Anpassad skolgång")),
+      Socioekonomi = factor(Socioekonomi,
+                            levels = c("Resurssvaga hushåll", "Övriga hushåll")),
+      Födelseland = factor(Födelseland,
+                           levels = c("Utrikes född", "Inrikes född", "Vet inte"))
+    )
   
   return(retur_df)  
 }
