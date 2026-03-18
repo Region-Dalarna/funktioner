@@ -2609,14 +2609,14 @@ intern_lupp_test_och_funktioner_som_ska_laddas <- function(con) {
   }
   
   aktuell_db <- dbGetQuery(con, "SELECT current_database()")$current_database
-  if (aktuell_db != "sekretess") {
-    stop(glue::glue("Fel databas: '{aktuell_db}'. Måste vara uppkopplad mot 'sekretess'"))
+  if (!aktuell_db %in% c("sekretess", "oppna_data")) {
+    stop(glue::glue("Fel databas: '{aktuell_db}'. Måste vara uppkopplad mot 'sekretess' eller 'oppna_data'"))
   }
   
   # Kontrollera behörighet genom att testa åtkomst till lupp-schemat
   tryCatch(
     invisible(dbGetQuery(con, "SELECT 1 FROM lupp.fragenyckel LIMIT 1")),
-    error = function(e) stop("Saknar behörighet till databasen 'sekretess'")
+    error = function(e) stop("Saknar behörighet till databasen '", aktuell_db, "'")
   )
   
   
@@ -2635,28 +2635,59 @@ intern_lupp_test_och_funktioner_som_ska_laddas <- function(con) {
 }
 
 # hämta lupp-data och annat som behövs =========================
-lupp_dataset_hamta <- function(con) {
+lupp_dataset_hamta <- function(con, dataset_namn = "dataset", schema_namn = "lupp") {
   # funktion för att hämta lupp-data i geodatabasen
   
   intern_lupp_test_och_funktioner_som_ska_laddas(con)
 
   retur_df <- postgres_tabell_till_df(
     con = con,
-    schema = "lupp",
-    tabell = "dataset"
-  ) %>% 
-    mutate(
-      Kön = factor(Kön,
-                   levels = c("Tjej", "Kille", "Annan könstillhörighet")),
-      Undersökning = factor(Undersökning,
-                            levels = c("Högstadiet", "Gymnasiet", "Anpassad skolgång")),
-      Socioekonomi = factor(Socioekonomi,
-                            levels = c("Resurssvaga hushåll", "Övriga hushåll")),
-      Födelseland = factor(Födelseland,
-                           levels = c("Utrikes född", "Inrikes född", "Vet inte"))
-    )
+    schema = schema_namn,
+    tabell = dataset_namn
+  ) 
   
+  if ("Undersökning" %in% names(retur_df)){
+    retur_df <- retur_df %>% 
+      mutate(
+        Undersökning = factor(Undersökning,
+                              levels = c("Högstadiet", "Gymnasiet", "Anpassad skolgång")))
+  }
+    
+  if ("Kön" %in% names(retur_df)){
+    retur_df <- retur_df %>% 
+      mutate(
+        Kön = factor(Kön,
+                     levels = c("Tjej", "Kille", "Annan könstillhörighet")))
+  }
+   
+   if ("Socioekonomi" %in% names(retur_df)){
+    retur_df <- retur_df %>%
+      mutate(
+        Socioekonomi = factor(Socioekonomi,
+                              levels = c("Resurssvaga hushåll", "Övriga hushåll")))
+   }
+  
+  if ("Födelseland" %in% names(retur_df)){
+    retur_df <- retur_df %>%
+      mutate(
+        Födelseland = factor(Födelseland,
+                             levels = c("Utrikes född", "Inrikes född", "Vet inte")))
+   }
+    
+  if ("Vistelsetid i Sverige" %in% names(retur_df)){
+    retur_df <- retur_df %>%
+      mutate(
+        `Vistelsetid i Sverige` = factor(`Vistelsetid i Sverige`,
+                             levels = c("0-3 år",  "4-9 år", "10 år eller längre", "Övriga")))
+  }
+
   return(retur_df)  
+}
+
+lupp_hamta_hjalptabeller <- function(con) {
+  lupp_fragenyckel_df <<- lupp_fragenyckel_hamta(con)
+  lupp_svarssortering_df <<- lupp_svarssortering_hamta(con)
+  lupp_fargvektorer_list <<- lupp_fargvektorer_hamta(con)
 }
 
 lupp_fragenyckel_hamta <- function(con) {
