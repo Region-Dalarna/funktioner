@@ -271,7 +271,7 @@ SkapaStapelDiagram <- function(skickad_df,
     # test med att sätta färg med skickad_namngiven_fargvektor i facetdiagram
   } else if (diagram_facet & !all(is.na(skickad_namngiven_fargvektor))) {
     plot_df[facet_grp] <- factor(plot_df[[facet_grp]])
-    plot_df[x_var] <- reorder_within(plot_df[[x_var]], plot_df[[y_var]], plot_df[[facet_grp]])
+    plot_df[x_var] <- reorder_within(plot_df[[x_var]], replace_na(plot_df[[y_var]], 0), plot_df[[facet_grp]])
   }
   
   # vill vi sortera x-axeln utifrån värdet på y 
