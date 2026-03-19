@@ -241,6 +241,10 @@ lupp_skriv_ut_diagram <- function(frage_id = NA,
                                   kommun = "Dalarna",                  # kan vara "Dalarna", "Falun", "Avesta" etc. En eller flera. Ett diagram per kommun
                                   kommuntyp = NA,                              # "Skolkommun" eller "Boendekommun" - om inte angivet så hämtas det från frågenyckeln
                                   output_mapp = NA,
+                                  lupp_dataset_df,
+                                  lupp_fragenyckel_df,
+                                  lupp_svarssortering_df,
+                                  lupp_fargvektorer_list,
                                   bortfall_per_fraga_ta_bort = TRUE,           # beräkna andelar enbart på de som har besvarat en fråga
                                   diagramtitel_egen = NA,                      # om NA så blir det automatisk titel från frågenyckeln, annars den som skickas med
                                   undertitel_diagram_tabort = FALSE,           # TRUE så blir det ingen undertitel där det står om det är boend- eller skolkommun, och vilken
