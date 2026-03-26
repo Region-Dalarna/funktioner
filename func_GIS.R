@@ -460,9 +460,15 @@ unzip_zipfil_med_zipfiler <- function(skickad_url){
   # det här är en specialfunktion som används för att ladda ner polygoner för FA- och LA-regioner samt
   # läns- och kommungränser med kustgränser (blir snyggare kartor) de ligger som zipfiler i en zipfil
   # så man måste packa upp dessa i två steg
-  cur_tempfile <- tempfile()
-  download.file(url = skickad_url, destfile = cur_tempfile)
+  cur_tempfile <- tempfile(fileext = ".zip")
+  
+  resp <- GET(skickad_url, user_agent("R (httr)"), write_disk(cur_tempfile, overwrite = TRUE))
+  
+  stop_for_status(resp)
+  
   out_directory <- tempfile()
+  dir.create(out_directory)
+  
   unzip(cur_tempfile, exdir = out_directory)
   
   zipfillista <- list.files(out_directory, full.names = TRUE)
