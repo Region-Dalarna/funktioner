@@ -1651,7 +1651,7 @@ webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel
   # Få index för de element på webbsidan där alla sökord är med,
   # tabort-sökord, dvs. sökord som börjar med "!" tas inte med i funktionen
   sokord_filtered <- sokord %>% 
-    discard(~ str_starts(.x, "!"))
+    purrr::discard(~ str_starts(.x, "!"))
   
   sokord_index <- which(map_lgl(webbsida, function(text) {
     all(map_lgl(sokord_filtered, function(s) {
