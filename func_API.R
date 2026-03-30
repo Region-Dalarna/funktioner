@@ -4422,7 +4422,15 @@ demo_diagrambild_skapa <- function(
 # Funktion som hittar alla yttre funktioner i en skriptfil
 hitta_funktioner_i_fil_ej_inuti_andra_funktioner <- function(filnamn) {
   # Läser in skriptfilen som en vektor av rader
-  rader <- readLines(filnamn)
+  if (str_detect(filnamn, "^https?://")) {
+    h <- curl::new_handle()
+    curl::handle_setopt(h, ssl_verifypeer = FALSE)
+    con <- curl::curl(filnamn, handle = h)
+    rader <- readLines(con)
+    close(con)
+  } else {
+    rader <- readLines(filnamn)
+  }
   
   # Identifierar alla rader som innehåller funktionsdefinitioner
   funktionsrader <- str_which(rader, "\\bfunction\\b")
