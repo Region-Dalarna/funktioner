@@ -1521,7 +1521,7 @@ ar_alla_lan_i_sverige <- function(reg_koder, tillat_rikskod = TRUE, returnera_te
   
 }
 
-skapa_aldersgrupper <- function(alder, aldergrupp_vekt, konv_fran_txt = TRUE) {
+skapa_aldersgrupper <- function(alder, aldergrupp_vekt, konv_fran_txt = TRUE, returnera_faktorvariabel = TRUE) {
   
   # funktion för att enkelt skapa åldersgrupper från ålder som kan användas i en mutate-funktion:
   # mutate(aldersgrupp = skapa_aldersgrupper(alder_var, c(19, 35, 50, 65, 80)))
@@ -1563,7 +1563,9 @@ skapa_aldersgrupper <- function(alder, aldergrupp_vekt, konv_fran_txt = TRUE) {
   }
 
   # Dela in åldrarna i grupper
-  cut(alder, breaks = aldergrupp_vekt, labels = labels, right = FALSE, include.lowest = TRUE)
+  retur_vekt <- cut(alder, breaks = aldergrupp_vekt, labels = labels, right = FALSE, include.lowest = TRUE)
+  if (!returnera_faktorvariabel) retur_vekt <- as.character(retur_vekt) 
+  return(retur_vekt)
 }
 
 # returnera rätt sökväg till vår utskriftsmapp där vi sparar diagram- och kartfiler som inte har någon särskild
