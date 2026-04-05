@@ -2,7 +2,8 @@
 # andra paket 
  
 if (!require("pacman")) install.packages("pacman")
-p_load(git2r,
+p_load(xml2,
+       git2r,
        gert,
        gh,
        pxweb,
@@ -1396,6 +1397,315 @@ gymnprg_inr_koder_hamta_api_skolverket <- possibly(function(url = "https://api.s
   return(gy_df)
 }, otherwise = NULL)
 
+
+# ====================== Läser in all data från pivottabeller i excelfiler utan att behöva stöka med filter etc. ===================
+
+# ── Hjälpfunktion: läs en enskild cache ───────────────────
+intern_excel_xml_lasa_pivot_cache <- function(xlsx_fil, cache_nr = 1) {
+  
+  # Läser pivottabellcachen direkt från en xlsx-fil och returnerar en data.frame.
+  # Används av: excel_xml_las_fil()
+  
+  def_path <- paste0("xl/pivotCache/pivotCacheDefinition", cache_nr, ".xml")
+  rec_path <- paste0("xl/pivotCache/pivotCacheRecords", cache_nr, ".xml")
+  
+  tmp <- tempfile()
+  dir.create(tmp)
+  unzip(xlsx_fil, files = c(def_path, rec_path), exdir = tmp)
+  
+  # 1. cacheDefinition: kolumnnamn + sharedItems (oförändrad)
+  message("  Läser cacheDefinition...")
+  def_doc <- read_xml(file.path(tmp, def_path))
+  ns      <- xml_ns(def_doc)
+  
+  fields    <- xml_find_all(def_doc, ".//d1:cacheField", ns)
+  col_namn  <- xml_attr(fields, "name")
+  antal_kol <- length(col_namn)
+  
+  shared_items <- vector("list", antal_kol)
+  for (i in seq_along(fields)) {
+    items_el <- xml_find_first(fields[[i]], "d1:sharedItems", ns)
+    if (!is.na(items_el)) {
+      barn   <- xml_children(items_el)
+      tags   <- xml_name(barn)
+      varden <- ifelse(tags == "m", NA_character_, xml_attr(barn, "v"))
+      shared_items[[i]] <- varden
+    }
+  }
+  
+  # 2. cacheRecords: helt vektoriserad parsning
+  message("  Läser cacheRecords...")
+  raw <- readLines(file.path(tmp, rec_path), warn = FALSE, encoding = "UTF-8")
+  raw <- paste(raw, collapse = "")
+  
+  # Räkna antal rader från count-attributet i rotelementet (snabbare än att räkna </r>)
+  antal_rader <- as.integer(regmatches(raw, regexpr('(?<=count=")[0-9]+', raw, perl = TRUE)))
+  message(paste("  Antal rader:", antal_rader))
+  
+  # Extrahera alla celler i hela filen på en gång: tagg + värde + radavgränsare
+  # Vi lägger till </r> som en sentinel så vi vet var varje rad slutar
+  hits    <- gregexpr("<[xnbds] v=\"[^\"]*\"/>|</r>", raw, perl = TRUE)
+  träffar <- regmatches(raw, hits)[[1]]
+  
+  # Identifiera vilka träffar som är radavgränsare
+  är_radslut <- träffar == "</r>"
+  
+  # Tilldela radnummer till varje cell
+  rad_nr <- cumsum(är_radslut)
+  rad_nr <- rad_nr[!är_radslut] + 1L  # +1 för att rad_nr ökar EFTER </r>
+  
+  # Extrahera tagg och värde för alla celler
+  celler  <- träffar[!är_radslut]
+  taggar  <- substr(celler, 2, 2)          # tecknet efter "<"
+  varden  <- regmatches(celler, regexpr('(?<=v=")[^"]+', celler, perl = TRUE))
+  
+  # Räkna ut kolumnposition per cell (position inom sin rad)
+  kol_nr <- sequence(tabulate(rad_nr))
+  
+  # Förbered resultatvektorer
+  resultat <- vector("list", antal_kol)
+  names(resultat) <- col_namn
+  for (i in seq_along(col_namn)) resultat[[i]] <- character(antal_rader)
+  
+  # Hantera x-celler (index till sharedItems) och direktvärden separat
+  är_x <- taggar == "x"
+  
+  # Direktvärden (n, b, d, s) – helt vektoriserat
+  if (any(!är_x)) {
+    idx_direkt <- which(!är_x)
+    for (k in seq_along(col_namn)) {
+      mask <- idx_direkt[kol_nr[idx_direkt] == k]
+      if (length(mask) > 0)
+        resultat[[k]][rad_nr[mask]] <- varden[mask]
+    }
+  }
+  
+  # x-celler (sharedItems-uppslag) – vektoriserat per kolumn
+  if (any(är_x)) {
+    idx_x <- which(är_x)
+    for (k in seq_along(col_namn)) {
+      mask <- idx_x[kol_nr[idx_x] == k]
+      if (length(mask) > 0) {
+        idx <- as.integer(varden[mask]) + 1L
+        resultat[[k]][rad_nr[mask]] <- shared_items[[k]][idx]
+      }
+    }
+  }
+  
+  # 3. Bygg data.frame
+  df <- as.data.frame(resultat, stringsAsFactors = FALSE)
+  for (i in seq_along(col_namn)) {
+    if (is.null(shared_items[[i]])) {
+      df[[col_namn[i]]] <- as.numeric(df[[col_namn[i]]])
+    }
+  }
+  
+  unlink(tmp, recursive = TRUE)
+  df
+}
+
+
+
+excel_xml_las_fil <- function(xlsx_fil, flikar = NULL) {
+  
+  # Läser pivottabelldata från en eller flera flikar i en xlsx-fil och returnerar
+  # en namngiven lista med en data.frame per flik. Lägger automatiskt till
+  # _klartext-kolumner för kolade variabler om mappningar hittas.
+  # Använder: intern_excel_xml_lasa_pivot_cache(), intern_excel_xml_hamta_kodmappningar()
+  
+  # flikar: NULL = läs alla, annars en vektor med fliknamn (character)
+  #         eller positioner (integer/numeric), t.ex.:
+  #           excel_xml_las_fil(fil, flikar = "SNIAVD 2010-01-")
+  #           excel_xml_las_fil(fil, flikar = c(1, 3))
+  #           excel_xml_las_fil(fil, flikar = c("1996-01-", "Yrkesområde 201301-"))
+  
+  tmp <- tempfile()
+  dir.create(tmp)
+  
+  rel_filer  <- c("xl/workbook.xml", "xl/_rels/workbook.xml.rels")
+  alla_filer <- unzip(xlsx_fil, list = TRUE)$Name
+  sheet_rels <- alla_filer[grepl("xl/worksheets/_rels/sheet.*\\.rels", alla_filer)]
+  pivot_rels <- alla_filer[grepl("xl/pivotTables/_rels/pivotTable.*\\.rels", alla_filer)]
+  
+  unzip(xlsx_fil, files = c(rel_filer, sheet_rels, pivot_rels), exdir = tmp)
+  
+  # Läs kodmappningar en gång för hela filen
+  kodmappningar <- intern_excel_xml_hamta_kodmappningar(xlsx_fil)
+  
+  # Läs bladnamn från workbook.xml
+  wb_doc    <- read_xml(file.path(tmp, "xl/workbook.xml"))
+  ns_wb     <- xml_ns(wb_doc)
+  sheets    <- xml_find_all(wb_doc, ".//d1:sheet", ns_wb)
+  blad_namn <- xml_attr(sheets, "name")
+  blad_rid  <- xml_attr(sheets, "id")
+  
+  # Validera och översätt flikar-argumentet till en indexvektor
+  if (is.null(flikar)) {
+    urval <- seq_along(blad_namn)
+  } else if (is.numeric(flikar)) {
+    ogiltiga <- flikar[flikar < 1 | flikar > length(blad_namn)]
+    if (length(ogiltiga) > 0)
+      stop("Ogiltiga positioner: ", paste(ogiltiga, collapse = ", "),
+           ". Filen har ", length(blad_namn), " flikar.")
+    urval <- as.integer(flikar)
+  } else if (is.character(flikar)) {
+    ogiltiga <- flikar[!flikar %in% blad_namn]
+    if (length(ogiltiga) > 0)
+      stop("Fliknamn hittades inte: ", paste(ogiltiga, collapse = ", "),
+           ".\nTillgängliga flikar: ", paste(blad_namn, collapse = ", "))
+    urval <- match(flikar, blad_namn)
+  } else {
+    stop("flikar måste vara NULL, en character-vektor eller en numeric-vektor.")
+  }
+  
+  message(paste0("Läser ", length(urval), " av ", length(blad_namn), " flikar."))
+  
+  # Bygg karta: rId → målfil
+  wb_rels_doc     <- read_xml(file.path(tmp, "xl/_rels/workbook.xml.rels"))
+  ns_rels         <- xml_ns(wb_rels_doc)
+  rels            <- xml_find_all(wb_rels_doc, ".//d1:Relationship", ns_rels)
+  rid_till_target <- setNames(xml_attr(rels, "Target"), xml_attr(rels, "Id"))
+  
+  resultat_lista <- vector("list", length(urval))
+  names(resultat_lista) <- blad_namn[urval]
+  
+  for (j in seq_along(urval)) {
+    i    <- urval[j]
+    blad <- blad_namn[i]
+    rid  <- blad_rid[i]
+    sheet_target <- rid_till_target[rid]
+    sheet_nr     <- sub(".*sheet(\\d+)\\.xml", "\\1", sheet_target)
+    
+    message(paste0("Flik [", j, "/", length(urval), "]: '", blad, "'"))
+    
+    sheet_rels_path <- file.path(
+      tmp, "xl", "worksheets", "_rels", paste0("sheet", sheet_nr, ".xml.rels")
+    )
+    if (!file.exists(sheet_rels_path)) {
+      message("  Ingen relations-fil, hoppar över.")
+      next
+    }
+    
+    sheet_rels_doc <- read_xml(sheet_rels_path)
+    ns_sr          <- xml_ns(sheet_rels_doc)
+    sr_rels        <- xml_find_all(sheet_rels_doc, ".//d1:Relationship", ns_sr)
+    sr_types       <- xml_attr(sr_rels, "Type")
+    sr_targets     <- xml_attr(sr_rels, "Target")
+    
+    pivot_idx <- which(grepl("pivotTable", sr_types))
+    if (length(pivot_idx) == 0) {
+      message("  Ingen pivottabell på detta blad, hoppar över.")
+      next
+    }
+    
+    pivot_target <- sr_targets[pivot_idx[1]]
+    pivot_nr     <- sub(".*pivotTable(\\d+)\\.xml", "\\1", pivot_target)
+    
+    pt_rels_path <- file.path(
+      tmp, "xl", "pivotTables", "_rels", paste0("pivotTable", pivot_nr, ".xml.rels")
+    )
+    pt_rels_doc  <- read_xml(pt_rels_path)
+    ns_pt        <- xml_ns(pt_rels_doc)
+    pt_rels      <- xml_find_all(pt_rels_doc, ".//d1:Relationship", ns_pt)
+    cache_target <- xml_attr(pt_rels, "Target")[1]
+    cache_nr     <- as.integer(sub(".*pivotCacheDefinition(\\d+)\\.xml", "\\1", cache_target))
+    
+    message(paste0("  → pivotCacheDefinition", cache_nr, ".xml"))
+    
+    df <- intern_excel_xml_lasa_pivot_cache(xlsx_fil, cache_nr)
+    
+    # Lägg till _klartext-kolumner direkt efter respektive kodkolumn
+    matchande <- intersect(names(df), names(kodmappningar))
+    for (kol in matchande) {
+      pos    <- which(names(df) == kol)
+      klartext <- kodmappningar[[kol]][df[[kol]]]
+      df     <- data.frame(
+        df[seq_len(pos)],
+        klartext,
+        if (pos < ncol(df)) df[seq(pos + 1, ncol(df))] else NULL,
+        stringsAsFactors = FALSE,
+        check.names = FALSE
+      )
+      names(df)[pos + 1] <- paste0(kol, "_klartext")
+      message(paste0("  Lade till kolumn '", kol, "_klartext'"))
+    }
+    resultat_lista[[blad]] <- df
+    message(paste0("  Klar! (", nrow(df), " rader, ", ncol(df), " kolumner)"))
+  }
+  
+  unlink(tmp, recursive = TRUE)
+  message("\nKlart!")
+  resultat_lista
+}
+
+
+intern_excel_xml_hamta_kodmappningar <- function(xlsx_fil) {
+  
+  # Letar efter kod-till-klartext-mappningar i en xlsx-fil genom att jämföra
+  # sharedStrings med sharedItems i pivotcacherna. Returnerar en namngiven lista
+  # med en namngiven vektor per matchande kolumn (t.ex. list(SNI2007_AVD = c(A = "Jordbruk...", ...)))
+  # Används av: excel_xml_las_fil()
+  
+  tmp <- tempfile()
+  dir.create(tmp)
+  
+  # Packa upp sharedStrings och alla cacheDefinitions
+  alla_filer  <- unzip(xlsx_fil, list = TRUE)$Name
+  cache_defs  <- alla_filer[grepl("pivotCache/pivotCacheDefinition", alla_filer)]
+  unzip(xlsx_fil, files = c("xl/sharedStrings.xml", cache_defs), exdir = tmp)
+  
+  # Läs sharedStrings och extrahera möjliga "kod → beskrivning"-mappningar
+  ss_doc   <- read_xml(file.path(tmp, "xl/sharedStrings.xml"))
+  ns_ss    <- xml_ns(ss_doc)
+  si_noder <- xml_find_all(ss_doc, ".//d1:si", ns_ss)
+  strängar <- sapply(si_noder, function(si) {
+    paste(xml_text(xml_find_all(si, ".//d1:t", ns_ss)), collapse = "")
+  })
+  
+  # Behåll strängar som matchar "X beskrivning" (en stor bokstav + mellanslag + text)
+  träffar <- strängar[grepl("^[A-ZÅÄÖ] {1,2}\\S", strängar)]
+  koder   <- substr(träffar, 1, 1)
+  beskr   <- trimws(substr(träffar, 2, nchar(träffar)))
+  möjliga_mappningar <- setNames(beskr, koder)
+  
+  # För varje cacheDefinition: kolla vilka kolumner vars sharedItems
+  # överlappar starkt med koderna i möjliga_mappningar
+  resultat <- list()
+  
+  for (cache_fil in cache_defs) {
+    cache_doc <- read_xml(file.path(tmp, cache_fil))
+    ns_c      <- xml_ns(cache_doc)
+    fields    <- xml_find_all(cache_doc, ".//d1:cacheField", ns_c)
+    
+    for (field in fields) {
+      kolnamn  <- xml_attr(field, "name")
+      items_el <- xml_find_first(field, "d1:sharedItems", ns_c)
+      if (is.na(items_el)) next
+      
+      barn   <- xml_children(items_el)
+      varden <- xml_attr(barn[xml_name(barn) == "s"], "v")
+      varden <- varden[!is.na(varden)]
+      if (length(varden) == 0) next
+      
+      # Hur stor andel av kolumnens värden finns i möjliga_mappningar?
+      overlap <- varden[varden %in% names(möjliga_mappningar)]
+      andel   <- length(overlap) / length(varden)
+      
+      if (andel > 0.3) {
+        mappning <- möjliga_mappningar[varden[varden %in% names(möjliga_mappningar)]]
+        resultat[[kolnamn]] <- mappning
+        message(sprintf("Hittade mappning: kolumn '%s' (%d/%d koder matchade)",
+                        kolnamn, length(overlap), length(varden)))
+      }
+    }
+  }
+  
+  unlink(tmp, recursive = TRUE)
+  invisible(resultat)  # Returnera den namngivna vektorn tyst
+}
+
+
+
 # =========================================== Bra generella funktioner =========================================================
 
 ladda_funk_parametrar <- function(funktion, meddelanden = FALSE) {
@@ -1640,6 +1950,31 @@ korrigera_kolnamn_supercross <- function(skickad_fil, teckenkodstabell = "latin1
     writeLines(kon_korr, paste0(skickad_fil))                                        # skriv över med rätt tecken
   }
 }
+
+filhamtning_med_url_och_sokord <- function(
+    url_webbsida = "https://arbetsformedlingen.se/statistik/sok-statistik/tidigare-statistik",
+    sokord = c("web-platser", ".xlsx")
+) {
+  # Man skickar med en länk och sökord så returnerar funktionen en sökväg till filen som laddats
+  # ned till en temporär fil. Filen tas bort när man stänger R igen men kan läsas in med andra
+  # funktioner, som readxl::read_xlsx() eller funktionerna ovan för att extrahera data direkt ur pivottabeller
+  
+  # Funktionen letar bland url-länkar på webbsidan (url_webbsida) och väljer den url (om det finns flera) som
+  # innehåller alla sökord i vektorn. Finns flera så lämnas ett felmeddelande istället och man måste skicka med fler sökord
+  
+  # Använder: webbsida_af_extrahera_url_med_sokord()
+  
+  url_nedladdning <- webbsida_af_extrahera_url_med_sokord(url_webbsida, sokord)
+  
+  if (length(url_nedladdning) > 1) stop("Flera url:er matchar sökorden. För att undvika fel måste du skicka med fler sökord så att bara en url matchar.")
+  
+  td = tempdir()              # skapa temporär mapp
+  ledigajobb_fil <- tempfile(tmpdir=td, fileext = ".xlsx")
+  
+  httr::GET(url_nedladdning, httr::write_disk(ledigajobb_fil, overwrite = TRUE))
+  return(ledigajobb_fil)
+}
+
 
 webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel", "lan", "!bransch", ".xlsx")) {
   
@@ -2602,156 +2937,6 @@ oppnadata_hamta <- function(
   
   return(retur_df)  
 }
-
-intern_lupp_test_och_funktioner_som_ska_laddas <- function(con) {
-  
-  # Kontrollera att con är en databasuppkoppling
-  if (!inherits(con, "PqConnection") || !dbIsValid(con)) {
-    stop("con måste vara en aktiv PostgreSQL-uppkoppling (RPostgres)")
-  }
-  
-  aktuell_db <- dbGetQuery(con, "SELECT current_database()")$current_database
-  if (!aktuell_db %in% c("sekretess", "oppna_data")) {
-    stop(glue::glue("Fel databas: '{aktuell_db}'. Måste vara uppkopplad mot 'sekretess' eller 'oppna_data'"))
-  }
-  
-  # Kontrollera behörighet genom att testa åtkomst till lupp-schemat
-  tryCatch(
-    invisible(dbGetQuery(con, "SELECT 1 FROM lupp.fragenyckel LIMIT 1")),
-    error = function(e) stop("Saknar behörighet till databasen '", aktuell_db, "'")
-  )
-  
-  
-  # vi source:ar in enbart de funktioner som behövs från func_GIS.R för att köra denna 
-  # funktion, så att vi inte kladdar ner global environment för mycket. 
-  
-  funktioner_nodvandiga <- c("uppkoppling_adm", "postgres_tabell_till_df")
-  funktioner_behover_laddas <- funktioner_nodvandiga[!funktioner_nodvandiga %in% ls(envir = .GlobalEnv)]       # kontrollera om alla nödvändiga funktioner redan är laddade
- 
-  # om inte alla nödvändiga funktioner redan är laddade så laddas de in från rätt fil
-  if (length(funktioner_behover_laddas) > 0) {
-    source_funktioner("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R",
-                      funktioner_behover_laddas)
-  }
-
-}
-
-# hämta lupp-data och annat som behövs =========================
-lupp_dataset_hamta <- function(con, dataset_namn = "dataset", schema_namn = "lupp") {
-  # funktion för att hämta lupp-data i geodatabasen
-  
-  intern_lupp_test_och_funktioner_som_ska_laddas(con)
-
-  retur_df <- postgres_tabell_till_df(
-    con = con,
-    schema = schema_namn,
-    tabell = dataset_namn
-  ) 
-  
-  if ("Undersökning" %in% names(retur_df)){
-    retur_df <- retur_df %>% 
-      mutate(
-        Undersökning = factor(Undersökning,
-                              levels = c("Högstadiet", "Gymnasiet", "Anpassad skolgång")))
-  }
-    
-  if ("Kön" %in% names(retur_df)){
-    retur_df <- retur_df %>% 
-      mutate(
-        Kön = factor(Kön,
-                     levels = c("Tjej", "Kille", "Annan könstillhörighet")))
-  }
-   
-   if ("Socioekonomi" %in% names(retur_df)){
-    retur_df <- retur_df %>%
-      mutate(
-        Socioekonomi = factor(Socioekonomi,
-                              levels = c("Resurssvaga hushåll", "Övriga hushåll")))
-   }
-  
-  if ("Födelseland" %in% names(retur_df)){
-    retur_df <- retur_df %>%
-      mutate(
-        Födelseland = factor(Födelseland,
-                             levels = c("Utrikes född", "Inrikes född", "Vet inte")))
-   }
-    
-  if ("Vistelsetid i Sverige" %in% names(retur_df)){
-    retur_df <- retur_df %>%
-      mutate(
-        `Vistelsetid i Sverige` = factor(`Vistelsetid i Sverige`,
-                             levels = c("0-3 år",  "4-9 år", "10 år eller längre", "Övriga")))
-  }
-
-  return(retur_df)  
-}
-
-lupp_hamta_hjalptabeller <- function(con) {
-  lupp_fragenyckel_df <<- lupp_fragenyckel_hamta(con)
-  lupp_svarssortering_df <<- lupp_svarssortering_hamta(con)
-  lupp_fargvektorer_list <<- lupp_fargvektorer_hamta(con)
-}
-
-lupp_fragenyckel_hamta <- function(con) {
-  # funktion för att hämta lupp-data i geodatabasen
-  
-  intern_lupp_test_och_funktioner_som_ska_laddas(con)
-  
-  retur_df <- postgres_tabell_till_df(
-    con = con,
-    schema = "lupp",
-    tabell = "fragenyckel"
-  ) %>% 
-    mutate(
-      gruppering_vektor = pmap(
-        list(`Grupp 1`, `Grupp 2`, `Grupp 3`, `Grupp 4`, `Grupp 5`),
-        ~ na.omit(c(...))
-      ),
-      gruppering_minus_vektor = pmap(
-        list(`Minus 1`, `Minus 2`),
-        ~ na.omit(c(...))
-      )
-    )
-  
-  return(retur_df)  
-}
-
-lupp_svarssortering_hamta <- function(con) {
-  # funktion för att hämta lupp-data i geodatabasen
-  
-  intern_lupp_test_och_funktioner_som_ska_laddas(con)
-  
-  retur_df <- postgres_tabell_till_df(
-    con = con,
-    schema = "lupp",
-    tabell = "svarssortering"
-  ) %>%
-    mutate(values = stringr::str_split(values, "\\|")) %>% 
-    tibble::as_tibble()
-  
-  return(retur_df)  
-}
-
-lupp_fargvektorer_hamta <- function(con) {
-  # funktion för att hämta lupp-data i geodatabasen
-  
-  intern_lupp_test_och_funktioner_som_ska_laddas(con)
-  
-  inlas_df <- postgres_tabell_till_df(
-    con = con,
-    schema = "lupp",
-    tabell = "fargvektorer"
-  ) 
-  
-  retur_list <- split(inlas_df, inlas_df$kategori) %>%
-    purrr::map(~ list(
-      fargvektor     = setNames(.x$fargkod, .x$etikett),
-      fargkategorier = unique(sub("\\..*", "", .x$etikett))
-    ))
-  
-  return(retur_list)  
-}
-
 
 # ================================================= github-funktioner ========================================================
 

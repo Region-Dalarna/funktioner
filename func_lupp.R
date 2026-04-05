@@ -12,6 +12,167 @@ source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_Sk
 source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R", encoding = "utf-8", echo = FALSE)
 
 
+# nyskrivna funktioner som låg i func_api.R men som flyttats hit ==========================================================================
+funktioner_nodvandiga <- c("uppkoppling_db")
+funktioner_behover_laddas <- funktioner_nodvandiga[!funktioner_nodvandiga %in% ls(envir = .GlobalEnv)]       # kontrollera om alla nödvändiga funktioner redan är laddade
+
+# om inte alla nödvändiga funktioner redan är laddade så laddas de in från rätt fil
+if (length(funktioner_behover_laddas) > 0) {
+  source_funktioner("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R",
+                    funktioner_behover_laddas)
+}
+
+intern_lupp_test_och_funktioner_som_ska_laddas <- function(con) {
+  
+  # Kontrollera att con är en databasuppkoppling
+  if (!inherits(con, "PqConnection") || !dbIsValid(con)) {
+    stop("con måste vara en aktiv PostgreSQL-uppkoppling (RPostgres)")
+  }
+  
+  aktuell_db <- dbGetQuery(con, "SELECT current_database()")$current_database
+  if (!aktuell_db %in% c("sekretess", "oppna_data")) {
+    stop(glue::glue("Fel databas: '{aktuell_db}'. Måste vara uppkopplad mot 'sekretess' eller 'oppna_data'"))
+  }
+  
+  # Kontrollera behörighet genom att testa åtkomst till lupp-schemat
+  tryCatch(
+    invisible(dbGetQuery(con, "SELECT 1 FROM lupp.fragenyckel LIMIT 1")),
+    error = function(e) stop("Saknar behörighet till databasen '", aktuell_db, "'")
+  )
+  
+  
+  # vi source:ar in enbart de funktioner som behövs från func_GIS.R för att köra denna 
+  # funktion, så att vi inte kladdar ner global environment för mycket. 
+  
+  funktioner_nodvandiga <- c("uppkoppling_adm", "postgres_tabell_till_df")
+  funktioner_behover_laddas <- funktioner_nodvandiga[!funktioner_nodvandiga %in% ls(envir = .GlobalEnv)]       # kontrollera om alla nödvändiga funktioner redan är laddade
+  
+  # om inte alla nödvändiga funktioner redan är laddade så laddas de in från rätt fil
+  if (length(funktioner_behover_laddas) > 0) {
+    source_funktioner("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R",
+                      funktioner_behover_laddas)
+  }
+  
+}
+
+# hämta lupp-data och annat som behövs =========================
+lupp_dataset_hamta <- function(con, dataset_namn = "dataset", schema_namn = "lupp") {
+  # funktion för att hämta lupp-data i geodatabasen
+  
+  intern_lupp_test_och_funktioner_som_ska_laddas(con)
+  
+  retur_df <- postgres_tabell_till_df(
+    con = con,
+    schema = schema_namn,
+    tabell = dataset_namn
+  ) 
+  
+  if ("Undersökning" %in% names(retur_df)){
+    retur_df <- retur_df %>% 
+      mutate(
+        Undersökning = factor(Undersökning,
+                              levels = c("Högstadiet", "Gymnasiet", "Anpassad skolgång")))
+  }
+  
+  if ("Kön" %in% names(retur_df)){
+    retur_df <- retur_df %>% 
+      mutate(
+        Kön = factor(Kön,
+                     levels = c("Tjej", "Kille", "Annan könstillhörighet")))
+  }
+  
+  if ("Socioekonomi" %in% names(retur_df)){
+    retur_df <- retur_df %>%
+      mutate(
+        Socioekonomi = factor(Socioekonomi,
+                              levels = c("Resurssvaga hushåll", "Övriga hushåll")))
+  }
+  
+  if ("Födelseland" %in% names(retur_df)){
+    retur_df <- retur_df %>%
+      mutate(
+        Födelseland = factor(Födelseland,
+                             levels = c("Utrikes född", "Inrikes född", "Vet inte")))
+  }
+  
+  if ("Vistelsetid i Sverige" %in% names(retur_df)){
+    retur_df <- retur_df %>%
+      mutate(
+        `Vistelsetid i Sverige` = factor(`Vistelsetid i Sverige`,
+                                         levels = c("0-3 år",  "4-9 år", "10 år eller längre", "Övriga")))
+  }
+  
+  return(retur_df)  
+}
+
+lupp_hamta_hjalptabeller <- function(con) {
+  lupp_fragenyckel_df <<- lupp_fragenyckel_hamta(con)
+  lupp_svarssortering_df <<- lupp_svarssortering_hamta(con)
+  lupp_fargvektorer_list <<- lupp_fargvektorer_hamta(con)
+}
+
+lupp_fragenyckel_hamta <- function(con) {
+  # funktion för att hämta lupp-data i geodatabasen
+  
+  intern_lupp_test_och_funktioner_som_ska_laddas(con)
+  
+  retur_df <- postgres_tabell_till_df(
+    con = con,
+    schema = "lupp",
+    tabell = "fragenyckel"
+  ) %>% 
+    mutate(
+      gruppering_vektor = pmap(
+        list(`Grupp 1`, `Grupp 2`, `Grupp 3`, `Grupp 4`, `Grupp 5`),
+        ~ na.omit(c(...))
+      ),
+      gruppering_minus_vektor = pmap(
+        list(`Minus 1`, `Minus 2`),
+        ~ na.omit(c(...))
+      )
+    )
+  
+  return(retur_df)  
+}
+
+lupp_svarssortering_hamta <- function(con) {
+  # funktion för att hämta lupp-data i geodatabasen
+  
+  intern_lupp_test_och_funktioner_som_ska_laddas(con)
+  
+  retur_df <- postgres_tabell_till_df(
+    con = con,
+    schema = "lupp",
+    tabell = "svarssortering"
+  ) %>%
+    mutate(values = stringr::str_split(values, "\\|")) %>% 
+    tibble::as_tibble()
+  
+  return(retur_df)  
+}
+
+lupp_fargvektorer_hamta <- function(con) {
+  # funktion för att hämta lupp-data i geodatabasen
+  
+  intern_lupp_test_och_funktioner_som_ska_laddas(con)
+  
+  inlas_df <- postgres_tabell_till_df(
+    con = con,
+    schema = "lupp",
+    tabell = "fargvektorer"
+  ) 
+  
+  retur_list <- split(inlas_df, inlas_df$kategori) %>%
+    purrr::map(~ list(
+      fargvektor     = setNames(.x$fargkod, .x$etikett),
+      fargkategorier = unique(sub("\\..*", "", .x$etikett))
+    ))
+  
+  return(retur_list)  
+}
+
+# från gamla lupp_func.R som låg lokalt på \\arkiv ========================================================================================
+
 lupp_skapa_svarssort_fraga <- function(frage_svarsvektor, 
                                        meddelande = TRUE,
                                        lupp_svarssortering_df,
