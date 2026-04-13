@@ -1953,7 +1953,8 @@ korrigera_kolnamn_supercross <- function(skickad_fil, teckenkodstabell = "latin1
 
 filhamtning_med_url_och_sokord <- function(
     url_webbsida = "https://arbetsformedlingen.se/statistik/sok-statistik/tidigare-statistik",
-    sokord = c("web-platser", ".xlsx")
+    sokord = c("web-platser", ".xlsx"),
+    bas_url = "https://arbetsformedlingen.se"
 ) {
   # Man skickar med en länk och sökord så returnerar funktionen en sökväg till filen som laddats
   # ned till en temporär fil. Filen tas bort när man stänger R igen men kan läsas in med andra
@@ -1964,19 +1965,26 @@ filhamtning_med_url_och_sokord <- function(
   
   # Använder: webbsida_af_extrahera_url_med_sokord()
   
-  url_nedladdning <- webbsida_af_extrahera_url_med_sokord(url_webbsida, sokord)
+  url_nedladdning <- webbsida_af_extrahera_url_med_sokord(url_webbsida, sokord, bas_url)
   
-  if (length(url_nedladdning) > 1) stop("Flera url:er matchar sökorden. För att undvika fel måste du skicka med fler sökord så att bara en url matchar.")
+  
+  if (length(url_nedladdning) == 0) stop("Inga url:er matchar angivna sökord.")
+  
   
   td = tempdir()              # skapa temporär mapp
-  ledigajobb_fil <- tempfile(tmpdir=td, fileext = ".xlsx")
   
-  httr::GET(url_nedladdning, httr::write_disk(ledigajobb_fil, overwrite = TRUE))
-  return(ledigajobb_fil)
+  ledigajobb_filer <- map(url_nedladdning, ~ {
+    fil <- tempfile(tmpdir=td, fileext = ".xlsx")
+    
+    httr::GET(.x, httr::write_disk(fil, overwrite = TRUE))
+  }) 
+  
+  if (all(map_int(ledigajobb_filer, "status_code") == "200")) return(map_chr(ledigajobb_filer, "content")) else stop("Något gick fel vid nedladdning av fil. Kontrollera att url:en är korrekt och att sökorden matchar rätt fil.")
 }
 
 
-webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel", "lan", "!bransch", ".xlsx")) {
+webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel", "lan", "!bransch", ".xlsx"),
+                                                 bas_url = "https://arbetsformedlingen.se") {
   
   # hämta webbsidan med tidigare statistik på Arbetsförmedlingen och spara som en vektor
   #webbsida <- suppressWarnings(readLines(skickad_url))
@@ -2030,7 +2038,7 @@ webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel
       }))
     })
   
-  sokord_url <- paste0("https://arbetsformedlingen.se", af_urler)
+  sokord_url <- paste0(bas_url, af_urler)
   
   return(sokord_url)
 } 
