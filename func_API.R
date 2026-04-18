@@ -5110,8 +5110,7 @@ shinyapp_skapa_med_github_repo <- function(
 
   # ==== Skapa R-projekt ========================================================
 
-  gitprojekt_
-  sokvag <- if (stringr::str_sub(sokvag_proj, -1, -1) == "/") {
+  gitprojekt_sokvag <- if (stringr::str_sub(sokvag_proj, -1, -1) == "/") {
     stringr::str_sub(sokvag_proj, 1, -2)
   } else {
     sokvag_proj
