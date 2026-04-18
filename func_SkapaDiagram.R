@@ -90,9 +90,10 @@ SkapaStapelDiagram <- function(skickad_df,
                                dataetiketter_justering_hojdled=0, # möjlighet att skriva en siffra för att skjuta dataetiketterna något uppåt (positivit tal) eller nedåt (negativt tal) från eller mot stapeln
                                dataetiketter_farg = "#464d48",    # möjlighet att byta färg på dataetiketterna
                                fokusera_varden = NA,              # för att rita ut ex. en rektangel som fokuserar på vissa specifika värden. fokusera_varden måste vara en lista som innehåller följande form = "rect", xmin, xmax, ymin, ymax, alpha samt fill. Form är alltså formen på fokusområdet, alpha är genomskinlighet (värde mellan 0 helt genomskinligt och 1 inte alls genomskinligt) och fill är färgen på området som ska fokuseras. Ex: fokusera_varden = list(list(geom = "rect", ymin=40, ymax=60, xmin=0, xmax=Inf, alpha=0.2, fill="grey20"))
-                               stodlinjer_avrunda_fem = FALSE,     # för att alltid ha y-axlar som blir jämna tal, FALSE under testperioden, TRUE när vi vet att det funkar
-                               skickad_namngiven_fargvektor = NA,  # om man vill sätta färger kopplat till kategorinamn så används denna
-                               farg_variabler = NA,                # används tillsammans med skickad_namngiven_fargvektor, de två variabler som används för att bestämma färger
+                               stodlinjer_avrunda_fem = FALSE,    # för att alltid ha y-axlar som blir jämna tal, FALSE under testperioden, TRUE när vi vet att det funkar
+                               stodlinjer_minor_tabort = FALSE,   # FALSE = visa minor stödlinjer, TRUE = ta bort dem
+                               skickad_namngiven_fargvektor = NA, # om man vill sätta färger kopplat till kategorinamn så används denna
+                               farg_variabler = NA,               # används tillsammans med skickad_namngiven_fargvektor, de två variabler som används för att bestämma färger
                                legend_kategorier_tabort_xgrupp = FALSE,   # om man vill tabort x-gruppen ur kategorierna som de skrivs ut i legenden
                                skriv_till_diagramfil = TRUE,      # om TRUE så skrivs diagrammet till en fil                                                                                                                                                                                                                                                                                                                                                               list(list(geom = "text", x = 0.3, y = 50, size = 2.5, fontface = "bold", angle = 0,label = "Jämställda branscher", color ="grey60"))
                                skriv_till_excelfil = FALSE,       # om TRUE så skrivs df:n ut till en excelfil som heter samma som diagrammet men med .xlsx istället för .png på slutet
@@ -445,13 +446,15 @@ SkapaStapelDiagram <- function(skickad_df,
           plot.caption.position = "plot",
           panel.background = element_rect(fill = "white"),
           panel.grid.major.y = element_line(linewidth=0.8, colour = "lightgrey"),
-          panel.grid.minor.y = element_line(linewidth=0.4, colour = "lightgrey"),
+          #panel.grid.minor.y = element_line(linewidth=0.4, colour = "lightgrey"),
+          panel.grid.minor.y = if (stodlinjer_minor_tabort) element_blank() else element_line(linewidth=0.4, colour = "lightgrey"),
           panel.grid.major.x = element_blank(),
           panel.grid.minor.x = element_blank(),
           panel.spacing.x = unit(facet_space_diag_horisont, "mm")) +
     {if (diagram_liggande) { 
       theme(panel.grid.major.x = element_line(linewidth=0.8, colour = "lightgrey"),
-            panel.grid.minor.x = element_line(linewidth=0.4, colour = "lightgrey"),
+            #panel.grid.minor.x = element_line(linewidth=0.4, colour = "lightgrey"),
+            panel.grid.minor.x = if (stodlinjer_minor_tabort) element_blank() else element_line(linewidth=0.4, colour = "lightgrey"),
             panel.grid.major.y = element_blank(),
             panel.grid.minor.y = element_blank(),
             panel.spacing.x = unit(facet_space_diag_horisont, "mm"),
@@ -493,7 +496,8 @@ SkapaStapelDiagram <- function(skickad_df,
     {if (!diagram_facet | (facet_scale == "fixed" & diagram_facet) | (!all(is.na(skickad_namngiven_fargvektor)) & procent_0_100_10intervaller == TRUE & diagram_facet)) {
       scale_y_continuous(breaks = seq(min_yvar, max_yvar, 
                                       by = maj_by_yvar),
-                         minor_breaks = seq(min_yvar, max_yvar, by = min_by_yvar),
+                         #minor_breaks = seq(min_yvar, max_yvar, by = min_by_yvar),
+                         minor_breaks = if (stodlinjer_minor_tabort) NULL else seq(min_yvar, max_yvar, by = min_by_yvar),
                          labels = etikett_format,
                          limits = c(min_yvar, max_yvar),
                          expand = c(0,0)) 
@@ -627,6 +631,7 @@ SkapaLinjeDiagram <- function(skickad_df,
                               manual_color = NA,
                               brew_palett = "Greens",
                               stodlinjer_avrunda_fem = FALSE,     # för att alltid ha y-axlar som blir jämna tal, FALSE under testperioden, TRUE när vi vet att det funkar
+                              stodlinjer_minor_tabort = FALSE,   # FALSE = visa minor stödlinjer, TRUE = ta bort dem
                               manual_y_axis_title = NA,
                               manual_x_axis_title = NA,
                               marginal_y_axis = c(0,0), # Ändrar marginalen på y-axeln, då linjerna ibland kan hamna utanför diagrammet 
@@ -903,7 +908,7 @@ SkapaLinjeDiagram <- function(skickad_df,
           panel.spacing.x = unit(facet_space_diag_horisont, "mm"),
           panel.background = element_rect(fill = "white"),
           panel.grid.major.y = element_line(linewidth=0.8, colour = "lightgrey"),
-          panel.grid.minor.y = element_line(linewidth=0.4, colour = "lightgrey") ,
+          panel.grid.minor.y = if (stodlinjer_minor_tabort) element_blank() else element_line(linewidth=0.4, colour = "lightgrey"),
           panel.grid.major.x = element_blank(),
           panel.grid.minor.x = element_blank()) +
     {if (utan_diagramtitel) theme(plot.title = element_blank())} +
@@ -938,7 +943,8 @@ SkapaLinjeDiagram <- function(skickad_df,
     {if (!diagram_facet | (facet_scale == "fixed" & diagram_facet)){
       scale_y_continuous(breaks = seq(min_yvar, max_yvar, 
                                       by = maj_by_yvar),
-                         minor_breaks = seq(min_yvar, max_yvar, by = min_by_yvar),
+                         #minor_breaks = seq(min_yvar, max_yvar, by = min_by_yvar),
+                         minor_breaks = if (stodlinjer_minor_tabort) NULL else seq(min_yvar, max_yvar, by = min_by_yvar),
                          labels = etikett_format,
                          limits = c(min_yvar, max_yvar),
                          expand = marginal_y_axis) 
