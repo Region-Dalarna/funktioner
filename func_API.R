@@ -5063,6 +5063,46 @@ if(uppdatera_hemsida==TRUE){{
   
 } # slut funktion
 
+git_kontrollera_id_uppgifter <- function() {
+  
+  # 1. Rensa env vars som annars vinner över config
+  Sys.unsetenv(c(
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL"
+  ))
+  
+  # 2. Läs global git-config (samma princip som git_value)
+  git_value <- function(key) {
+    res <- tryCatch(
+      system(paste("git config --global", key), intern = TRUE),
+      error = function(e) character(0)
+    )
+    if (length(res) == 0) "" else res[[1]]
+  }
+  
+  name  <- git_value("user.name")
+  email <- git_value("user.email")
+  
+  # 3. Kontroll
+  if (!nzchar(name) || !nzchar(email)) {
+    stop(
+      "Git-identitet saknas eller är tom.\n\n",
+      "Åtgärda genom att köra:\n",
+      "  git config --global user.name \"Ditt Namn\"\n",
+      "  git config --global user.email \"din.epost@example.com\"",
+      call. = FALSE
+    )
+  }
+  
+  # 4. Sätt lokalt (gäller bara detta repo)
+  gert::git_config_set("user.name",  name)
+  gert::git_config_set("user.email", email)
+  
+  invisible(TRUE)
+}
+
 shinyapp_skapa_med_github_repo <- function(
     github_repo,                            # Namn på repo OCH Shiny-app (mapp på servern)
     github_org         = "Region-Dalarna",  # Org på GitHub, sätt till NULL för privat konto
@@ -5131,6 +5171,7 @@ shinyapp_skapa_med_github_repo <- function(
     skapa_mapp_om_den_inte_finns
   )
   
+  file.create(file.path(r_dir, ".gitkeep"))                        # otestad men bör funka. Lägger till .gitkeep i R-mappen så att den inte är tom och därmed inte ignoreras av git utan skapas även där och inte bara ligger lokalt (vilket är ok men kan förvirra)
 
   # ==== Hämta favicon till www/ ===============================================
 
@@ -5283,6 +5324,7 @@ on.exit(setwd(old_wd), add = TRUE)
 setwd(sokvag_proj)
 
 gert::git_init()
+git_kontrollera_id_uppgifter()
 gert::git_add(".")
 gert::git_commit("Initiera Shinyapp-projekt")
 
