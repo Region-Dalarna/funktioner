@@ -2,7 +2,7 @@ library(DBI)
 library(RPostgres)
 library(sf)
 
-shiny_set_password <- function(service) {
+shiny_set_password <- function(service, losenord = NULL) {
   
   # Kontrollera att service är giltigt
   if (!grepl("^[A-Za-z0-9_]+$", service)) {
@@ -16,24 +16,27 @@ shiny_set_password <- function(service) {
   
   existing <- if (file.exists(renv_file)) readLines(renv_file) else character()
   
-  # Finns redan ett lösenord?
-  existing_match <- grep(paste0("^", varname, "="), existing, value = TRUE)
-  
-  # fråga om man vill skriva över befintligt lösenord om det finns ett
-  if (length(existing_match) > 0) {
-    cat("Det finns redan ett lösenord för tjänsten '", service, "'.\n", sep = "")
-    overwrite <- tolower(readline("Vill du skriva över det? (j/n): "))
+  if (is.null(losenord)) {
     
-    if (overwrite != "j") {
-      cat("✔ Inget ändrat.\n")
-      return(invisible(FALSE))
+    # Finns redan ett lösenord?
+    existing_match <- grep(paste0("^", varname, "="), existing, value = TRUE)
+    
+    # fråga om man vill skriva över befintligt lösenord om det finns ett
+    if (length(existing_match) > 0) {
+      cat("Det finns redan ett lösenord för tjänsten '", service, "'.\n", sep = "")
+      overwrite <- tolower(readline("Vill du skriva över det? (j/n): "))
+      
+      if (overwrite != "j") {
+        cat("✔ Inget ändrat.\n")
+        return(invisible(FALSE))
+      }
     }
-  }
-  
-  
-  # Läs in nytt lösenord som användaren får skriva in
-  cat("Ange lösenord för tjänsten '", service, "': ", sep = "")
-  password <- readline()
+    
+    
+    # Läs in nytt lösenord som användaren får skriva in
+    cat("Ange lösenord för tjänsten '", service, "': ", sep = "")
+    password <- readline()
+  } else password <- losenord                                      # om lösenord skickas in som argument så används det istället
   
   # ta bort ev. gammal rad med samma variabel
   existing <- existing[!grepl(paste0("^", varname, "="), existing)]
