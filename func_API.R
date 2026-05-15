@@ -5452,4 +5452,100 @@ shinyapp_publicera <- function(
           "' och pushad. GitHub Actions bör nu trigga deploy.")
 }
 
-
+webbrapport_publicera <- function(
+    rapport,
+    repo               = "samhallsanalys-rapporter",
+    from_branch        = "master",
+    to_branch          = "publicera",
+    remote             = "origin",
+    sokvag_lokalt_repo = "c:/gh",
+    public_dir         = "public"
+) {
+  stopifnot(requireNamespace("gert", quietly = TRUE))
+  
+  if (missing(rapport) || is.null(rapport) || !nzchar(rapport)) {
+    stop("Du måste ange vilken rapport som ska publiceras, t.ex. webbrapport_publicera(\"laget_i_dalarna\").")
+  }
+  
+  repo_path <- file.path(sokvag_lokalt_repo, repo)
+  old_wd <- getwd()
+  on.exit(setwd(old_wd), add = TRUE)
+  setwd(repo_path)
+  
+  git_info <- gert::git_info()
+  message("📁 Repo: ", git_info$path)
+  
+  # Säkerställ att from_branch är uppdaterad
+  message("📌 Säkerställer att '", from_branch, "' är uppdaterad mot remote...")
+  gert::git_branch_checkout(from_branch)
+  gert::git_pull(remote = remote, refspec = from_branch)
+  
+  status <- gert::git_status()
+  if (nrow(status) > 0) {
+    stop("Det finns ocommittade ändringar i repo:t. Commita eller stash:a innan du kör webbrapport_publicera().")
+  }
+  
+  if (!dir.exists(public_dir)) {
+    stop("Hittar inte mappen '", public_dir, "/' i repo:t.")
+  }
+  
+  rapport_path_rel <- paste0(public_dir, "/", rapport)
+  if (!dir.exists(rapport_path_rel)) {
+    stop("Hittar inte rapportkatalogen '", rapport_path_rel,
+         "' på branch '", from_branch, "'.")
+  }
+  if (!file.exists(file.path(rapport_path_rel, "index.html"))) {
+    warning("Rapporten '", rapport,
+            "' saknar index.html — direktlänken kommer att ge 404.",
+            call. = FALSE)
+  }
+  message("📄 Publicerar rapport: ", rapport)
+  
+  message("⬇️  Hämtar senaste från remote...")
+  gert::git_fetch(remote = remote)
+  
+  branches <- gert::git_branch_list()$name
+  if (!(to_branch %in% branches)) {
+    message("ℹ️  Branch '", to_branch, "' finns inte lokalt.")
+    remote_branches <- gert::git_remote_ls(remote)$ref
+    remote_full <- paste0("refs/remotes/", remote, "/", to_branch)
+    if (remote_full %in% remote_branches) {
+      message("   Skapar lokal branch från remote ", remote, "/", to_branch)
+      gert::git_branch_create(to_branch, ref = paste0(remote, "/", to_branch))
+    } else {
+      message("   Skapar ny branch '", to_branch, "' från '", from_branch, "'.")
+      gert::git_branch_create(to_branch, ref = from_branch)
+    }
+  }
+  
+  message("🔀 Byter till branch '", to_branch, "'...")
+  gert::git_branch_checkout(to_branch)
+  
+  # Selektiv: checka ut enbart denna rapport från from_branch
+  message("📥 Hämtar enbart '", rapport_path_rel, "' från '", from_branch, "'...")
+  status_code <- system2("git", c("checkout", from_branch, "--", rapport_path_rel))
+  if (status_code != 0) {
+    stop("Kunde inte checka ut '", rapport_path_rel, "' från '", from_branch, "'.")
+  }
+  
+  # Om inget ändrades — gör ingen commit
+  status_after <- gert::git_status()
+  if (nrow(status_after) == 0) {
+    message("ℹ️  Inga ändringar i '", rapport, "' jämfört med '", to_branch,
+            "' — ingen commit behövs.")
+    gert::git_branch_checkout(from_branch)
+    message("⬅️  Tillbaka till '", from_branch, "'. Ingen deploy triggas.")
+    return(invisible(NULL))
+  }
+  
+  gert::git_add(rapport_path_rel)
+  gert::git_commit(paste0("Publicera ", rapport, " (selektiv från ", from_branch, ")"))
+  
+  message("⬆️  Pushar '", to_branch, "' till ", remote, "...")
+  gert::git_push(remote = remote)
+  
+  message("⬅️  Går tillbaka till branch '", from_branch, "'...")
+  gert::git_branch_checkout(from_branch)
+  
+  message("✅ Klar: '", rapport, "' publicerad. GitHub Actions deploy:ar nu.")
+}
