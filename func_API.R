@@ -5453,99 +5453,183 @@ shinyapp_publicera <- function(
 }
 
 webbrapport_publicera <- function(
-    rapport,
+    rapport_repo,
+    rapport_html_fil   = NULL,
     repo               = "samhallsanalys-rapporter",
+    github_org         = "Region-Dalarna",
     from_branch        = "master",
     to_branch          = "publicera",
     remote             = "origin",
     sokvag_lokalt_repo = "c:/gh",
-    public_dir         = "public"
+    public_dir         = "public",
+    publicera_aven_om_html_fil_aldre_an_rmd_qmd_fil = FALSE
 ) {
-  stopifnot(requireNamespace("gert", quietly = TRUE))
+  stopifnot(
+    is.character(rapport_repo), length(rapport_repo) == 1, nzchar(rapport_repo),
+    is.character(github_org),   length(github_org) == 1,   nzchar(github_org)
+  )
   
-  if (missing(rapport) || is.null(rapport) || !nzchar(rapport)) {
-    stop("Du måste ange vilken rapport som ska publiceras, t.ex. webbrapport_publicera(\"laget_i_dalarna\").")
+  # Default: <rapport_repo>.html i rotkatalogen för rapport_repo
+  if (is.null(rapport_html_fil) || !nzchar(rapport_html_fil)) {
+    rapport_html_fil <- paste0(rapport_repo, ".html")
   }
   
-  repo_path <- file.path(sokvag_lokalt_repo, repo)
-  old_wd <- getwd()
-  on.exit(setwd(old_wd), add = TRUE)
-  setwd(repo_path)
+  kalla_repo_dir <- normalizePath(
+    file.path(sokvag_lokalt_repo, rapport_repo),
+    winslash = "/", mustWork = TRUE
+  )
+  mal_repo_dir <- normalizePath(
+    file.path(sokvag_lokalt_repo, repo),
+    winslash = "/", mustWork = TRUE
+  )
   
-  git_info <- gert::git_info()
-  message("📁 Repo: ", git_info$path)
-  
-  # Säkerställ att from_branch är uppdaterad
-  message("📌 Säkerställer att '", from_branch, "' är uppdaterad mot remote...")
-  gert::git_branch_checkout(from_branch)
-  gert::git_pull(remote = remote, refspec = from_branch)
-  
-  status <- gert::git_status()
-  if (nrow(status) > 0) {
-    stop("Det finns ocommittade ändringar i repo:t. Commita eller stash:a innan du kör webbrapport_publicera().")
+  if (!grepl("\\.html?$", rapport_html_fil, ignore.case = TRUE)) {
+    stop("rapport_html_fil måste sluta på .html eller .htm: '", rapport_html_fil, "'")
   }
   
-  if (!dir.exists(public_dir)) {
-    stop("Hittar inte mappen '", public_dir, "/' i repo:t.")
+  kalla_html <- normalizePath(
+    file.path(kalla_repo_dir, rapport_html_fil),
+    winslash = "/", mustWork = FALSE
+  )
+  
+  if (!file.exists(kalla_html)) {
+    stop(
+      "Hittar inte HTML-filen: ", kalla_html,
+      "\nKontrollera att den är renderad och att rapport_html_fil är rätt."
+    )
   }
   
-  rapport_path_rel <- paste0(public_dir, "/", rapport)
-  if (!dir.exists(rapport_path_rel)) {
-    stop("Hittar inte rapportkatalogen '", rapport_path_rel,
-         "' på branch '", from_branch, "'.")
+  if (!startsWith(paste0(kalla_html, "/"), paste0(kalla_repo_dir, "/"))) {
+    stop(
+      "rapport_html_fil pekar utanför rapport_repo '", rapport_repo, "'.\n",
+      "  Filen: ", kalla_html, "\n",
+      "  Repo:  ", kalla_repo_dir, "\n",
+      "Filer utanför rapport_repo är inte tillåtna."
+    )
   }
-  if (!file.exists(file.path(rapport_path_rel, "index.html"))) {
-    warning("Rapporten '", rapport,
-            "' saknar index.html — direktlänken kommer att ge 404.",
-            call. = FALSE)
-  }
-  message("📄 Publicerar rapport: ", rapport)
   
-  message("⬇️  Hämtar senaste från remote...")
-  gert::git_fetch(remote = remote)
+  # Kontroll: HTML-filen får inte vara äldre än ev. .qmd/.Rmd-källa
+  html_stam <- sub("\\.html?$", "", basename(kalla_html), ignore.case = TRUE)
+  html_dir  <- dirname(kalla_html)
+  kallfil_kandidater <- c(
+    file.path(html_dir, paste0(html_stam, ".qmd")),
+    file.path(html_dir, paste0(html_stam, ".Rmd")),
+    file.path(html_dir, paste0(html_stam, ".rmd"))
+  )
+  kallfil <- kallfil_kandidater[file.exists(kallfil_kandidater)]
   
-  branches <- gert::git_branch_list()$name
-  if (!(to_branch %in% branches)) {
-    message("ℹ️  Branch '", to_branch, "' finns inte lokalt.")
-    remote_branches <- gert::git_remote_ls(remote)$ref
-    remote_full <- paste0("refs/remotes/", remote, "/", to_branch)
-    if (remote_full %in% remote_branches) {
-      message("   Skapar lokal branch från remote ", remote, "/", to_branch)
-      gert::git_branch_create(to_branch, ref = paste0(remote, "/", to_branch))
-    } else {
-      message("   Skapar ny branch '", to_branch, "' från '", from_branch, "'.")
-      gert::git_branch_create(to_branch, ref = from_branch)
+  if (length(kallfil) > 0) {
+    kallfil_mtime <- max(file.info(kallfil)$mtime)
+    html_mtime    <- file.info(kalla_html)$mtime
+    if (html_mtime < kallfil_mtime) {
+      msg <- paste0(
+        "HTML-filen är äldre än källfilen — rendera om innan publicering.\n",
+        "  HTML:  ", kalla_html, " (", format(html_mtime), ")\n",
+        "  Källa: ", paste(kallfil, collapse = ", "), " (", format(kallfil_mtime), ")"
+      )
+      if (!isTRUE(publicera_aven_om_html_fil_aldre_an_rmd_qmd_fil)) {
+        stop(msg)
+      }
+      warning(msg, "\nFortsätter eftersom publicera_aven_om_html_fil_aldre_an_rmd_qmd_fil = TRUE.")
     }
   }
   
-  message("🔀 Byter till branch '", to_branch, "'...")
-  gert::git_branch_checkout(to_branch)
+  mapp_namn <- sub("\\.html?$", "", basename(rapport_html_fil), ignore.case = TRUE)
   
-  # Selektiv: checka ut enbart denna rapport från from_branch
-  message("📥 Hämtar enbart '", rapport_path_rel, "' från '", from_branch, "'...")
-  status_code <- system2("git", c("checkout", from_branch, "--", rapport_path_rel))
-  if (status_code != 0) {
-    stop("Kunde inte checka ut '", rapport_path_rel, "' från '", from_branch, "'.")
+  if (!grepl("^[A-Za-z0-9._-]+$", mapp_namn)) {
+    stop(
+      "Ogiltigt mappnamn '", mapp_namn, "' — får bara innehålla bokstäver, ",
+      "siffror, punkt, understreck och bindestreck."
+    )
   }
   
-  # Om inget ändrades — gör ingen commit
-  status_after <- gert::git_status()
-  if (nrow(status_after) == 0) {
-    message("ℹ️  Inga ändringar i '", rapport, "' jämfört med '", to_branch,
-            "' — ingen commit behövs.")
+  message("Källa: ", kalla_html)
+  message("Mål:   ", repo, "/", public_dir, "/", mapp_namn, "/index.html")
+  
+  old_wd <- getwd()
+  on.exit(setwd(old_wd), add = TRUE)
+  setwd(mal_repo_dir)
+  
+  # Verifiera att remote pekar mot rätt org/repo
+  remotes <- gert::git_remote_list()
+  remote_rad <- remotes[remotes$name == remote, , drop = FALSE]
+  if (nrow(remote_rad) == 0) {
+    stop("Hittar ingen remote med namnet '", remote, "' i ", mal_repo_dir)
+  }
+  remote_url <- remote_rad$url[1]
+  forvantad <- paste0(github_org, "/", repo)
+  if (!grepl(forvantad, remote_url, fixed = TRUE)) {
+    stop(
+      "Remote '", remote, "' pekar inte mot '", forvantad, "'.\n",
+      "  Faktisk url: ", remote_url, "\n",
+      "Kontrollera github_org/repo eller byt remote."
+    )
+  }
+  
+  gert::git_fetch(remote = remote)
+  if (gert::git_branch() != from_branch) {
     gert::git_branch_checkout(from_branch)
-    message("⬅️  Tillbaka till '", from_branch, "'. Ingen deploy triggas.")
-    return(invisible(NULL))
+  }
+  suppressMessages(gert::git_pull(remote = remote))
+  
+  # Skapa mappen om den inte finns, och kopiera HTML-filen som index.html
+  mal_dir <- file.path(public_dir, mapp_namn)
+  if (!dir.exists(mal_dir)) {
+    dir.create(mal_dir, recursive = TRUE)
+    message("Skapade ny mapp: ", mal_dir)
+  }
+  mal_html <- file.path(mal_dir, "index.html")
+  file.copy(kalla_html, mal_html, overwrite = TRUE)
+  
+  # Commit + push till from_branch
+  gert::git_add(mal_dir)
+  commit_ok <- tryCatch({
+    gert::git_commit(paste0("Uppdatera rapport: ", mapp_namn))
+    TRUE
+  }, error = function(e) {
+    if (grepl("No staged files", e$message, fixed = TRUE)) {
+      message("Inga ändringar att commita — rapporten är redan up-to-date på '", from_branch, "'.")
+      FALSE
+    } else {
+      stop(e)
+    }
+  })
+  if (isTRUE(commit_ok)) {
+    gert::git_push(remote = remote)
+    message("Pushade till '", from_branch, "'.")
   }
   
-  gert::git_add(rapport_path_rel)
-  gert::git_commit(paste0("Publicera ", rapport, " (selektiv från ", from_branch, ")"))
+  # Selektiv merge till to_branch
+  gert::git_branch_checkout(to_branch)
+  suppressMessages(gert::git_pull(remote = remote))
   
-  message("⬆️  Pushar '", to_branch, "' till ", remote, "...")
-  gert::git_push(remote = remote)
+  system2("git", c("checkout", from_branch, "--", mal_dir))
   
-  message("⬅️  Går tillbaka till branch '", from_branch, "'...")
+  gert::git_add(mal_dir)
+  publicera_ok <- tryCatch({
+    gert::git_commit(paste0("Publicera rapport: ", mapp_namn))
+    TRUE
+  }, error = function(e) {
+    if (grepl("No staged files", e$message, fixed = TRUE)) {
+      message("Inga ändringar att publicera — '", to_branch, "' har redan denna version.")
+      FALSE
+    } else {
+      stop(e)
+    }
+  })
+  if (isTRUE(publicera_ok)) {
+    gert::git_push(remote = remote)
+    message("Pushade till '", to_branch, "' — deploy triggas via GitHub Actions.")
+  }
+  
+  # Tillbaka till from_branch
   gert::git_branch_checkout(from_branch)
   
-  message("✅ Klar: '", rapport, "' publicerad. GitHub Actions deploy:ar nu.")
+  invisible(list(
+    rapport_repo = rapport_repo,
+    rapport_html_fil = rapport_html_fil,
+    mapp_namn = mapp_namn,
+    kalla = kalla_html,
+    mal = mal_html
+  ))
 }
