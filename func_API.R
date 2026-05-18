@@ -4771,8 +4771,7 @@ skapa_webbrapport_github <- function(githubmapp_lokalt,                 # sökv�
     download.file(.x, paste0(sokvag_skript, filnamn), mode = "wb")
   })
 
-  # ============================================== vi skapar nu själva .Rmd-filen ===================================================
-
+  # vi skapar nu själva .Rmd-filen
   
   # vi börjar med headern i webbrapporten
   rmd_header <- glue('
@@ -5376,80 +5375,733 @@ invisible(sokvag_proj)
 
 
 shinyapp_publicera <- function(
-    repo,
-    from_branch = "master",
-    to_branch   = "publicera",
-    remote      = "origin",
-    sokvag_lokalt_repo = "c:/gh"
+    github_repo,
+    target            = NULL,        # NULL = läs från _publicering_till_server.yml
+    lokal_grundsokvag = "c:/gh/",
+    github_org        = "Region-Dalarna"
 ) {
-  stopifnot(requireNamespace("gert", quietly = TRUE))
   
-  # Byt till repo-mapp
-  repo_path <- file.path(sokvag_lokalt_repo, repo)
-  old_wd <- getwd()
-  on.exit(setwd(old_wd), add = TRUE)
-  setwd(repo_path)
-  
-  # 1. Säkerställ att vi är i ett git-repo
-  repo <- gert::git_info()
-  message("📁 Repo: ", repo$path)
-  
-  
-  # 1b. Säkerställ att from_branch (t.ex. master) är uppdaterad
-  message("📌 Säkerställer att '", from_branch, "' är uppdaterad mot remote...")
-  gert::git_branch_checkout(from_branch)
-  gert::git_pull(remote = remote, refspec = from_branch)
-  
-  # 1c. Kontrollera att det inte finns ocomittade ändringar
-  
-  status <- gert::git_status()
-  if (nrow(status) > 0) {
-    stop("Det finns ocommittade ändringar i repo:t. Commita eller stash:a innan du kör shiny_merge_till_publicera().")
+  # --- Validering ---
+  if (missing(github_repo) || !nzchar(github_repo)) {
+    stop("Parametern 'github_repo' måste anges.")
+  }
+  repo_sokvag <- file.path(lokal_grundsokvag, github_repo)
+  if (!dir.exists(repo_sokvag)) stop("Repot finns inte: ", repo_sokvag)
+  if (!dir.exists(file.path(repo_sokvag, ".git"))) {
+    stop("Mappen är inte ett git-repository: ", repo_sokvag)
   }
   
-  # 2. Hämta senaste från remote
-  message("⬇️  Hämtar senaste från remote...")
-  gert::git_fetch(remote = remote)
+  default_branch <- .shinyapp_default_branch(repo_sokvag)                       # hämtar default branch, t.ex. "master" eller "main"
   
-  # 3. Finns to_branch lokalt? Om inte, skapa från remote om den finns,
-  #    annars skapa från from_branch.
-  branches <- gert::git_branch_list()$name
+  # --- Bestäm target ---
+  if (is.null(target)) {
+    target <- .shinyapp_las_publicering_config(repo_sokvag)
+    cat("Target från config: '", target, "'\n", sep = "")
+  } else {
+    if (!target %in% c("publik", "intern")) {
+      stop("target måste vara 'publik' eller 'intern' (eller NULL).")
+    }
+    cat("Override: target = '", target,
+        "' (config-filen ändras inte).\n", sep = "")
+  }
   
-  if (!(to_branch %in% branches)) {
-    message("ℹ️  Branch '", to_branch, "' finns inte lokalt.")
-    
-    # Finns den på remote?
-    remote_branches <- gert::git_remote_ls(remote)$ref
-    remote_full <- paste0("refs/remotes/", remote, "/", to_branch)
-    
-    if (remote_full %in% remote_branches) {
-      message("   Skapar lokal branch från remote ", remote, "/", to_branch)
-      gert::git_branch_create(to_branch, ref = paste0(remote, "/", to_branch))
+  publicera_branch <- switch(target,
+                             "publik" = "publicera-publik",
+                             "intern" = "publicera-intern")
+  
+  server_url <- switch(target,
+                       "publik" = "shiny.regiondalarna.se",
+                       "intern" = "shiny.ltdalarna.se")
+  
+  # --- Hjälpfunktion: kör git i rätt repo ---
+  kor_git <- function(..., stopp_vid_fel = TRUE) {
+    git_args <- c("-C", repo_sokvag, ...)
+    res <- suppressWarnings(
+      system2("git", args = git_args, stdout = TRUE, stderr = TRUE)
+    )
+    status <- attr(res, "status"); if (is.null(status)) status <- 0L
+    if (status != 0 && stopp_vid_fel) {
+      stop("git ", paste(c(...), collapse = " "), " misslyckades:\n",
+           paste(res, collapse = "\n"))
+    }
+    res
+  }
+  
+  # --- 1. Working tree clean? ---
+  status_output <- kor_git("status", "--porcelain")
+  if (length(status_output) > 0 && any(nzchar(status_output))) {
+    stop("Repot har ohanterade ändringar:\n",
+         paste(status_output, collapse = "\n"),
+         "\nCommit:a eller stash:a först.")
+  }
+  
+  # --- 2. Fetch ---
+  cat("Fetchar från origin...\n")
+  kor_git("fetch", "origin")
+  
+  # --- 3. Säkerställ att target-branchen finns ---
+  remote_branches <- trimws(kor_git("branch", "-r"))
+  if (!any(grepl(paste0("^origin/", publicera_branch, "$"), remote_branches))) {
+    if (target == "publik") {
+      cat("'", publicera_branch, "' saknas — kör konfigurering...\n", sep = "")
+      .shinyapp_konfigurera_publicera_branch(github_repo, lokal_grundsokvag)
+      # uppdatera fetch efteråt
+      kor_git("fetch", "origin")
     } else {
-      message("   Skapar ny branch '", to_branch, "' från '", from_branch, "'.")
-      gert::git_branch_create(to_branch, ref = from_branch)
+      # publicera-intern skapas inline (vi har ingen migreringsväg där)
+      cat("'", publicera_branch, "' saknas — skapar från ", default_branch, "...\n", sep = "")
+      kor_git("checkout", default_branch)
+      kor_git("pull", "--ff-only", "origin", default_branch)
+      kor_git("checkout", "-b", publicera_branch)
+      kor_git("push", "-u", "origin", publicera_branch)
+      kor_git("fetch", "origin")
     }
   }
   
-  # 4. Checka ut publicera
-  message("🔀 Byter till branch '", to_branch, "'...")
-  gert::git_branch_checkout(to_branch)
+  # --- 4. Checka ut publicera-branchen lokalt ---
+  local_branches <- trimws(kor_git("branch"))
+  if (!any(grepl(paste0("^\\*?\\s*", publicera_branch, "$"), local_branches))) {
+    kor_git("checkout", "-b", publicera_branch,
+            paste0("origin/", publicera_branch))
+  } else {
+    kor_git("checkout", publicera_branch)
+    kor_git("pull", "--ff-only", "origin", publicera_branch)
+  }
   
-  # 5. Merge in från from_branch
-  message("🔁 Mergear in ändringar från '", from_branch, "'...")
-  gert::git_merge(from_branch, commit = TRUE)
+  # --- 5. Merge default-branchen in ---
+  cat("Merge:ar ", default_branch, " in i ", publicera_branch, "...\n", sep = "")
+  kor_git("merge", paste0("origin/", default_branch), "--no-edit")
   
-  # 6. Pusha publicera till remote
-  message("⬆️  Pushar '", to_branch, "' till ", remote, "...")
-  gert::git_push(remote = remote)
+  # --- 5b. No-op-skydd: om merge inte gav någon ny commit, gör en tom commit ---
+  # Annars blir push:en en no-op och GitHub Actions triggas inte.
+  lokal_sha  <- trimws(kor_git("rev-parse", "HEAD"))[1]
+  remote_sha <- trimws(kor_git("rev-parse", paste0("origin/", publicera_branch)))[1]
+  if (identical(lokal_sha, remote_sha)) {
+    cat("Inga nya commits efter merge — lägger in tom commit för att trigga deploy.\n")
+    kor_git("commit", "--allow-empty",
+            "-m", paste0("Trigga-deploy-", publicera_branch))
+  }
   
-  # 7. Gå tillbaka till master
-  message("⬅️  Går tillbaka till branch '", from_branch, "'...")
-  gert::git_branch_checkout(from_branch)
+  # --- 6. Pusha ---
+  cat("Pushar till origin/", publicera_branch, "...\n", sep = "")
+  kor_git("push", "origin", publicera_branch)
   
+  # --- 7. Tillbaka till default-branchen ---
+  kor_git("checkout", default_branch)
   
-  message("✅ Klar: '", from_branch, "' är mergad till '", to_branch,
-          "' och pushad. GitHub Actions bör nu trigga deploy.")
+  cat("\n✓ '", github_repo, "' publicerat till '", target, "'-servern.\n",
+      "  GitHub Actions deploy:ar nu till ", server_url, ".\n", sep = "")
+  invisible(TRUE)
+}
+
+
+.shinyapp_las_publicering_config <- function(repo_sokvag) {
+  config_fil <- file.path(repo_sokvag, "_publicering_till_server.yml")
+  
+  if (!file.exists(config_fil)) {
+    warning("Hittar ingen '_publicering_till_server.yml' i ", repo_sokvag,
+            " — antar target = 'publik' (default).")
+    return("publik")
+  }
+  
+  if (requireNamespace("yaml", quietly = TRUE)) {
+    cfg <- yaml::read_yaml(config_fil)
+    target <- cfg$target
+  } else {
+    # Fallback om yaml-paketet saknas: enkel rad-baserad parsning
+    lines <- readLines(config_fil, warn = FALSE)
+    m <- regmatches(lines, regexec("^\\s*target\\s*:\\s*(\\S+)\\s*$", lines))
+    hit <- Filter(function(x) length(x) >= 2, m)
+    if (length(hit) == 0) stop("Hittade inte 'target:' i ", config_fil)
+    target <- hit[[1]][2]
+  }
+  
+  if (is.null(target) || !target %in% c("publik", "intern")) {
+    stop("Felaktigt värde på 'target' i ", config_fil, ": '", target,
+         "'\nMåste vara 'publik' eller 'intern'.")
+  }
+  target
+}
+
+shinyapp_avpublicera <- function(
+    github_repo,
+    target            = NULL,
+    lokal_grundsokvag = "c:/gh/",
+    github_org        = "Region-Dalarna",
+    bekrafta_automatiskt = FALSE                    # TRUE om man kör shinyapp_flytta
+) {
+  if (missing(github_repo) || !nzchar(github_repo)) {
+    stop("github_repo måste anges.")
+  }
+  
+  repo_sokvag <- file.path(lokal_grundsokvag, github_repo)
+  if (!dir.exists(repo_sokvag)) {
+    stop("Hittar inte repot lokalt: ", repo_sokvag)
+  }
+  
+  if (is.null(target)) {
+    target <- .shinyapp_las_publicering_config(repo_sokvag)
+  } else if (!target %in% c("publik", "intern")) {
+    stop("target måste vara 'publik' eller 'intern', inte '", target, "'.")
+  }
+  
+  server_url <- switch(target,
+                       "publik" = "shiny.regiondalarna.se",
+                       "intern" = "shiny.ltdalarna.se")
+  app_url <- paste0("https://", server_url, "/", github_repo, "/")
+  
+  # tydlig varning
+  # --- Bekräftelse (hoppas över om bekrafta_automatiskt = TRUE) ---
+  if (!bekrafta_automatiskt) {
+    cat("\n")
+    cat("========================================================================\n")
+    cat("  VARNING - AVPUBLICERING AV SHINY-APP\n")
+    cat("========================================================================\n\n")
+    cat("Du är på väg att AVPUBLICERA följande app:\n\n")
+    cat("  App:    ", github_repo, "\n", sep = "")
+    cat("  Server: ", server_url, " (", target, ")\n", sep = "")
+    cat("  URL:    ", app_url, "\n\n", sep = "")
+    cat("Detta innebär att:\n")
+    cat("  - App-katalogen tas bort från servern\n")
+    cat("  - Appen blir otillgänglig på URL:en ovan\n")
+    cat("  - Shiny Server startas om\n\n")
+    cat("Repot på GitHub PÅVERKAS INTE. All källkod finns kvar och du kan\n")
+    cat("publicera appen igen när du vill med:\n\n")
+    cat("  shinyapp_publicera(\"", github_repo, "\")\n\n", sep = "")
+    cat("========================================================================\n\n")
+    cat("Skriv appnamnet (", github_repo, ") för att bekräfta, eller\n", sep = "")
+    cat("tryck ENTER för att avbryta:\n")
+    
+    svar <- readline("> ")
+    
+    if (trimws(svar) != github_repo) {
+      message("Avpublicering avbruten.")
+      return(invisible(FALSE))
+    }
+  }
+  
+  default_branch <- .shinyapp_default_branch(repo_sokvag)               # kolla om huvud-branchen heter master eller main
+  
+  message("Triggar avpublicera-workflow på GitHub...")
+  .shinyapp_trigga_workflow(
+    github_repo      = github_repo,
+    workflow_filnamn = "avpublicera.yml",
+    inputs           = list(target = target, bekraftelse = github_repo),
+    github_org       = github_org,
+    ref              = default_branch
+  )
+  
+  message("Workflow triggad. Väntar på att den ska slutföras")
+  .shinyapp_vanta_pa_workflow(
+    github_repo      = github_repo,
+    workflow_filnamn = "avpublicera.yml",
+    github_org       = github_org
+  )
+  
+  message("Klart. Appen '", github_repo, "' är avpublicerad från ", server_url, ".")
+  message("För att publicera igen: shinyapp_publicera(\"", github_repo, "\")")
+  
+  invisible(TRUE)
+}
+
+
+# funktion för att flytta en app från intern server till publik, eller tvärtom. 
+# Appen publicerar på den server den inte ligger på nu, och tar därefter bort appen från den server den ligger på 
+shinyapp_flytta <- function(
+    github_repo,
+    lokal_grundsokvag = "c:/gh/",
+    max_vantetid_s = 600
+) {
+  if (missing(github_repo) || !nzchar(github_repo)) {
+    stop("Parametern 'github_repo' måste anges.")
+  }
+  
+  repo_sokvag <- file.path(lokal_grundsokvag, github_repo)
+  if (!dir.exists(repo_sokvag)) stop("Hittar inte repot: ", repo_sokvag)
+  if (!dir.exists(file.path(repo_sokvag, ".git"))) {
+    stop("Mappen är inte ett git-repository: ", repo_sokvag)
+  }
+  
+  kor_git <- function(..., stopp_vid_fel = TRUE) {
+    res <- suppressWarnings(
+      system2("git", args = c("-C", repo_sokvag, ...),
+              stdout = TRUE, stderr = TRUE)
+    )
+    status <- attr(res, "status"); if (is.null(status)) status <- 0L
+    if (status != 0 && stopp_vid_fel) {
+      stop("git ", paste(c(...), collapse = " "),
+           " misslyckades:\n", paste(res, collapse = "\n"))
+    }
+    res
+  }
+  
+  # --- 1. Working tree rent + uppdaterad default-branch ---
+  status_output <- kor_git("status", "--porcelain")
+  if (length(status_output) > 0 && any(nzchar(status_output))) {
+    stop("Repot har ohanterade ändringar:\n",
+         paste(status_output, collapse = "\n"),
+         "\nCommit:a eller stash:a först innan du kör funktionen.")
+  }
+  
+  default_branch <- .shinyapp_default_branch(repo_sokvag)
+  kor_git("checkout", default_branch)
+  kor_git("pull", "origin", default_branch)
+  
+  # --- 2. Bestäm nuvarande target ---
+  nuvarande_target <- .shinyapp_las_target(repo_sokvag)
+  
+  if (is.na(nuvarande_target)) {
+    cat("_publicering_till_server.yml saknas eller är ogiltig.\n")
+    cat("Försöker detektera vilken server appen ligger på...\n")
+    
+    cat("  - Pingar publika servern (", 
+        .shinyapp_app_url(github_repo, "publik"), ")... ", sep = "")
+    pa_publik <- .shinyapp_ping_app(github_repo, "publik")
+    cat(if (pa_publik) "✓ svarar\n" else "saknas\n")
+    
+    cat("  - Pingar interna servern (", 
+        .shinyapp_app_url(github_repo, "intern"), ")... ", sep = "")
+    pa_intern <- .shinyapp_ping_app(github_repo, "intern")
+    cat(if (pa_intern) "✓ svarar\n" else "saknas\n")
+    
+    if (pa_publik && pa_intern) {
+      stop("Appen svarar på BÅDA servrarna. Lös manuellt — kan inte avgöra ",
+           "vilken som ska räknas som 'nuvarande'.")
+    }
+    if (!pa_publik && !pa_intern) {
+      stop("Appen verkar inte ligga uppe på någon av servrarna.\n",
+           "Använd shinyapp_publicera() för att publicera den först.")
+    }
+    
+    nuvarande_target <- if (pa_publik) "publik" else "intern"
+    cat("→ Detekterat: appen ligger på '", nuvarande_target, "'.\n", sep = "")
+    cat("Skapar _publicering_till_server.yml och committar till ",
+        default_branch, "...\n", sep = "")
+    .shinyapp_skriv_target(repo_sokvag, nuvarande_target)
+    kor_git("add", "_publicering_till_server.yml")
+    kor_git("commit", "-m",
+            paste0("Lägg till _publicering_till_server.yml (detekterat: ",
+                   nuvarande_target, ")"))
+    kor_git("push", "origin", default_branch)
+  }
+  
+  nytt_target <- if (nuvarande_target == "publik") "intern" else "publik"
+  
+  # --- 3. Bekräftelseruta ---
+  cat("\n",
+      "⚠️  FLYTT AV SHINY-APP\n",
+      "─────────────────────────────────────────\n",
+      "App:   ", github_repo, "\n",
+      "FRÅN:  ", nuvarande_target, " server  (", 
+      .shinyapp_app_url(github_repo, nuvarande_target), ")\n",
+      "TILL:  ", nytt_target, " server  (", 
+      .shinyapp_app_url(github_repo, nytt_target), ")\n",
+      "\n",
+      "Detta innebär:\n",
+      "  1. Appen publiceras på ", nytt_target, " servern\n",
+      "  2. Verifiering att den svarar med HTTP 200\n",
+      "  3. _publicering_till_server.yml uppdateras till '",
+      nytt_target, "' på ", default_branch, "\n",
+      "  4. Appen tas bort från ", nuvarande_target, " servern\n",
+      "─────────────────────────────────────────\n",
+      sep = "")
+  
+  svar <- readline(paste0("Skriv appnamnet ('", github_repo, 
+                          "') för att bekräfta: "))
+  if (trimws(svar) != github_repo) {
+    cat("Bekräftelse matchar inte. Avbryter.\n")
+    return(invisible(FALSE))
+  }
+  
+  # --- 4. Publicera till nya servern (explicit target — ignorerar YAML) ---
+  cat("\n[1/4] Publicerar till ", nytt_target, " servern...\n", sep = "")
+  shinyapp_publicera(github_repo, target = nytt_target,
+                     lokal_grundsokvag = lokal_grundsokvag)
+  
+  # --- 5. Vänta in deploy.yml ---
+  cat("\n[2/4] Väntar in deploy.yml på ", nytt_target, " servern...\n", sep = "")
+  .shinyapp_vanta_pa_workflow(github_repo, "deploy.yml",
+                              max_vantetid_s = max_vantetid_s)
+  
+  # --- 6. HTTP-ping nya URL:en ---
+  cat("\n[3/4] Verifierar att appen svarar på ", nytt_target, " servern...\n",
+      sep = "")
+  Sys.sleep(3)  # liten paus så Shiny Server hinner ladda om
+  if (!.shinyapp_ping_app(github_repo, nytt_target)) {
+    stop("Appen svarade INTE med HTTP 200 på ", nytt_target, " servern.\n",
+         "URL: ", .shinyapp_app_url(github_repo, nytt_target), "\n\n",
+         "Avbryter flytten. Appen ligger nu på BÅDA servrarna men ",
+         "_publicering_till_server.yml pekar fortfarande på '",
+         nuvarande_target, "'.\n",
+         "Felsök manuellt. Om nya servern inte ska användas:\n",
+         "  shinyapp_avpublicera('", github_repo, "', target = '",
+         nytt_target, "')")
+  }
+  cat("✓ Appen svarar.\n")
+  
+  # --- 7. Uppdatera YAML på default_branch ---
+  cat("\n[4/4] Uppdaterar _publicering_till_server.yml och tar bort från ",
+      nuvarande_target, " servern...\n", sep = "")
+  .shinyapp_skriv_target(repo_sokvag, nytt_target)
+  kor_git("add", "_publicering_till_server.yml")
+  kor_git("commit", "-m",
+          paste0("Flytta target: ", nuvarande_target, " → ", nytt_target))
+  kor_git("push", "origin", default_branch)
+  
+  # --- 8. Avpublicera från gamla servern (utan andra bekräftelse) ---
+  shinyapp_avpublicera(github_repo, target = nuvarande_target,
+                       lokal_grundsokvag = lokal_grundsokvag,
+                       bekrafta_automatiskt = TRUE)
+  
+  cat("\n✓ Klart! '", github_repo, "' är flyttad från ",
+      nuvarande_target, " till ", nytt_target, ".\n", sep = "")
+  cat("Ny URL: ", .shinyapp_app_url(github_repo, nytt_target), "\n", sep = "")
+  invisible(TRUE)
+}
+
+# ---------------------------------------------------------------------------
+# Läs GitHub PAT från keyring
+# ---------------------------------------------------------------------------
+.shinyapp_las_pat <- function(service = "github_token") {
+  if (!requireNamespace("keyring", quietly = TRUE)) {
+    stop("Paketet 'keyring' måste vara installerat.")
+  }
+  users <- keyring::key_list(service = service)
+  if (nrow(users) == 0) {
+    stop("Hittar ingen PAT i keyring under service '", service, "'. ",
+         "Lägg in den med keyring::key_set('", service, "').")
+  }
+  keyring::key_get(service, users$username[1])
+}
+
+# ---------------------------------------------------------------------------
+# Trigga workflow_dispatch via GitHub REST API
+# ---------------------------------------------------------------------------
+.shinyapp_trigga_workflow <- function(
+    github_repo,
+    workflow_filnamn,
+    inputs       = list(),
+    github_org   = "Region-Dalarna",
+    ref          = "master"
+) {
+  if (!requireNamespace("httr", quietly = TRUE)) {
+    stop("Paketet 'httr' måste vara installerat.")
+  }
+  pat <- .shinyapp_las_pat()
+  
+  url <- paste0("https://api.github.com/repos/", github_org, "/", github_repo,
+                "/actions/workflows/", workflow_filnamn, "/dispatches")
+  
+  resp <- httr::POST(
+    url,
+    httr::add_headers(
+      Accept                 = "application/vnd.github+json",
+      Authorization          = paste("Bearer", pat),
+      `X-GitHub-Api-Version` = "2022-11-28"
+    ),
+    body   = list(ref = ref, inputs = inputs),
+    encode = "json"
+  )
+  
+  if (httr::status_code(resp) != 204) {
+    stop("Misslyckades att trigga workflow ", workflow_filnamn,
+         ". HTTP ", httr::status_code(resp), ": ",
+         httr::content(resp, as = "text", encoding = "UTF-8"))
+  }
+  invisible(TRUE)
+}
+
+# ---------------------------------------------------------------------------
+# Vänta tills senaste körning av ett workflow har slutförts
+# ---------------------------------------------------------------------------
+.shinyapp_vanta_pa_workflow <- function(
+    github_repo,
+    workflow_filnamn,
+    github_org       = "Region-Dalarna",
+    max_vantetid_s   = 600,
+    poll_intervall_s = 5
+) {
+  if (!requireNamespace("httr", quietly = TRUE)) {
+    stop("Paketet 'httr' måste vara installerat.")
+  }
+  pat <- .shinyapp_las_pat()
+  
+  url <- paste0("https://api.github.com/repos/", github_org, "/", github_repo,
+                "/actions/workflows/", workflow_filnamn, "/runs?per_page=5")
+  
+  startad <- Sys.time()
+  Sys.sleep(3)   # ge GitHub en kort stund att registrera körningen
+  
+  repeat {
+    resp <- httr::GET(
+      url,
+      httr::add_headers(
+        Accept                 = "application/vnd.github+json",
+        Authorization          = paste("Bearer", pat),
+        `X-GitHub-Api-Version` = "2022-11-28"
+      )
+    )
+    if (httr::status_code(resp) != 200) {
+      stop("Kunde inte läsa workflow-status. HTTP ", httr::status_code(resp))
+    }
+    data <- httr::content(resp, as = "parsed")
+    if (length(data$workflow_runs) == 0) {
+      stop("Hittade inga körningar av ", workflow_filnamn)
+    }
+    senaste <- data$workflow_runs[[1]]
+    
+    if (isTRUE(senaste$status == "completed")) {
+      if (isTRUE(senaste$conclusion == "success")) {
+        message("\nWorkflow ", workflow_filnamn, " slutfördes (success).")
+        return(invisible(TRUE))
+      } else {
+        stop("Workflow ", workflow_filnamn, " slutfördes med status '",
+             senaste$conclusion, "'. Se: ", senaste$html_url)
+      }
+    }
+    
+    if (as.numeric(difftime(Sys.time(), startad, units = "secs")) > max_vantetid_s) {
+      stop("Timeout: workflow inte klar efter ", max_vantetid_s, " s.")
+    }
+    
+    cat(".")
+    Sys.sleep(poll_intervall_s)
+  }
+}
+
+.shinyapp_default_branch <- function(repo_sokvag) {
+  # Försök 1: git symbolic-ref (snabbast, fungerar om origin/HEAD är satt)
+  res <- suppressWarnings(
+    system2("git",
+            args = c("-C", repo_sokvag,
+                     "symbolic-ref", "refs/remotes/origin/HEAD"),
+            stdout = TRUE, stderr = TRUE)
+  )
+  status <- attr(res, "status")
+  if (is.null(status) || status == 0) {
+    return(sub("^refs/remotes/origin/", "", res[1]))
+  }
+  
+  # Försök 2: fallback — sök efter origin/main eller origin/master
+  branches <- suppressWarnings(
+    system2("git",
+            args = c("-C", repo_sokvag, "branch", "-r"),
+            stdout = TRUE, stderr = TRUE)
+  )
+  branches <- trimws(branches)
+  if (any(grepl("^origin/main$",   branches))) return("main")
+  if (any(grepl("^origin/master$", branches))) return("master")
+  
+  stop("Kunde inte hitta default-branch för ", repo_sokvag, ". ",
+       "Kör 'git remote set-head origin -a' i repot och försök igen.")
+}
+
+.shinyapp_konfigurera_publicera_branch <- function(
+    github_repo,
+    lokal_grundsokvag = "c:/gh/",
+    bas_branch        = NULL                   # NULL = auto-detektera
+) {
+  
+  # --- Validera parameter ---
+  if (missing(github_repo) || !nzchar(github_repo)) {
+    stop("Parametern 'github_repo' måste anges.")
+  }
+  
+  repo_sokvag <- file.path(lokal_grundsokvag, github_repo)
+  
+  if (!dir.exists(repo_sokvag)) {
+    stop("Hittar inte repot: ", repo_sokvag)
+  }
+  if (!dir.exists(file.path(repo_sokvag, ".git"))) {
+    stop("Mappen är inte ett git-repository: ", repo_sokvag)
+  }
+  
+  if (is.null(bas_branch)) {
+    bas_branch <- .shinyapp_default_branch(repo_sokvag)
+  }
+  
+  # --- Hjälpfunktion: kör git i rätt repo med felhantering ---
+  kor_git <- function(..., stopp_vid_fel = TRUE) {
+    git_args <- c("-C", repo_sokvag, ...)
+    res <- suppressWarnings(
+      system2("git", args = git_args, stdout = TRUE, stderr = TRUE)
+    )
+    status <- attr(res, "status")
+    if (is.null(status)) status <- 0L
+    if (status != 0 && stopp_vid_fel) {
+      stop("git ", paste(c(...), collapse = " "),
+           " misslyckades:\n", paste(res, collapse = "\n"))
+    }
+    res
+  }
+  
+  cat("\n--- Säkerställer publicera-publik i '",
+      github_repo, "' ---\n", sep = "")
+  
+  # --- 1. Working tree clean ---
+  status_output <- kor_git("status", "--porcelain")
+  if (length(status_output) > 0 && any(nzchar(status_output))) {
+    stop("Repot har ohanterade ändringar:\n",
+         paste(status_output, collapse = "\n"),
+         "\nCommit:a eller stash:a först innan du kör funktionen.")
+  }
+  
+  # --- 2. Fetch ---
+  cat("1. Fetchar från origin...\n")
+  kor_git("fetch", "origin")
+  
+  # --- 3. Vad finns på origin? ---
+  remote_branches <- trimws(kor_git("branch", "-r"))
+  finns_publicera        <- any(grepl("^origin/publicera$",        remote_branches))
+  finns_publicera_publik <- any(grepl("^origin/publicera-publik$", remote_branches))
+  finns_bas              <- any(grepl(paste0("^origin/", bas_branch, "$"), remote_branches))
+  
+  # --- 4. Beslutsträd ---
+  
+  # 4a. Redan migrerat
+  if (finns_publicera_publik && !finns_publicera) {
+    message("'publicera-publik' finns redan — ingen åtgärd.")
+    return(invisible(FALSE))
+  }
+  
+  # 4b. Konflikt — båda finns
+  if (finns_publicera && finns_publicera_publik) {
+    stop("Både 'publicera' och 'publicera-publik' finns på origin. ",
+         "Lös konflikten manuellt — funktionen vågar inte gissa vilken som är aktuell.")
+  }
+  
+  # 4c. Befintlig rename-väg
+  if (finns_publicera) {
+    cat("Hittade 'publicera' — döper om till 'publicera-publik'.\n")
+    
+    cat("2. Checkar ut publicera lokalt...\n")
+    local_branches <- trimws(kor_git("branch"))
+    finns_lokalt <- any(grepl("^\\*?\\s*publicera$", local_branches))
+    if (finns_lokalt) {
+      kor_git("checkout", "publicera")
+    } else {
+      kor_git("checkout", "-b", "publicera", "origin/publicera")
+    }
+    
+    cat("3. Döper om lokalt...\n")
+    kor_git("branch", "-m", "publicera", "publicera-publik")
+    
+    cat("4. Pushar publicera-publik till GitHub...\n")
+    kor_git("push", "-u", "origin", "publicera-publik")
+    
+    cat("5. Tar bort gamla publicera från GitHub...\n")
+    kor_git("push", "origin", "--delete", "publicera")
+    
+    cat("6. Återgår till ", bas_branch, " och städar...\n", sep = "")
+    kor_git("checkout", bas_branch)
+    kor_git("fetch", "--prune")
+    
+    cat("\n✓ Klart! '", github_repo,
+        "' har nu publicera-publik istället för publicera.\n", sep = "")
+    return(invisible(TRUE))
+  }
+  
+  # 4d. NY: Ingen branch finns — skapa från bas_branch
+  cat("Ingen 'publicera'- eller 'publicera-publik'-branch finns.\n")
+  cat("Skapar 'publicera-publik' från '", bas_branch, "'.\n", sep = "")
+  
+  if (!finns_bas) {
+    stop("Hittar inte basbranchen 'origin/", bas_branch, "'. ",
+         "Repot kan vara tomt eller använda annat namn på huvudbranchen ",
+         "(t.ex. 'main'). Använd parametern 'bas_branch' för att ange rätt namn.")
+  }
+  
+  cat("2. Checkar ut ", bas_branch, "...\n", sep = "")
+  kor_git("checkout", bas_branch)
+  kor_git("pull", "--ff-only", "origin", bas_branch)
+  
+  cat("3. Skapar publicera-publik från ", bas_branch, "...\n", sep = "")
+  
+  # Säkerhetskontroll: finns publicera-publik lokalt redan men inte på origin?
+  local_branches <- trimws(kor_git("branch"))
+  finns_lokal_publik <- any(grepl("^\\*?\\s*publicera-publik$", local_branches))
+  if (finns_lokal_publik) {
+    stop("publicera-publik finns lokalt men inte på origin. ",
+         "Det här är ett ovanligt tillstånd — kontrollera manuellt vad ",
+         "den lokala branchen innehåller och pusha den själv om den är rätt.")
+  }
+  
+  kor_git("checkout", "-b", "publicera-publik")
+  
+  cat("4. Pushar publicera-publik till GitHub...\n")
+  kor_git("push", "-u", "origin", "publicera-publik")
+  
+  cat("5. Återgår till ", bas_branch, "...\n", sep = "")
+  kor_git("checkout", bas_branch)
+  kor_git("fetch", "--prune")
+  
+  cat("\n✓ Klart! '", github_repo,
+      "' har nu en ny publicera-publik-branch (skapad från ",
+      bas_branch, ").\n", sep = "")
+  invisible(TRUE)
+}
+
+# === Server-URL och ping ===
+
+.shinyapp_app_url <- function(appnamn, target, anvand_http = FALSE) {
+  bas <- switch(target,
+                publik = "shiny.regiondalarna.se",
+                intern = "shiny.ltdalarna.se",
+                stop("Okänt target: ", target)
+  )
+  protokoll <- if (anvand_http) "http" else "https"
+  paste0(protokoll, "://", bas, "/", appnamn, "/")
+}
+
+.shinyapp_ping_app <- function(appnamn, target, timeout_s = 10) {
+  # Returnerar TRUE om appen svarar med 200, annars FALSE.
+  # För 'intern': prova https först, sen http (tills https är konfigurerat).
+  if (!requireNamespace("httr", quietly = TRUE)) {
+    stop("Paketet 'httr' krävs.")
+  }
+  
+  prova_http_lista <- if (target == "intern") c(FALSE, TRUE) else c(FALSE)
+  
+  for (anvand_http in prova_http_lista) {
+    url <- .shinyapp_app_url(appnamn, target, anvand_http = anvand_http)
+    resp <- tryCatch(
+      httr::GET(url, httr::timeout(timeout_s)),
+      error = function(e) NULL
+    )
+    if (!is.null(resp) && httr::status_code(resp) == 200) {
+      return(TRUE)
+    }
+  }
+  FALSE
+}
+
+# === _publicering_till_server.yml ===
+
+.shinyapp_las_target <- function(repo_sokvag) {
+  # Returnerar "publik", "intern" eller NA om filen saknas/är ogiltig.
+  yml_path <- file.path(repo_sokvag, "_publicering_till_server.yml")
+  if (!file.exists(yml_path)) return(NA_character_)
+  
+  target <- if (requireNamespace("yaml", quietly = TRUE)) {
+    konfig <- tryCatch(yaml::read_yaml(yml_path), error = function(e) NULL)
+    konfig$target
+  } else {
+    rader <- readLines(yml_path, warn = FALSE)
+    target_rad <- grep("^\\s*target\\s*:", rader, value = TRUE)
+    if (length(target_rad) > 0) {
+      trimws(sub("^[^:]*:\\s*", "", target_rad[1]))
+    } else NA_character_
+  }
+  
+  if (is.null(target) || is.na(target) || !target %in% c("publik", "intern")) {
+    return(NA_character_)
+  }
+  target
+}
+
+.shinyapp_skriv_target <- function(repo_sokvag, target) {
+  yml_path <- file.path(repo_sokvag, "_publicering_till_server.yml")
+  writeLines(paste0("target: ", target), yml_path)
 }
 
 webbrapport_publicera <- function(
