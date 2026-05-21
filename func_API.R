@@ -5102,19 +5102,22 @@ git_kontrollera_id_uppgifter <- function() {
   invisible(TRUE)
 }
 
+
 shinyapp_skapa_med_github_repo <- function(
     github_repo,                            # Namn på repo OCH Shiny-app (mapp på servern)
     github_org         = "Region-Dalarna",  # Org på GitHub, sätt till NULL för privat konto
     rapport_titel      = github_repo,       # Titel som visas i titlePanel
     rapport_undertitel = NA,                # (används bara i README nu, kan byggas ut)
     githubmapp_lokalt  = "c:/gh/",          # Sökväg till mapp där du har alla github-repon, t.ex. "C:/github_repos"
-    behorighet_team    = "samhallsanalys"   # GitHub-team som får push-behörighet, NULL om inget team
+    behorighet_team    = "samhallsanalys",  # GitHub-team som får push-behörighet, NULL om inget team
+    target             = "publik",          # Default-server i _publicering_till_server.yml: "publik" eller "intern"
+    test_skapa_ej_repo = FALSE              # TRUE = hoppa över git-init OCH GitHub-repo (bara lokala filer/mappar)
 ) {
   
   source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_filer.R", encoding = "utf-8")
-
+  
   # ==== Beroenden ==============================================================
-
+  
   pkg_needed <- c("usethis", "gert", "glue", "stringr", "purrr", "httr", "keyring")
   miss <- pkg_needed[!vapply(pkg_needed, requireNamespace, logical(1), quietly = TRUE)]
   if (length(miss) > 0) {
@@ -5125,14 +5128,18 @@ shinyapp_skapa_med_github_repo <- function(
     )
   }
   
+  if (!target %in% c("publik", "intern")) {
+    stop("target måste vara 'publik' eller 'intern'.", call. = FALSE)
+  }
+  
   # Lokal helper: skapa mapp om den inte finns
   skapa_mapp_om_den_inte_finns <- function(path) {
     if (!dir.exists(path)) dir.create(path, recursive = TRUE)
   }
   
-
+  
   # ==== Normalisera sökvägar ===================================================
-
+  
   githubmapp_lokalt <- stringr::str_replace_all(githubmapp_lokalt, stringr::fixed("\\"), "/")
   if (!stringr::str_ends(githubmapp_lokalt, "/")) {
     githubmapp_lokalt <- paste0(githubmapp_lokalt, "/")
@@ -5146,9 +5153,9 @@ shinyapp_skapa_med_github_repo <- function(
   # Skapa rotmapp om den inte finns
   skapa_mapp_om_den_inte_finns(sokvag_proj)
   
-
+  
   # ==== Skapa R-projekt ========================================================
-
+  
   gitprojekt_sokvag <- if (stringr::str_sub(sokvag_proj, -1, -1) == "/") {
     stringr::str_sub(sokvag_proj, 1, -2)
   } else {
@@ -5157,30 +5164,80 @@ shinyapp_skapa_med_github_repo <- function(
   
   usethis::create_project(gitprojekt_sokvag, open = FALSE)
   unlink(file.path(sokvag_proj, "R"), recursive = TRUE)             # ta bort mappen R som ligger direkt i repositoryt
-
+  
   # ==== Skapa app-struktur: app/, www/, R/ ====================================
-
-  app_dir      <- file.path(sokvag_proj, "app")
-  www_dir      <- file.path(app_dir, "www")
-  r_dir        <- file.path(app_dir, "R")
+  
+  app_dir       <- file.path(sokvag_proj, "app")
+  www_dir       <- file.path(app_dir, "www")
+  r_dir         <- file.path(app_dir, "R")
   workflows_dir <- file.path(sokvag_proj, ".github", "workflows")
   
+  fonts_dir     <- file.path(www_dir, "fonts")
+  
   purrr::walk(
-    c(app_dir, www_dir, r_dir, workflows_dir),
+    c(app_dir, www_dir, r_dir, workflows_dir, fonts_dir),
     skapa_mapp_om_den_inte_finns
   )
   
   file.create(file.path(r_dir, ".gitkeep"))                        # otestad men bör funka. Lägger till .gitkeep i R-mappen så att den inte är tom och därmed inte ignoreras av git utan skapas även där och inte bara ligger lokalt (vilket är ok men kan förvirra)
-
-  # ==== Hämta favicon till www/ ===============================================
-
-  favicon_url  <- "https://raw.githubusercontent.com/Region-Dalarna/depot/main/favicon.ico"
-  favicon_path <- file.path(www_dir, "favicon.ico")
-  utils::download.file(favicon_url, favicon_path, mode = "wb")
   
+  # ==== Hämta stilfiler från Region-Dalarna/depot =============================
+  # Filer som hämtas direkt från depot (delade tillgångar):
+  #   - favicon.ico               -> app/www/favicon.ico
+  #   - regiondalarna_ruf.css     -> app/www/regiondalarna_ruf.css
+  #   - logo_liggande_fri_vit.png -> app/www/logo_liggande_fri_vit.png
+  #   - fonts/*                   -> app/www/fonts/  (listas via GitHub API)
+  #
+  # OBS: app.css genereras lokalt som ett tomt skal nedan, eftersom depot-versionen
+  # är specifik för Brottsappen. Lägg appspecifika regler i appens egen app.css.
+  
+  depot_raw_bas <- "https://raw.githubusercontent.com/Region-Dalarna/depot/main"
+  
+  # Helper: ladda ner binär eller text-fil från depot via httr::GET
+  hamta_fran_depot <- function(rel_sokvag, target_path) {
+    url  <- paste0(depot_raw_bas, "/", rel_sokvag)
+    resp <- httr::GET(url)
+    httr::stop_for_status(resp, task = paste("hämta", rel_sokvag, "från depot"))
+    writeBin(httr::content(resp, as = "raw"), target_path)
+  }
+  
+  hamta_fran_depot("favicon.ico",               file.path(www_dir, "favicon.ico"))
+  hamta_fran_depot("regiondalarna_ruf.css",     file.path(www_dir, "regiondalarna_ruf.css"))
+  hamta_fran_depot("logo_liggande_fri_vit.png", file.path(www_dir, "logo_liggande_fri_vit.png"))
+  
+  # Lista fonts/-katalogen i depot via GitHub Contents API och ladda ner varje fil
+  fonts_api_url <- "https://api.github.com/repos/Region-Dalarna/depot/contents/fonts"
+  fonts_resp <- httr::GET(fonts_api_url, httr::accept("application/vnd.github+json"))
+  if (httr::status_code(fonts_resp) == 200) {
+    fonts_lista <- httr::content(fonts_resp, as = "parsed")
+    purrr::walk(fonts_lista, function(f) {
+      if (identical(f$type, "file")) {
+        hamta_fran_depot(paste0("fonts/", f$name), file.path(fonts_dir, f$name))
+      }
+    })
+    message("✅ Hämtade ", length(fonts_lista), " typsnittsfiler från depot/fonts/.")
+  } else {
+    warning("Kunde inte lista depot/fonts/ (status ", httr::status_code(fonts_resp),
+            "). Lägg till typsnitt manuellt i app/www/fonts/.", call. = FALSE)
+  }
+  
+  # Generera ett tomt skal för app.css (appspecifika overrides)
+  app_css <- glue::glue(
+    "/* ============================================================
+   app.css
+   App-specifik styling för {github_repo}.
+   Laddas EFTER regiondalarna_ruf.css så att lokala regler
+   kan överstyra den delade identiteten vid behov.
+   ============================================================ */
 
+/* Lägg appspecifika regler här. */
+"
+  )
+  writeLines(app_css, file.path(www_dir, "app.css"))
+  
+  
   # ==== Skapa global.R ========================================================
-
+  
   global_R <- glue::glue(
     '## Globala inställningar för Shinyappen: <<github_repo>>
 
@@ -5198,10 +5255,10 @@ library(ggplot2)
 # Allmänna options - TRUE = visa inte R-felmeddelanden i appen, FALSE = visa felmeddelanden från R på webben
 options(shiny.sanitize.errors = FALSE)
 ',
-.open = "<<", .close = ">>")
+    .open = "<<", .close = ">>")
   
-
-writeLines(global_R, file.path(app_dir, "global.R"))
+  
+  writeLines(global_R, file.path(app_dir, "global.R"))
   
   # ==== Skapa ui.R ============================================================
   ui_R <- glue::glue("
@@ -5210,21 +5267,40 @@ source('global.R')
 shinyUI(
   fluidPage(
     tags$head(
-      tags$link(rel = 'icon', type = 'image/x-icon', href = 'favicon.ico')
+      tags$link(rel = 'icon', type = 'image/x-icon', href = 'favicon.ico'),
+      tags$link(rel = 'stylesheet', type = 'text/css', href = 'regiondalarna_ruf.css'),
+      tags$link(rel = 'stylesheet', type = 'text/css', href = 'app.css')
     ),
-    titlePanel('<<rapport_titel>>'),
-    sidebarLayout(
-      sidebarPanel(
-        h4('Exempelsida'),
-        p('Byt ut detta innehåll mot din riktiga UI.')
-      ),
-      mainPanel(
-        tabsetPanel(
-          tabPanel('Tab 1', h3('Hej från <<github_repo>>')),
-          tabPanel('Om', p('Beskriv applikationen här.'))
-        ),
-        hr(),
+
+    # ---- Header (matchar .rd-header i regiondalarna_ruf.css) --------------
+    tags$div(
+      class = 'rd-header',
+      tags$div(class = 'rd-header__title', '<<rapport_titel>>'),
+      tags$a(
+        class  = 'rd-header__right',
+        href   = 'https://www.regiondalarna.se',
+        target = '_blank',
+        tags$img(src = 'logo_liggande_fri_vit.png', alt = 'Region Dalarna'),
+        tags$span('Samhällsanalys')
+      )
+    ),
+
+    # ---- Innehåll ---------------------------------------------------------
+    tabsetPanel(
+      tabPanel('Tab 1',
+        h3('Hej från <<github_repo>>'),
         verbatimTextOutput('example_text')
+      ),
+      tabPanel('Om', p('Beskriv applikationen här.'))
+    ),
+
+    # ---- Footer (matchar .rd-footer i regiondalarna_ruf.css) --------------
+    tags$div(
+      class = 'rd-footer',
+      'Samhällsanalys, Region Dalarna · ',
+      tags$a(
+        href = 'mailto:samhallsanalys@regiondalarna.se',
+        'samhallsanalys@regiondalarna.se'
       )
     )
   )
@@ -5237,7 +5313,7 @@ writeLines(ui_R, file.path(app_dir, "ui.R"))
 
 # ==== Skapa server.R ========================================================
 
-server_R <- 
+server_R <-
   "shinyServer(function(input, output, session) {
 
   output$example_text <- renderText({
@@ -5279,99 +5355,788 @@ Detta repository innehåller en Shinyapplikation (`{github_repo}`) för Samhäll
 
 - All appkod ligger i katalogen `app/`
   - `ui.R`, `server.R`, `global.R`
-  - `www/` för favicon och övriga statiska filer
+  - `www/` för favicon, logotyp, CSS (`regiondalarna_ruf.css` + `app.css`) och `fonts/`
   - `R/` för hjälpfunktioner
 
-- Deployment sker via GitHub Actions (`.github/workflows/deploy.yml`)
-  till Shiny-servern (appmapp `/srv/shiny-server/{github_repo}`).
+- `_dependencies.R` i root listar alla paket appen använder (läses av `renv::dependencies()`, körs aldrig)
+- `_publicering_till_server.yml` i root styr vilken Shiny-server som är default för `shinyapp_publicera()`
+- `renv.lock` + `renv/` styr paketversioner. Kör `renv::restore()` efter klon för att få samma paket som senast snapshot:ades. Vid nya paket: `renv::install(...)` följt av `renv::snapshot()`.
+
+- Deployment sker via GitHub Actions:
+  - `.github/workflows/deploy.yml` – publicerar vid push till `publicera-publik` eller `publicera-intern`
+  - `.github/workflows/avpublicera.yml` – tar bort appen från vald server (manuell trigger)
+
+  Appmapp på servern: `/srv/shiny-server/{github_repo}`.
 
 ")
 
 writeLines(readme_content, file.path(sokvag_proj, "README.md"))
 
-# ==== Skapa deploy.yml för GitHub Actions ===================================
+# ==== Skapa _dependencies.R (root) ==========================================
 
-deploy_yml <- glue::glue(
-  'name: Deploy <<github_repo>>
+dependencies_R <- glue::glue(
+  "# _dependencies.R – läses av renv::dependencies(), körs aldrig
+# Lägg till alla paket appen använder, även de som laddas via source().
+library(shiny)
+library(shinyjs)
+library(shinyWidgets)
+library(DT)
+library(ggiraph)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(ggplot2)
+# ... lägg till fler paket vid behov
+"
+)
+
+writeLines(dependencies_R, file.path(sokvag_proj, "_dependencies.R"))
+
+
+# ==== Skapa _publicering_till_server.yml (root) =============================
+
+publicering_yml <- glue::glue(
+  "# publicering_till_server.yml
+#
+# Styr vilken Shiny-server som appen publiceras till när
+# shinyapp_publicera() körs utan target-parameter.
+#
+# Giltiga värden för target:
+#   publik   - publicera till den publika Shiny-servern
+#              (shiny.regiondalarna.se)
+#   intern   - publicera till den interna Shiny-servern
+#              (shiny.ltdalarna.se)
+#
+# För engångs-override utan att andra appens hemvist:
+#   shinyapp_publicera(\"appnamn\", target = \"intern\")
+#
+# For att permanent flytta appen till andra servern, använd:
+#   shinyapp_flytta(\"appnamn\", till = \"intern\")
+
+target: {target}
+"
+)
+
+writeLines(publicering_yml, file.path(sokvag_proj, "_publicering_till_server.yml"))
+
+
+# ==== Skapa .github/workflows/deploy.yml ====================================
+
+deploy_yml <-
+  "name: Deploy Shiny app
+run-name: Deploy ${{ github.event.repository.name }} → ${{ github.ref_name == 'publicera-intern' && 'intern' || 'publik' }}
 
 on:
   push:
-    branches: [ publicera ]
+    branches: [ publicera-publik, publicera-intern ]
+  workflow_dispatch:
 
 jobs:
   deploy:
-    runs-on: [ self-hosted, shiny ]
+    runs-on:
+      - self-hosted
+      - ${{ github.ref == 'refs/heads/publicera-intern' && 'shiny-deploy-intern' || 'shiny-deploy-publik' }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Visa vilken server som deploy:as till
+        run: |
+          if [ \"$GITHUB_REF\" = \"refs/heads/publicera-intern\" ]; then
+            echo \"Deploy till INTERN server (${{ github.event.repository.name }})\"
+          else
+            echo \"Deploy till PUBLIK server (${{ github.event.repository.name }})\"
+          fi
+
       - name: Deploy app using server-side script
         run: |
           TEMP_DIR=\"${GITHUB_WORKSPACE}/app\"
-          /usr/local/bin/shiny_deploy.sh <<github_repo>> \"$TEMP_DIR\"
-',
-.open = "<<", .close = ">>"
-)
+          /usr/local/bin/shiny_deploy.sh \"${{ github.event.repository.name }}\" \"$TEMP_DIR\"
+
+      - name: Restart Shiny Server if available
+        run: |
+          echo \"Kontrollerar om shiny-server-tjänsten finns...\"
+
+          if systemctl status shiny-server >/dev/null 2>&1; then
+            echo \"shiny-server hittades. Försöker restart...\"
+
+            if sudo systemctl restart shiny-server; then
+              echo \"Shiny Server restart lyckades.\"
+            else
+              echo \"FEL: Kunde inte köra 'sudo systemctl restart shiny-server'\" >&2
+              echo \"Försöker hämta senaste loggrader från /var/log/shiny-server.log...\"
+
+              if [ -f /var/log/shiny-server.log ]; then
+                echo \"====== SISTA 50 RADERNA UR shiny-server.log ======\"
+                sudo tail -n 50 /var/log/shiny-server.log || echo \"Kunde inte läsa /var/log/shiny-server.log\"
+                echo \"====================================================\"
+              else
+                echo \"Ingen loggfil hittades på /var/log/shiny-server.log\"
+              fi
+
+              exit 1
+            fi
+          else
+            echo \"Ingen systemd-tjänst med namnet 'shiny-server' hittades. Hoppar över restart.\"
+          fi
+"
 
 writeLines(deploy_yml, file.path(workflows_dir, "deploy.yml"))
 
 
-# ==== Initiera Git, skapa branch 'utveckling', lägg upp på GitHub ===========
-old_wd <- getwd()
-on.exit(setwd(old_wd), add = TRUE)
-setwd(sokvag_proj)
+# ==== Skapa .github/workflows/avpublicera.yml ===============================
 
-gert::git_init()
-git_kontrollera_id_uppgifter()
-gert::git_add(".")
-gert::git_commit("Initiera Shinyapp-projekt")
+avpublicera_yml <-
+  "name: Avpublicera Shiny app
+run-name: Avpublicera ${{ github.event.repository.name }} från ${{ inputs.target }}
 
-if (Sys.getenv("GITHUB_PAT") == "") {
-  gh_user  <- keyring::key_list(service = "github_token")$username
-  Sys.setenv(GITHUB_PAT = keyring::key_get("github_token", gh_user))
-} 
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Vilken server ska appen tas bort från?'
+        required: true
+        type: choice
+        options:
+          - publik
+          - intern
+      bekraftelse:
+        description: 'Skriv appnamnet (= repo-namnet) för att bekräfta'
+        required: true
+        type: string
 
-# Skapa repo på GitHub
-if (is.null(github_org)) {
-  usethis::use_github(
-    private   = FALSE,
-    protocol  = "https"
-  )
+jobs:
+  avpublicera:
+    runs-on:
+      - self-hosted
+      - ${{ inputs.target == 'intern' && 'shiny-deploy-intern' || 'shiny-deploy-publik' }}
+
+    steps:
+      - name: Kontrollera bekräftelse
+        run: |
+          if [ \"${{ inputs.bekraftelse }}\" != \"${{ github.event.repository.name }}\" ]; then
+            echo \"FEL: Bekräftelseordet matchar inte repo-namnet.\"
+            exit 1
+          fi
+          echo \"Bekräftelse OK. Tar bort ${{ github.event.repository.name }} från ${{ inputs.target }} server.\"
+
+      - name: Ta bort app från Shiny-server
+        run: |
+          APP_DIR=\"/srv/shiny-server/${{ github.event.repository.name }}\"
+
+          # säkerhetsräcke: pathen MÅSTE ligga under /srv/shiny-server/
+          # och får inte vara just själva foldern
+          if [[ \"$APP_DIR\" != /srv/shiny-server/* ]] || [ \"$APP_DIR\" = \"/srv/shiny-server/\" ]; then
+            echo \"FEL: Otillåten sökväg: $APP_DIR\"
+            exit 1
+          fi
+
+          if [ -d \"$APP_DIR\" ]; then
+            echo \"Tar bort $APP_DIR\"
+            sudo rm -rf \"$APP_DIR\"
+            echo \"App borttagen.\"
+          else
+            echo \"Ingen app hittades i $APP_DIR — inget att ta bort.\"
+          fi
+
+      - name: Restart Shiny Server if available
+        run: |
+          if systemctl status shiny-server >/dev/null 2>&1; then
+            sudo systemctl restart shiny-server && echo \"Shiny Server omstartad.\"
+          fi
+"
+
+writeLines(avpublicera_yml, file.path(workflows_dir, "avpublicera.yml"))
+
+
+# ==== Initiera renv (bare = TRUE, ingen snapshot än) ========================
+# Skapar renv/activate.R, renv/settings.json, en tom renv.lock och uppdaterar
+# .Rprofile. Snapshot tas senare när paketen är installerade lokalt:
+#   renv::install(c(<paket>...)) ; renv::snapshot()
+
+if (requireNamespace("renv", quietly = TRUE)) {
+  renv::init(project = gitprojekt_sokvag, bare = TRUE, restart = FALSE)
 } else {
-  usethis::use_github(
-    organisation = github_org,
-    private      = FALSE,
-    visibility   = "public",
-    protocol     = "https"
-  )
+  message("⚠️ Paketet 'renv' är inte installerat — hoppar över renv-init. ",
+          "Kör install.packages('renv') och sedan renv::init(bare = TRUE) i projektet manuellt.")
 }
 
-# Ge team behörighet om angivet
-if (!is.null(behorighet_team) && !is.null(github_org)) {
-  # Kräver att keyring är konfigurerad med github_token etc, samma som i din webbrapport-funktion
-  gh_user  <- keyring::key_list(service = "github_token")$username
-  gh_token <- keyring::key_get("github_token", gh_user)
+
+# ==== Initiera Git och GitHub-repo (om test_skapa_ej_repo = FALSE) ==========
+
+if (isTRUE(test_skapa_ej_repo)) {
+  message("ℹ️ test_skapa_ej_repo = TRUE — hoppar över git-init och GitHub-repo. ",
+          "Projektet finns bara lokalt i ", sokvag_proj)
+} else {
+  old_wd <- getwd()
+  on.exit(setwd(old_wd), add = TRUE)
+  setwd(sokvag_proj)
   
-  resp <- httr::PUT(
-    url = glue::glue(
-      "https://api.github.com/orgs/{github_org}/teams/{behorighet_team}/repos/{github_org}/{github_repo}"
-    ),
-    httr::add_headers(Authorization = paste("token", gh_token)),
-    body   = list(permission = "push"),
-    encode = "json"
-  )
+  gert::git_init()
+  git_kontrollera_id_uppgifter()
+  gert::git_add(".")
+  gert::git_commit("Initiera Shinyapp-projekt")
   
-  if (httr::status_code(resp) == 204) {
-    message("✅ Teamet '", behorighet_team, "' har fått push-behörighet.")
+  if (Sys.getenv("GITHUB_PAT") == "") {
+    gh_user  <- keyring::key_list(service = "github_token")$username
+    Sys.setenv(GITHUB_PAT = keyring::key_get("github_token", gh_user))
+  }
+  
+  # Skapa repo på GitHub
+  if (is.null(github_org)) {
+    usethis::use_github(
+      private   = FALSE,
+      protocol  = "https"
+    )
   } else {
-    message("⚠️ Kunde inte sätta team-behörighet automatiskt (status ", 
-            httr::status_code(resp), ").")
+    usethis::use_github(
+      organisation = github_org,
+      private      = FALSE,
+      visibility   = "public",
+      protocol     = "https"
+    )
+  }
+  
+  # Ge team behörighet om angivet
+  if (!is.null(behorighet_team) && !is.null(github_org)) {
+    # Kräver att keyring är konfigurerad med github_token etc, samma som i din webbrapport-funktion
+    gh_user  <- keyring::key_list(service = "github_token")$username
+    gh_token <- keyring::key_get("github_token", gh_user)
+    
+    resp <- httr::PUT(
+      url = glue::glue(
+        "https://api.github.com/orgs/{github_org}/teams/{behorighet_team}/repos/{github_org}/{github_repo}"
+      ),
+      httr::add_headers(Authorization = paste("token", gh_token)),
+      body   = list(permission = "push"),
+      encode = "json"
+    )
+    
+    if (httr::status_code(resp) == 204) {
+      message("✅ Teamet '", behorighet_team, "' har fått push-behörighet.")
+    } else {
+      message("⚠️ Kunde inte sätta team-behörighet automatiskt (status ",
+              httr::status_code(resp), ").")
+    }
   }
 }
 
 invisible(sokvag_proj)
 }
+
+
+shinyapp_skapa_med_github_repo_forka_befintligt <- function(
+    github_repo,                            # Namn på NYTT repo OCH Shiny-app (mapp på servern)
+    kalla_repo_url,                         # URL till det befintliga repot, t.ex. "https://github.com/nån/coolapp.git"
+    kalla_branch       = "main",            # Branch att hämta från i källrepot
+    github_org         = "Region-Dalarna",  # Org på GitHub, sätt till NULL för privat konto
+    rapport_titel      = github_repo,       # Titel som visas i README
+    rapport_undertitel = NA,                # (används bara i README nu, kan byggas ut)
+    githubmapp_lokalt  = "c:/gh/",          # Sökväg till mapp där du har alla github-repon
+    behorighet_team    = "samhallsanalys",  # GitHub-team som får push-behörighet, NULL om inget team
+    target             = "publik",          # Default-server i _publicering_till_server.yml: "publik" eller "intern"
+    r_projekt_oppna    = TRUE               # TRUE = öppna .Rproj-filen i RStudio när allt är klart
+) {
+  
+  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_filer.R", encoding = "utf-8")
+  
+  # ==== Beroenden ==============================================================
+  
+  pkg_needed <- c("usethis", "gert", "glue", "stringr", "purrr", "httr", "keyring")
+  miss <- pkg_needed[!vapply(pkg_needed, requireNamespace, logical(1), quietly = TRUE)]
+  if (length(miss) > 0) {
+    stop(
+      "Följande paket behöver installeras först: ",
+      paste(miss, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  
+  if (!target %in% c("publik", "intern")) {
+    stop("target måste vara 'publik' eller 'intern'.", call. = FALSE)
+  }
+  
+  if (missing(kalla_repo_url) || !nzchar(kalla_repo_url)) {
+    stop("Parametern 'kalla_repo_url' måste anges (URL till det befintliga repot).",
+         call. = FALSE)
+  }
+  
+  # Lokal helper: skapa mapp om den inte finns
+  skapa_mapp_om_den_inte_finns <- function(path) {
+    if (!dir.exists(path)) dir.create(path, recursive = TRUE)
+  }
+  
+  
+  # ==== Normalisera sökvägar ===================================================
+  
+  githubmapp_lokalt <- stringr::str_replace_all(githubmapp_lokalt, stringr::fixed("\\"), "/")
+  if (!stringr::str_ends(githubmapp_lokalt, "/")) {
+    githubmapp_lokalt <- paste0(githubmapp_lokalt, "/")
+  }
+  
+  sokvag_proj <- paste0(githubmapp_lokalt, github_repo)
+  if (!stringr::str_ends(sokvag_proj, "/")) {
+    sokvag_proj <- paste0(sokvag_proj, "/")
+  }
+  
+  if (dir.exists(sokvag_proj)) {
+    stop("Mappen finns redan: ", sokvag_proj,
+         "\nVälj ett annat namn eller ta bort mappen först.", call. = FALSE)
+  }
+  
+  # Skapa rotmapp
+  skapa_mapp_om_den_inte_finns(sokvag_proj)
+  
+  
+  # ==== Skapa R-projekt ========================================================
+  
+  gitprojekt_sokvag <- if (stringr::str_sub(sokvag_proj, -1, -1) == "/") {
+    stringr::str_sub(sokvag_proj, 1, -2)
+  } else {
+    sokvag_proj
+  }
+  
+  usethis::create_project(gitprojekt_sokvag, open = FALSE)
+  unlink(file.path(sokvag_proj, "R"), recursive = TRUE)  # ta bort mappen R i root
+  
+  # OBS: skapa INTE app/ — git subtree add kräver att prefix-mappen inte finns
+  
+  # ==== Skapa .github/workflows-mappen =========================================
+  
+  workflows_dir <- file.path(sokvag_proj, ".github", "workflows")
+  skapa_mapp_om_den_inte_finns(workflows_dir)
+  
+  
+  # ==== Hjälpare: kör git i rätt repo (för subtree-stöd) =======================
+  
+  kor_git <- function(...) {
+    res <- suppressWarnings(
+      system2("git", args = c("-C", gitprojekt_sokvag, ...),
+              stdout = TRUE, stderr = TRUE)
+    )
+    status <- attr(res, "status"); if (is.null(status)) status <- 0L
+    if (status != 0) {
+      stop("git ", paste(c(...), collapse = " "), " misslyckades:\n",
+           paste(res, collapse = "\n"), call. = FALSE)
+    }
+    res
+  }
+  
+  
+  # ==== Skapa .gitignore =======================================================
+  
+  gitignore_content <- "
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+.Rhistory
+.Rapp.history
+"
+  
+  writeLines(trimws(gitignore_content, which = "left"),
+             file.path(sokvag_proj, ".gitignore"))
+  
+  
+  # ==== Skapa README ===========================================================
+  
+  readme_content <- glue::glue(
+    "# {rapport_titel}
+
+Detta repository innehåller en Shinyapplikation (`{github_repo}`) för Samhällsanalys, Region Dalarna.
+
+Appkoden under `app/` är importerad från ett befintligt repo via `git subtree`:
+
+- **Källa:** {kalla_repo_url}
+- **Branch vid import:** {kalla_branch}
+
+## Struktur
+
+- All appkod ligger i katalogen `app/` (importerad via git subtree)
+- `_publicering_till_server.yml` i root styr vilken Shiny-server som är default för `shinyapp_publicera()`
+
+- Deployment sker via GitHub Actions:
+  - `.github/workflows/deploy.yml` – publicerar vid push till `publicera-publik` eller `publicera-intern`
+  - `.github/workflows/avpublicera.yml` – tar bort appen från vald server (manuell trigger)
+
+  Appmapp på servern: `/srv/shiny-server/{github_repo}`.
+
+## Hämta uppdateringar från källrepot
+
+Appkoden under `app/` är kopplad till källrepot via `git subtree`. När
+källrepot uppdateras kan du dra in ändringarna med ett kommando.
+
+### Så här fungerar det
+
+`git subtree pull` hämtar senaste från källrepot och slår ihop ändringarna
+till en enda squashad commit under `app/`. Resten av repot (`.github/`,
+README, deploy-workflows) påverkas inte.
+
+Subtree pull kräver att working tree är **clean** — alla ändringar måste
+vara committade eller stashade innan du kör. Annars får du felet:
+
+```
+fatal: working tree has modifications. Cannot add.
+```
+
+### Kommandon (Terminal, från repots mapp)
+
+Stå i `{gitprojekt_sokvag}` när du kör kommandona:
+
+```
+cd {gitprojekt_sokvag}
+```
+
+**1. Kontrollera att working tree är clean:**
+
+```
+git status
+```
+
+Om det visar `nothing to commit, working tree clean` — hoppa till steg 3.
+
+**2. Om det finns ändringar — committa eller stasha dem:**
+
+Ett vanligt fall: `.Rproj`-filen ändras när du öppnat projektet i RStudio.
+Committa den då:
+
+```
+git add .
+git commit -m \"Lokala ändringar innan subtree pull\"
+```
+
+Eller stasha tillfälligt om du inte vill committa:
+
+```
+git stash
+```
+
+(återställ sedan efter pull med `git stash pop`)
+
+**3. Hämta uppdateringar från källrepot:**
+
+```
+git subtree pull --prefix=app {kalla_repo_url} {kalla_branch} --squash
+```
+
+Om en editor öppnas med merge-meddelandet — bara spara och stäng:
+- I **vim**: `Esc`, sen `:wq` + Enter
+- I **nano**: `Ctrl+O`, Enter, `Ctrl+X`
+
+**4. Pusha till GitHub:**
+
+```
+git push
+```
+
+### Alternativ: kör från R-konsolen
+
+Om du föredrar att stanna i R kan du köra hela kedjan så här
+(fungerar oavsett var i R du står — `-C` byter mapp åt dig):
+
+```r
+system2(\"git\", c(\"-C\", \"{gitprojekt_sokvag}\", \"add\", \".\"))
+system2(\"git\", c(\"-C\", \"{gitprojekt_sokvag}\", \"commit\",
+                 \"-m\", \"Lokala ändringar innan subtree pull\"))
+system2(\"git\", c(\"-C\", \"{gitprojekt_sokvag}\",
+                 \"subtree\", \"pull\", \"--prefix=app\",
+                 \"{kalla_repo_url}\", \"{kalla_branch}\", \"--squash\"))
+system2(\"git\", c(\"-C\", \"{gitprojekt_sokvag}\", \"push\"))
+```
+
+")
+  
+  writeLines(readme_content, file.path(sokvag_proj, "README.md"))
+  
+  
+  # ==== Skapa _publicering_till_server.yml (root) =============================
+  
+  publicering_yml <- glue::glue(
+    "# publicering_till_server.yml
+#
+# Styr vilken Shiny-server som appen publiceras till när
+# shinyapp_publicera() körs utan target-parameter.
+#
+# Giltiga värden för target:
+#   publik   - publicera till den publika Shiny-servern
+#              (shiny.regiondalarna.se)
+#   intern   - publicera till den interna Shiny-servern
+#              (shiny.ltdalarna.se)
+#
+# För engångs-override utan att andra appens hemvist:
+#   shinyapp_publicera(\"appnamn\", target = \"intern\")
+#
+# For att permanent flytta appen till andra servern, använd:
+#   shinyapp_flytta(\"appnamn\", till = \"intern\")
+
+target: {target}
+"
+  )
+  
+  writeLines(publicering_yml, file.path(sokvag_proj, "_publicering_till_server.yml"))
+  
+  
+  # ==== Skapa .github/workflows/deploy.yml ====================================
+  
+  deploy_yml <-
+    "name: Deploy Shiny app
+run-name: Deploy ${{ github.event.repository.name }} → ${{ github.ref_name == 'publicera-intern' && 'intern' || 'publik' }}
+
+on:
+  push:
+    branches: [ publicera-publik, publicera-intern ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on:
+      - self-hosted
+      - ${{ github.ref == 'refs/heads/publicera-intern' && 'shiny-deploy-intern' || 'shiny-deploy-publik' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Visa vilken server som deploy:as till
+        run: |
+          if [ \"$GITHUB_REF\" = \"refs/heads/publicera-intern\" ]; then
+            echo \"Deploy till INTERN server (${{ github.event.repository.name }})\"
+          else
+            echo \"Deploy till PUBLIK server (${{ github.event.repository.name }})\"
+          fi
+
+      - name: Deploy app using server-side script
+        run: |
+          TEMP_DIR=\"${GITHUB_WORKSPACE}/app\"
+          /usr/local/bin/shiny_deploy.sh \"${{ github.event.repository.name }}\" \"$TEMP_DIR\"
+
+      - name: Restart Shiny Server if available
+        run: |
+          echo \"Kontrollerar om shiny-server-tjänsten finns...\"
+
+          if systemctl status shiny-server >/dev/null 2>&1; then
+            echo \"shiny-server hittades. Försöker restart...\"
+
+            if sudo systemctl restart shiny-server; then
+              echo \"Shiny Server restart lyckades.\"
+            else
+              echo \"FEL: Kunde inte köra 'sudo systemctl restart shiny-server'\" >&2
+              echo \"Försöker hämta senaste loggrader från /var/log/shiny-server.log...\"
+
+              if [ -f /var/log/shiny-server.log ]; then
+                echo \"====== SISTA 50 RADERNA UR shiny-server.log ======\"
+                sudo tail -n 50 /var/log/shiny-server.log || echo \"Kunde inte läsa /var/log/shiny-server.log\"
+                echo \"====================================================\"
+              else
+                echo \"Ingen loggfil hittades på /var/log/shiny-server.log\"
+              fi
+
+              exit 1
+            fi
+          else
+            echo \"Ingen systemd-tjänst med namnet 'shiny-server' hittades. Hoppar över restart.\"
+          fi
+"
+  
+  writeLines(deploy_yml, file.path(workflows_dir, "deploy.yml"))
+  
+  
+  # ==== Skapa .github/workflows/avpublicera.yml ===============================
+  
+  avpublicera_yml <-
+    "name: Avpublicera Shiny app
+run-name: Avpublicera ${{ github.event.repository.name }} från ${{ inputs.target }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Vilken server ska appen tas bort från?'
+        required: true
+        type: choice
+        options:
+          - publik
+          - intern
+      bekraftelse:
+        description: 'Skriv appnamnet (= repo-namnet) för att bekräfta'
+        required: true
+        type: string
+
+jobs:
+  avpublicera:
+    runs-on:
+      - self-hosted
+      - ${{ inputs.target == 'intern' && 'shiny-deploy-intern' || 'shiny-deploy-publik' }}
+
+    steps:
+      - name: Kontrollera bekräftelse
+        run: |
+          if [ \"${{ inputs.bekraftelse }}\" != \"${{ github.event.repository.name }}\" ]; then
+            echo \"FEL: Bekräftelseordet matchar inte repo-namnet.\"
+            exit 1
+          fi
+          echo \"Bekräftelse OK. Tar bort ${{ github.event.repository.name }} från ${{ inputs.target }} server.\"
+
+      - name: Ta bort app från Shiny-server
+        run: |
+          APP_DIR=\"/srv/shiny-server/${{ github.event.repository.name }}\"
+
+          # säkerhetsräcke: pathen MÅSTE ligga under /srv/shiny-server/
+          # och får inte vara just själva foldern
+          if [[ \"$APP_DIR\" != /srv/shiny-server/* ]] || [ \"$APP_DIR\" = \"/srv/shiny-server/\" ]; then
+            echo \"FEL: Otillåten sökväg: $APP_DIR\"
+            exit 1
+          fi
+
+          if [ -d \"$APP_DIR\" ]; then
+            echo \"Tar bort $APP_DIR\"
+            sudo rm -rf \"$APP_DIR\"
+            echo \"App borttagen.\"
+          else
+            echo \"Ingen app hittades i $APP_DIR — inget att ta bort.\"
+          fi
+
+      - name: Restart Shiny Server if available
+        run: |
+          if systemctl status shiny-server >/dev/null 2>&1; then
+            sudo systemctl restart shiny-server && echo \"Shiny Server omstartad.\"
+          fi
+"
+  
+  writeLines(avpublicera_yml, file.path(workflows_dir, "avpublicera.yml"))
+  
+  
+  # ==== Initiera git + första commit (krävs för subtree add) ==================
+  
+  old_wd <- getwd()
+  on.exit(setwd(old_wd), add = TRUE)
+  setwd(sokvag_proj)
+  
+  gert::git_init()
+  git_kontrollera_id_uppgifter()
+  gert::git_add(".")
+  gert::git_commit("Initiera Shinyapp-projekt med deploy-workflow")
+  
+  
+  # ==== Hämta källrepots innehåll till app/ via git subtree ===================
+  
+  cat("Hämtar in '", kalla_repo_url, "' (branch '", kalla_branch,
+      "') till app/ ...\n", sep = "")
+  kor_git("subtree", "add",
+          "--prefix=app",
+          kalla_repo_url, kalla_branch, "--squash")
+  
+  
+  # ==== Varna om källrepot inte verkar vara en Shiny-app =======================
+  
+  app_dir <- file.path(sokvag_proj, "app")
+  shiny_filer <- c("ui.R", "server.R", "app.R", "global.R")
+  hittade <- shiny_filer[file.exists(file.path(app_dir, shiny_filer))]
+  
+  if (length(hittade) == 0) {
+    rek_traffar <- list.files(app_dir, pattern = "^(ui|server|app|global)\\.R$",
+                              recursive = TRUE, ignore.case = TRUE)
+    
+    msg <- paste0(
+      "\n⚠️  VARNING: Hittade inga typiska Shiny-filer ",
+      "(ui.R, server.R, app.R, global.R) direkt i app/.\n"
+    )
+    if (length(rek_traffar) > 0) {
+      msg <- paste0(msg,
+                    "    Hittade dock följande i undermappar:\n      - ",
+                    paste(rek_traffar, collapse = "\n      - "), "\n",
+                    "    Deploy-skriptet förväntar sig att filerna ligger direkt i app/.\n"
+      )
+    } else {
+      msg <- paste0(msg,
+                    "    Källrepot verkar inte vara en Shiny-app — ",
+                    "deployen kommer troligen inte att fungera.\n"
+      )
+    }
+    cat(msg)
+    
+    svar <- readline(prompt = "Vill du ändå fortsätta och pusha till GitHub? (j/N): ")
+    if (!tolower(trimws(svar)) %in% c("j", "ja", "y", "yes")) {
+      message("Avbryter. Lokal mapp finns kvar i: ", sokvag_proj)
+      return(invisible(NULL))
+    }
+    cat("Fortsätter på användarens bekräftelse...\n")
+  } else {
+    cat("✓ Hittade Shiny-filer i app/: ",
+        paste(hittade, collapse = ", "), "\n", sep = "")
+  }
+  
+  
+  # ==== Initiera GitHub-repo ==================================================
+  
+  if (Sys.getenv("GITHUB_PAT") == "") {
+    gh_user  <- keyring::key_list(service = "github_token")$username
+    Sys.setenv(GITHUB_PAT = keyring::key_get("github_token", gh_user))
+  }
+  
+  # Skapa repo på GitHub
+  if (is.null(github_org)) {
+    usethis::use_github(
+      private   = FALSE,
+      protocol  = "https"
+    )
+  } else {
+    usethis::use_github(
+      organisation = github_org,
+      private      = FALSE,
+      visibility   = "public",
+      protocol     = "https"
+    )
+  }
+  
+  # Ge team behörighet om angivet
+  if (!is.null(behorighet_team) && !is.null(github_org)) {
+    gh_user  <- keyring::key_list(service = "github_token")$username
+    gh_token <- keyring::key_get("github_token", gh_user)
+    
+    resp <- httr::PUT(
+      url = glue::glue(
+        "https://api.github.com/orgs/{github_org}/teams/{behorighet_team}/repos/{github_org}/{github_repo}"
+      ),
+      httr::add_headers(Authorization = paste("token", gh_token)),
+      body   = list(permission = "push"),
+      encode = "json"
+    )
+    
+    if (httr::status_code(resp) == 204) {
+      message("✅ Teamet '", behorighet_team, "' har fått push-behörighet.")
+    } else {
+      message("⚠️ Kunde inte sätta team-behörighet automatiskt (status ",
+              httr::status_code(resp), ").")
+    }
+  }
+  
+  # ==== Öppna R-projektet (om så valt och RStudio är tillgängligt) ============
+  
+  if (isTRUE(r_projekt_oppna)) {
+    rproj_fil <- list.files(sokvag_proj, pattern = "\\.Rproj$",
+                            full.names = TRUE)[1]
+    
+    if (!is.na(rproj_fil) &&
+        requireNamespace("rstudioapi", quietly = TRUE) &&
+        rstudioapi::isAvailable()) {
+      message("📂 Öppnar R-projektet: ", rproj_fil)
+      rstudioapi::openProject(rproj_fil, newSession = FALSE)
+    } else {
+      message("ℹ️ Kunde inte öppna R-projektet automatiskt ",
+              "(kör inte i RStudio eller rstudioapi saknas). ",
+              "Öppna manuellt: ", sokvag_proj)
+    }
+  }
+  
+  invisible(sokvag_proj)
+}
+
 
 
 shinyapp_publicera <- function(
