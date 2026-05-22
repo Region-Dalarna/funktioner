@@ -111,7 +111,11 @@ otp_testa_server <- function(otp_url = 'http://localhost:8801',
   }
 }
 
-otp_starta_server <- function(vanta_tills_klar = TRUE, vanta_sekunder = 120) {
+otp_starta_server <- function(
+    otp_jar_mapp,
+    otp_data_mapp,
+    vanta_tills_klar = TRUE,
+    vanta_sekunder = 120) {
   # Funktion för att starta en otp-server (kräver att den är uppsatt på korrekt sätt innan)
   # om vanta_tills_klar är TRUE så körs inte skriptet vidare förrän otp-servern
   #                        är helt klar att köra vilket kan ta upp till någon minut
@@ -269,7 +273,7 @@ otp_skapa_isokroner <- function(
   proxy_status <- otp_testa_http_proxy()
 
   otp_satt_pa_http_proxy()
-  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R")
+  # source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R")
 
   otp_isochrone <- 'http://localhost:8801/otp/traveltime/isochrone'
 
@@ -284,7 +288,7 @@ otp_skapa_isokroner <- function(
   create_isochrone_query <- function(fromPlace, request_datetime){
     modes <- transport_mode
     time_local <- strftime(request_datetime, format="%Y-%m-%dT%H:%M:%SZ", tz=Sys.timezone())
-    query_iso <- str_glue('{otp_isochrone}?batch=true&location={fromPlace}&modes={paste0(modes, collapse = ",")}&time={time_local}&arriveBy=false')
+    query_iso <- str_glue('{otp_isochrone}?batch=true&location={fromPlace}&modes={paste0(modes, collapse = ",")}&time={time_local}&arriveBy={tolower(arriveBy)')     #välj arribeBy = TRUE/FALSE
     # 3.5h max, med 15min intervaller
     for (time in iso_intervaller){
       query_iso <- str_glue('{query_iso}&cutoff={time}M')
