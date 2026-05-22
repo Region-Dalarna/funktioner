@@ -49,11 +49,11 @@ otp_hamta_pid_for_processer <- function(program_fil = "java.exe") {    # ska var
 otp_stang_server <- function(program_fil = "java.exe",
                              undanta_pid = NA,                 # vektor med pid-id för processer som INTE ska stängas
                              stang_pid = NA                    # vektor med pid_id som SKA stängas, trumfar undantag ovan
-                             ) {
+) {
   # Funktion för att hitta och döda en process (default = "java.exe")
 
   if (!all(is.na(stang_pid))) {
-   stang_lista <- stang_pid
+    stang_lista <- stang_pid
 
   } else {
     pid_list <- otp_hamta_pid_for_processer()
@@ -111,11 +111,7 @@ otp_testa_server <- function(otp_url = 'http://localhost:8801',
   }
 }
 
-otp_starta_server <- function(
-    otp_jar_mapp,
-    otp_data_mapp,
-    vanta_tills_klar = TRUE,
-    vanta_sekunder = 120) {
+otp_starta_server <- function(vanta_tills_klar = TRUE, vanta_sekunder = 120) {
   # Funktion för att starta en otp-server (kräver att den är uppsatt på korrekt sätt innan)
   # om vanta_tills_klar är TRUE så körs inte skriptet vidare förrän otp-servern
   #                        är helt klar att köra vilket kan ta upp till någon minut
@@ -148,7 +144,7 @@ otp_starta_server <- function(
 
 
 otp_vanta_tills_otp_server_ar_klar <- function(timeout = 60, # I sekunder, 60 = timeout på 1 minut
-                                           interval = 2  # Kontrollintervall på 2 sekunder
+                                               interval = 2  # Kontrollintervall på 2 sekunder
 ){
   # Funktion för att vänta tills otp-servern är uppe och klar för körningar innan
   # koden fortsätter, så att det inte blir fel för att otp-servern inte är riktigt klar ännu.
@@ -188,16 +184,8 @@ otp_bygg_ny_graf <- function(otp_jar_mapp = "c:/otp/",
   graf_fil <- paste0(otp_data_mapp, "graph.obj")
   start_tid <- Sys.time()         # hämtar tid innan vi kör igång uppdateringen
 
-  # Använd den .jar fil som lagts i arbetsmappen
-
-  jar_file <- list.files(
-    otp_jar_mapp,
-    pattern = "\\.jar$",
-    full.names = TRUE
-  )[1]
-
   # sätt ihop kommandot rätt med korrekta mappar, som vi sedan ska köra i cmd
-  build_cmd <- paste( "java -Xms2G -Xmx8G -XX:+UseParallelGC -jar", shQuote(jar_file), "--build --save", shQuote(otp_data_mapp))
+  build_cmd <- paste0("java -Xms2G -Xmx8G -XX:+UseParallelGC -jar ", otp_jar_mapp, "otp-2.3.0-shaded.jar --build --save ", otp_data_mapp)
 
   # kör detta i kommandotolken
   system(build_cmd)
@@ -244,7 +232,7 @@ otp_skapa_isokroner <- function(
     geo_kolumn = "geometry",      # namn på geometri-kolumn
     namn_kolumn = NULL            # namn på målpunktens namn, om NA så saknas det namn
 
-  ){
+){
 
   #  otp - skapa isokroner
   #
@@ -273,7 +261,7 @@ otp_skapa_isokroner <- function(
   proxy_status <- otp_testa_http_proxy()
 
   otp_satt_pa_http_proxy()
-  # source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R")
+  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R")
 
   otp_isochrone <- 'http://localhost:8801/otp/traveltime/isochrone'
 
@@ -288,7 +276,7 @@ otp_skapa_isokroner <- function(
   create_isochrone_query <- function(fromPlace, request_datetime){
     modes <- transport_mode
     time_local <- strftime(request_datetime, format="%Y-%m-%dT%H:%M:%SZ", tz=Sys.timezone())
-    query_iso <- str_glue('{otp_isochrone}?batch=true&location={fromPlace}&modes={paste0(modes, collapse = ",")}&time={time_local}&arriveBy={tolower(arriveBy)')     #välj arribeBy = TRUE/FALSE
+    query_iso <- str_glue('{otp_isochrone}?batch=true&location={fromPlace}&modes={paste0(modes, collapse = ",")}&time={time_local}&arriveBy=false')
     # 3.5h max, med 15min intervaller
     for (time in iso_intervaller){
       query_iso <- str_glue('{query_iso}&cutoff={time}M')
@@ -428,4 +416,3 @@ otp_extrahera_iso_geo <- function(cont) {
 
   return(retur_sf)
 }
-
