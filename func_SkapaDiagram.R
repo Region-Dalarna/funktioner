@@ -1362,10 +1362,18 @@ skriv_till_diagramfil <- function(ggplot_objekt,
   bredd <- diagramfil_bredd
   hojd <- diagramfil_hojd
   
+  # Säkerställ bildformat utan inledande punkt, t.ex. ".ps" -> "ps"
+  diagram_bildformat <- tolower(trimws(diagram_bildformat))
+  diagram_bildformat <- sub("^\\.+", "", diagram_bildformat)
   
-  if (!identical(diagram_bildformat, "png")) {
-    filnamn_diagram <- paste0(tools::file_path_sans_ext(filnamn_diagram), ".", diagram_bildformat)
-  }
+  # Ta bort eventuell filändelse från filnamnet
+  filnamn_bas <- tools::file_path_sans_ext(basename(filnamn_diagram))
+  
+  # Ta bort eventuella punkter i slutet av basnamnet
+  filnamn_bas <- sub("\\.+$", "", filnamn_bas)
+  
+  # Sätt ihop filnamn med exakt en punkt före formatet
+  filnamn_diagram <- paste0(filnamn_bas, ".", diagram_bildformat)
   
   fullpath <- paste0(output_mapp, filnamn_diagram)
   
@@ -1428,18 +1436,7 @@ skriv_till_diagramfil <- function(ggplot_objekt,
     }
     if (!isTRUE(add_ok)) warning("Kunde inte lägga på logga på: ", fullpath)
   }
-    
-    # if (is.na(logga_path)) logga_path <- hamta_logga_path()   # hämta sökväg till diagram
-    # add_logo(
-    #   plot_path = paste0(output_mapp, filnamn_diagram), # url or local file for the plot
-    #   logo_path = logga_path, # url or local file for the logo
-    #   logo_position = "bottom right", # choose a corner
-    #   # 'top left', 'top right', 'bottom left' or 'bottom right'
-    #   logo_scale = logga_scaling,
-    #   
-    #   #10 as default, but can change to manually make logo bigger (lägre tal = större logga)
-    #   replace = TRUE)
-    # }
+
 }
 
 
