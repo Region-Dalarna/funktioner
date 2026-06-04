@@ -1373,17 +1373,20 @@ skriv_till_diagramfil <- function(ggplot_objekt,
   ok  <- FALSE
   
   
-  if (ext %in% c("png","jpg","jpeg","pdf","svg")) {
+  if (ext %in% c("png","jpg","jpeg","pdf","svg", "ps")) {
     # välj device för JPEG och SVG/PDF
     dev <- NULL
     if (ext %in% c("jpg","jpeg")) {
       dev <- if (requireNamespace("ragg", quietly = TRUE)) ragg::agg_jpeg else "jpeg"
     } else if (ext == "svg") {
       dev <- if (requireNamespace("svglite", quietly = TRUE)) svglite::svglite else "svg"
-    } else if (ext == "pdf") {
+    } else if (ext == "pdf") { 
       # cairo_pdf ger skarpare text på Windows; om inte, lämna NULL
       dev <- if (exists("cairo_pdf", where = asNamespace("grDevices"))) grDevices::cairo_pdf else NULL
+    } else if (ext == "ps") {
+      dev <- if (exists("cairo_ps", where = asNamespace("grDevices"))) grDevices::cairo_ps else "postscript"
     }
+    
     
     ok <- ggsave_retry(plot = ggplot_objekt, target_path = fullpath,
                        width = bredd, height = hojd, dpi = 300,
