@@ -3603,15 +3603,15 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   #                 Gör så här: 1. Ta reda på vad koden är för din variabel genom att köra funktionen pxvarlist(<url till tabellen>)
   #                             2. Lägg in det som sträng eller vektor (om det är fler) för parametern var_med_koder, alltså tex. var_med_koder = "SNI2007" eller var_med_koder = c("SNI2007", "SSYK4") om det är fler variabler man vill ha med koder för
   
-  # kontrollera att output_mapp slutar med "/" eller "\", annars lägger vi till det
-  if (!str_sub(output_mapp, nchar(output_mapp)) %in% c("/", "\\")) {
-    output_mapp <- paste0(output_mapp, "/")
-  }
-  
   # säkerställ att det finns värden för dessa parametrar
   if (all(is.na(skickad_url_pxweb))) stop("Parametrarna 'skickad_url_pxweb', 'tabell_namn' och 'output_mapp' måste vara med för att funktionen ska kunna köras.\n'skickad_url_pxweb' är url till den pxweb-tabell som man vill hämta data från.\n'tabell_namn' är ett namn som beskriver tabellen. Det bör vara så kort som möjligt och inte innehålla mellanslag. Det kan t.ex. vara 'rmi' för de regionala matchningsindikatorerna.\n'output_mapp' är en sökväg till den mapp som man vill spara det nya skriptet i.")  
   if (is.na(tabell_namn)) stop("Parametrarna 'skickad_url_pxweb', 'tabell_namn' och 'output_mapp' måste vara med för att funktionen ska kunna köras.\n'skickad_url_pxweb' är url till den pxweb-tabell som man vill hämta data från.\n'tabell_namn' är ett namn som beskriver tabellen. Det bör vara så kort som möjligt och inte innehålla mellanslag. Det kan t.ex. vara 'rmi' för de regionala matchningsindikatorerna.\n'output_mapp' är en sökväg till den mapp som man vill spara det nya skriptet i.")  
   if (is.na(output_mapp)) stop("Parametrarna 'skickad_url_pxweb', 'tabell_namn' och 'output_mapp' måste vara med för att funktionen ska kunna köras.\n'skickad_url_pxweb' är url till den pxweb-tabell som man vill hämta data från.\n'tabell_namn' är ett namn som beskriver tabellen. Det bör vara så kort som möjligt och inte innehålla mellanslag. Det kan t.ex. vara 'rmi' för de regionala matchningsindikatorerna.\n'output_mapp' är en sökväg till den mapp som man vill spara det nya skriptet i.")  
+  
+  # kontrollera att output_mapp slutar med "/" eller "\", annars lägger vi till det
+  if (!str_sub(output_mapp, nchar(output_mapp)) %in% c("/", "\\")) {
+    output_mapp <- paste0(output_mapp, "/")
+  }
   
   # bearbeta url:en så att vi kan använda den i funktionen
   webb_url <- skickad_url_pxweb %>% paste0(., collapse = "\n  #\t\t\t\t\t\t\t\t\t\t\t\t")
@@ -3674,10 +3674,20 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   alder_ar_klartext <- FALSE
   
   # kolla om det finns åldrar i tabellen och hur många det är i så fall med eller utan å, dvs. alder eller ålder
-  if ("alder" %in% tolower(names(varlist_giltiga_varden)) | "ålder" %in% tolower(names(varlist_giltiga_varden))) {
-    alder_ar_klartext <- if (length(varlist_giltiga_varden$alder) < 90) TRUE else FALSE
-    alder_txt <- if(alder_ar_klartext) "_klartext" else "_koder"
-  } else alder_txt <- ""
+  alder_namn <- names(varlist_giltiga_varden)[
+    tolower(names(varlist_giltiga_varden)) %in% c("alder", "ålder")
+  ][1]
+  
+  har_alder <- !is.na(alder_namn)
+  
+  if (har_alder) {
+    alder_varden <- varlist_giltiga_varden[[alder_namn]]
+    alder_ar_klartext <- length(alder_varden) < 90
+    alder_txt <- if (alder_ar_klartext) "_klartext" else "_koder"
+  } else {
+    alder_ar_klartext <- FALSE
+    alder_txt <- ""
+  }
 
   # Kombinera allt till en dataframe
   varlista_info <- tibble(kod = map_chr(px_meta$variables, ~ .x$code),
