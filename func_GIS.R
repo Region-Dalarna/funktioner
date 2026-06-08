@@ -2355,6 +2355,66 @@ postgres_databas_skriv_med_metadata <- function(
   )
 } # slut funktion postgres_databas_skriv_med_metadata
 
+postgres_tabell_uppdaterades <- function(con = "default",        # uppkoppling, om "default" kopplas mot db med uppkoppling_db()
+                                         schema,                 # schema, eller "schema.tabell" med punkt emellan
+                                         tabell = NULL,          # tabell, kan utelämnas om schema skickas som "schema.tabell"
+                                         meddelande_tid = FALSE  # om TRUE skrivs tidsåtgången ut
+){
+  
+  starttid <- Sys.time()  # Starta tidstagning
+  
+  # Tillåt att schema och tabell skickas ihop med punkt emellan, t.ex. "malpunkter.akutmottagningar"
+  if (str_detect(schema, "\\.")) {
+    if (str_count(schema, "\\.") > 1) stop("Det får max vara en punkt, som skiljer schema från tabell.")
+    tabell <- str_split(schema, "\\.")[[1]][2]
+    schema <- str_split(schema, "\\.")[[1]][1]
+  }
+  
+  if (is.null(tabell)) stop("Parametern 'tabell' saknas. Ange schema och tabell separat, eller skicka 'schema.tabell' med punkt emellan.")
+  
+  # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
+  
+  # Hämta den senaste uppdateringen för aktuellt schema och tabell ur metadata.uppdateringar
+  query <- glue::glue_sql(
+    "SELECT version_datum, version_tid
+       FROM metadata.uppdateringar
+      WHERE schema = {schema} AND tabell = {tabell}
+      ORDER BY version_datum DESC, version_tid DESC
+      LIMIT 1;",
+    .con = con
+  )
+  
+  resultat <- DBI::dbGetQuery(con, query)
+  
+  # Koppla ner anslutningen om den skapades som default
+  if (default_flagga) dbDisconnect(con)
+  
+  # Om ingen rad hittas returneras NA med ett meddelande
+  if (nrow(resultat) == 0) {
+    message("Ingen metadata hittades för '", schema, ".", tabell, "' i metadata.uppdateringar.")
+    return(NA_character_)
+  }
+  
+  # Bygg ISO 8601-sträng på formatet "2024-04-12T06:00:00Z"
+  # OBS: Z anger UTC. version_tid lagras i lokal tid och konverteras INTE här (se not nedan).
+  datum_txt <- format(as.Date(resultat$version_datum), "%Y-%m-%d")
+  tid_txt   <- substr(as.character(resultat$version_tid), 1, 8)
+  iso_tid   <- paste0(datum_txt, "T", tid_txt, "Z")
+  
+  # Beräkna och skriv ut tidsåtgång
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)
+  if (meddelande_tid) cat(glue::glue("Processen tog {berakningstid} sekunder att köra"))
+  
+  return(iso_tid)
+} # slut funktion postgres_tabell_uppdaterades
+
+
 postgres_grants_auto_skapa <- function(con,
                                        remove_old = TRUE,
                                        rattigheter_pa_befintliga = TRUE,
