@@ -1726,7 +1726,7 @@ pxweb2_varden <- function(
             url = purrr::pluck(item, "links", 1, "href", .default = NA_character_)
           )
         }) |>
-          filter(tolower(type) == "aggregation")
+          dplyr::filter(tolower(type) == "aggregation")
         
         
         # 2) Hämta alla codelists och bygg två “del-tabeller” per aggregation:
