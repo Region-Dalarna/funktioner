@@ -5121,14 +5121,16 @@ shinyapp_skapa_med_github_repo <- function(
     githubmapp_lokalt  = "c:/gh/",          # Sökväg till mapp där du har alla github-repon, t.ex. "C:/github_repos"
     behorighet_team    = "samhallsanalys",  # GitHub-team som får push-behörighet, NULL om inget team
     target             = "publik",          # Default-server i _publicering_till_server.yml: "publik" eller "intern"
-    test_skapa_ej_repo = FALSE              # TRUE = hoppa över git-init OCH GitHub-repo (bara lokala filer/mappar)
+    test_skapa_ej_repo = FALSE,             # TRUE = hoppa över git-init OCH GitHub-repo (bara lokala filer/mappar)
+    oppna_github_sida = TRUE,               # vi öppnar github-sidan när repot är skapat
+    github_oppna_fordrojning = 2            # vi fördröjer öppningen av GitHub-sidan med någon sekund för att ge GitHub tid att skapa repot innan vi försöker öppna det (annars kan det bli 404)
 ) {
   
   source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_filer.R", encoding = "utf-8")
   
   # ==== Beroenden ==============================================================
   
-  pkg_needed <- c("usethis", "gert", "glue", "stringr", "purrr", "httr", "keyring")
+  pkg_needed <- c("usethis", "gert", "glue", "stringr", "purrr", "httr", "keyring", "renv", "callr")
   miss <- pkg_needed[!vapply(pkg_needed, requireNamespace, logical(1), quietly = TRUE)]
   if (length(miss) > 0) {
     stop(
@@ -5396,6 +5398,9 @@ library(dplyr)
 library(tidyr)
 library(readr)
 library(ggplot2)
+library(DBI)
+library(RPostgres)
+library(sf)
 # ... lägg till fler paket vid behov
 "
 )
@@ -5560,18 +5565,91 @@ jobs:
 writeLines(avpublicera_yml, file.path(workflows_dir, "avpublicera.yml"))
 
 
-# ==== Initiera renv (bare = TRUE, ingen snapshot än) ========================
-# Skapar renv/activate.R, renv/settings.json, en tom renv.lock och uppdaterar
-# .Rprofile. Snapshot tas senare när paketen är installerade lokalt:
-#   renv::install(c(<paket>...)) ; renv::snapshot()
+# ==== Initiera renv och installera grundpaket ===============================
 
-if (requireNamespace("renv", quietly = TRUE)) {
-  renv::init(project = gitprojekt_sokvag, bare = TRUE, restart = FALSE)
-} else {
-  message("⚠️ Paketet 'renv' är inte installerat — hoppar över renv-init. ",
-          "Kör install.packages('renv') och sedan renv::init(bare = TRUE) i projektet manuellt.")
+paket_app <- c(
+  "shiny",
+  "shinyjs",
+  "shinyWidgets",
+  "DT",
+  "ggiraph",
+  "dplyr",
+  "tidyr",
+  "readr",
+  "ggplot2", 
+  "DBI",
+  "RPostgres",
+  "sf"
+)
+
+if (!requireNamespace("renv", quietly = TRUE)) {
+  stop(
+    "Paketet 'renv' är inte installerat. Installera det först med install.packages('renv').",
+    call. = FALSE
+  )
 }
 
+if (!requireNamespace("callr", quietly = TRUE)) {
+  stop(
+    "Paketet 'callr' är inte installerat. Installera det först med install.packages('callr').",
+    call. = FALSE
+  )
+}
+
+callr::r(
+  func = function(project, packages) {
+    
+    renv::init(
+      project = project,
+      bare    = TRUE,
+      restart = FALSE,
+      load    = TRUE
+    )
+    
+    # Hämta bara riktiga runtime-beroenden, inte Suggests
+    ap <- available.packages()
+    
+    deps <- tools::package_dependencies(
+      packages = packages,
+      db       = ap,
+      which    = c("Depends", "Imports", "LinkingTo"),
+      recursive = TRUE
+    )
+    
+    packages_all <- unique(c(
+      packages,
+      unlist(deps, use.names = FALSE)
+    ))
+    
+    packages_all <- setdiff(packages_all, c("R", NA))
+    
+    renv_lib <- renv::paths$library(project = project)
+    
+    renv::install(
+      packages = packages_all,
+      project  = project,
+      library  = renv_lib,
+      prompt   = FALSE
+    )
+    
+    renv::snapshot(
+      project = project,
+      prompt  = FALSE
+    )
+    
+    renv::restore(
+      project = project,
+      prompt  = FALSE
+    )
+    
+  },
+  args = list(
+    project  = gitprojekt_sokvag,
+    packages = paket_app
+  )
+)
+
+message("✅ renv initierat, grundpaket installerade, renv.lock skapad och projektbiblioteket synkat.")
 
 # ==== Initiera Git och GitHub-repo (om test_skapa_ej_repo = FALSE) ==========
 
@@ -5588,9 +5666,27 @@ if (isTRUE(test_skapa_ej_repo)) {
   gert::git_add(".")
   gert::git_commit("Initiera Shinyapp-projekt")
   
+  
   if (Sys.getenv("GITHUB_PAT") == "") {
-    gh_user  <- keyring::key_list(service = "github_token")$username
+    keyring_poster <- keyring::key_list(service = "github_token")
+    
+    if (nrow(keyring_poster) == 0) {
+      stop(
+        "Ingen GitHub-token hittades i Sys.getenv('GITHUB_PAT') eller keyring service = 'github_token'.\n",
+        "Kör usethis::gh_token_help() eller spara token med gitcreds::gitcreds_set().",
+        call. = FALSE
+      )
+    }
+    
+    gh_user <- keyring_poster$username[1]
     Sys.setenv(GITHUB_PAT = keyring::key_get("github_token", gh_user))
+  }
+  
+  if (Sys.getenv("GITHUB_PAT") == "") {
+    stop(
+      "GITHUB_PAT är fortfarande tom efter försök att läsa från keyring.",
+      call. = FALSE
+    )
   }
   
   # Skapa repo på GitHub
@@ -5600,19 +5696,43 @@ if (isTRUE(test_skapa_ej_repo)) {
       protocol  = "https"
     )
   } else {
-    usethis::use_github(
-      organisation = github_org,
-      private      = FALSE,
-      visibility   = "public",
-      protocol     = "https"
-    )
-  }
+
+    # Skapa URL till GitHub-repot
+    github_repo_url <- if (is.null(github_org)) {
+      paste0("https://github.com/", github_repo)
+    } else {
+      paste0("https://github.com/", github_org, "/", github_repo)
+    }
+    
+    # Hindra usethis::use_github() från att öppna webbläsaren direkt
+    old_browser <- getOption("browser")
+    on.exit(options(browser = old_browser), add = TRUE)
+    
+    options(browser = function(url) invisible(NULL))
+    
+    # Skapa repo på GitHub
+      usethis::use_github(
+        organisation = github_org,
+        private      = FALSE,
+        visibility   = "public",
+        protocol     = "https"
+      )
+    
+    # Återställ browser-option direkt efter use_github()
+    options(browser = old_browser)
+    
+    # Öppna GitHub-sidan själv, efter liten fördröjning
+    if (isTRUE(oppna_github_sida)) {
+      Sys.sleep(github_oppna_fordrojning)
+      utils::browseURL(github_repo_url)
+    }
+    
+  } # if-sats för att avgöra om repo ska skapas under org eller privat konto, detta är slutet på org-delen
   
   # Ge team behörighet om angivet
   if (!is.null(behorighet_team) && !is.null(github_org)) {
-    # Kräver att keyring är konfigurerad med github_token etc, samma som i din webbrapport-funktion
-    gh_user  <- keyring::key_list(service = "github_token")$username
-    gh_token <- keyring::key_get("github_token", gh_user)
+
+    gh_token <- Sys.getenv("GITHUB_PAT")
     
     resp <- httr::PUT(
       url = glue::glue(
