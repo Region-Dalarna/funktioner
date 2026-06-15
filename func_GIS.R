@@ -7366,8 +7366,8 @@ sf_to_poly <- function(sf_obj,           # Ett sf-objekt
                        name = "polygon"  # Namn på polygonet
                        ) {
 
-  # Funktion för att skapa en .poly fil som används för att klippa OpenStreetMap data med osmosis genom system()
-  # Skickar in ett polygon som man önskar klippa vägnätet efter och skapar en fil av detta k¨polygon i rätt format
+  # Funktion för att skapa en .poly fil som används för att klippa OpenStreetMap-data med osmosis genom system()
+  # Skickar in ett polygon som man önskar klippa vägnätet efter och skapar en fil av detta polygon i rätt format
 
   # Säkerställ WGS84
   if (is.na(sf::st_crs(sf_obj)) || sf::st_crs(sf_obj)$epsg != 4326) {
