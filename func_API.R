@@ -2668,6 +2668,24 @@ spara_som_csv_i_zip <- function(df_list,
   if (meddelande) print(paste0("Filen ", zipfilnamn, " har sparats i mappen ", output_mapp))
 }
 
+las_b64 <- function(sokvag_filnamn) {
+  if (!file.exists(sokvag_filnamn)) {
+    stop("Secret-filen finns inte: ", sokvag_filnamn, call. = FALSE)
+  }
+  
+  x <- readLines(sokvag_filnamn, warn = FALSE, encoding = "UTF-8")
+  x <- trimws(x)
+  x <- x[nzchar(x)]
+  
+  if (!length(x)) {
+    stop("Secret-filen är tom: ", sokvag_filnamn, call. = FALSE)
+  }
+  
+  raw <- jsonlite::base64_dec(x[[1]])
+  rawToChar(raw)
+}
+
+
 # ================================================= Ladda ner data utan API ==============================================
 
 hamta_fk_json_dataset_med_url <- function(url_fk) {
