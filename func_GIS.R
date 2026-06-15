@@ -2364,18 +2364,18 @@ postgres_tabell_uppdaterades <- function(con = "default",        # uppkoppling, 
                                          tabell = NULL,          # tabell, kan utelämnas om schema skickas som "schema.tabell"
                                          meddelande_tid = FALSE  # om TRUE skrivs tidsåtgången ut
 ){
-  
+
   starttid <- Sys.time()  # Starta tidstagning
-  
+
   # Tillåt att schema och tabell skickas ihop med punkt emellan, t.ex. "malpunkter.akutmottagningar"
   if (str_detect(schema, "\\.")) {
     if (str_count(schema, "\\.") > 1) stop("Det får max vara en punkt, som skiljer schema från tabell.")
     tabell <- str_split(schema, "\\.")[[1]][2]
     schema <- str_split(schema, "\\.")[[1]][1]
   }
-  
+
   if (is.null(tabell)) stop("Parametern 'tabell' saknas. Ange schema och tabell separat, eller skicka 'schema.tabell' med punkt emellan.")
-  
+
   # Kontrollera om anslutningen är en teckensträng och skapa uppkoppling om så är fallet
   if (is.character(con) && con == "default") {
     con <- uppkoppling_db()  # Anropa funktionen för att koppla upp mot db med defaultvärden
@@ -2383,7 +2383,7 @@ postgres_tabell_uppdaterades <- function(con = "default",        # uppkoppling, 
   } else {
     default_flagga <- FALSE
   }
-  
+
   # Hämta den senaste uppdateringen för aktuellt schema och tabell ur metadata.uppdateringar
   query <- glue::glue_sql(
     "SELECT version_datum, version_tid
@@ -2393,39 +2393,39 @@ postgres_tabell_uppdaterades <- function(con = "default",        # uppkoppling, 
       LIMIT 1;",
     .con = con
   )
-  
+
   resultat <- DBI::dbGetQuery(con, query)
-  
+
   # Koppla ner anslutningen om den skapades som default
   if (default_flagga) dbDisconnect(con)
-  
+
   # Om ingen rad hittas returneras NA med ett meddelande
   if (nrow(resultat) == 0) {
     message("Ingen metadata hittades för '", schema, ".", tabell, "' i metadata.uppdateringar.")
     return(NA_character_)
   }
-  
+
   # Bygg ISO 8601-sträng på formatet "2024-04-12T06:00:00Z"
   # OBS: Z anger UTC. version_tid lagras i lokal tid och konverteras INTE här (se not nedan).
   datum_txt <- format(as.Date(resultat$version_datum), "%Y-%m-%d")
   tid_txt   <- substr(as.character(resultat$version_tid), 1, 8)
   iso_tid   <- paste0(datum_txt, "T", tid_txt, "Z")
-  
+
   # Beräkna och skriv ut tidsåtgång
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)
   if (meddelande_tid) cat(glue::glue("Processen tog {berakningstid} sekunder att köra"))
-  
+
   return(iso_tid)
 } # slut funktion postgres_tabell_uppdaterades
 
 
 pxweb2_uppdaterad_till_text_datum_tid <- function(datum_tid_txt){
-  
+
   datum_txt <- datum_tid_txt %>% as.Date() %>% as.character()
   tid_txt <- datum_tid_txt %>% as.POSIXct(format = "%Y-%m-%dT%H:%M:%SZ") %>% format("%H:%M:%S") %>% as.character()
   retur_lista <- list(datum = datum_txt,
                       tid = tid_txt)
-  
+
   return(retur_lista)
 }
 
@@ -7357,4 +7357,58 @@ raster_till_vektor <- function(
 
   return(rutor_sf)
 
+}
+
+
+
+sf_to_poly <- function(sf_obj,           # Ett sf-objekt
+                       file,             # Sökväg och filnamn för den .poly-fil som ska skapas
+                       name = "polygon"  # Namn på polygonet
+                       ) {
+
+  # Funktion för att skapa en .poly fil som används för att klippa OpenStreetMap data med osmosis genom system()
+  # Skickar in ett polygon som man önskar klippa vägnätet efter och skapar en fil av detta k¨polygon i rätt format
+
+  # Säkerställ WGS84
+  if (is.na(sf::st_crs(sf_obj)) || sf::st_crs(sf_obj)$epsg != 4326) {
+    sf_obj <- sf::st_transform(sf_obj, 4326)
+  }
+
+  # Hantera både POLYGON och MULTIPOLYGON
+  geom_type <- sf::st_geometry_type(sf_obj, by_geometry = FALSE)
+
+  if (geom_type == "MULTIPOLYGON") {
+    # Ta den största polygonen om det är multipolygon
+    sf_obj <- sf_obj %>%
+      sf::st_cast("POLYGON") %>%
+      mutate(area = sf::st_area(.)) %>%
+      slice_max(area, n = 1)
+  }
+
+  # Extrahera koordinater
+  coords <- sf::st_coordinates(sf_obj)
+
+  # Kolla att vi faktiskt har koordinater
+  if (nrow(coords) == 0) stop("Inga koordinater hittades i sf-objektet")
+
+  # Skriv polyfilen
+  sink(file)
+  tryCatch({
+    cat(name, "\n")
+    cat("1\n")
+
+    for (i in 1:(nrow(coords) - 1)) {
+      cat(sprintf("%.6f %.6f\n", coords[i, 1], coords[i, 2]))
+    }
+    cat(sprintf("%.6f %.6f\n", coords[1, 1], coords[1, 2])) # Lägg till första koordinaterna för att sluta ringen
+
+    cat("END\n")
+    cat("END\n")
+  }, error = function(e) {
+    sink()  # säkerställ att sink stängs även vid fel
+    stop(e)
+  })
+  sink()
+
+  message("Skrev polyfil: ", file)
 }
