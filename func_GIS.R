@@ -2334,7 +2334,9 @@ postgres_databas_skriv_med_metadata <- function(
     felmeddelande_medskickat = NA,
     kommentar_metadata = NA,
     tabellnamn_till_gemener = TRUE,
-    kolumnnamn_till_gemener = TRUE
+    kolumnnamn_till_gemener = TRUE,
+    version_datum = NA,                                             # här kan man skicka med vilket datum versionen av tabellen är
+    version_tid = NA                                                # här kan man skicka med vilken tid versionen av tabellen är
 ) {
   # Det här är egentligen bara en wrapper kring funktionen postgis_databas_skriv_med_metadata() som
   # kom först pga att vi skapade geodatabasen först. Men geokolumnen är NA per default och går inte att
@@ -2351,7 +2353,9 @@ postgres_databas_skriv_med_metadata <- function(
     felmeddelande_medskickat = felmeddelande_medskickat,
     kommentar_metadata = kommentar_metadata,
     tabellnamn_till_gemener = tabellnamn_till_gemener,
-    kolumnnamn_till_gemener = kolumnnamn_till_gemener
+    kolumnnamn_till_gemener = kolumnnamn_till_gemener,
+    version_datum = version_datum,                                             # här kan man skicka med vilket datum versionen av tabellen är
+    version_tid = version_tid                                                # här kan man skicka med vilken tid versionen av tabellen är
   )
 } # slut funktion postgres_databas_skriv_med_metadata
 
@@ -3722,7 +3726,9 @@ postgis_databas_skriv_med_metadata <- function(
     felmeddelande_medskickat = NA,
     kommentar_metadata = NA,
     tabellnamn_till_gemener = TRUE,
-    kolumnnamn_till_gemener = TRUE
+    kolumnnamn_till_gemener = TRUE,
+    version_datum = NA,                                             # här kan man skicka med vilket datum versionen av tabellen är
+    version_tid = NA                                                # här kan man skicka med vilken tid versionen av tabellen är
 ) {
   # en funktion som används vid uppdatering av data i geodatabasen och andra databaser. Funktionen använder
   # tryCatch, det finns möjlighet att skicka med ett felmeddelande som kan läggas in i metadata om felet uppstått
@@ -3773,7 +3779,9 @@ postgis_databas_skriv_med_metadata <- function(
       schema = schema,
       tabell = tabell,
       lyckad_uppdatering = lyckad_uppdatering,
-      kommentar = geo_db_resultat
+      kommentar = geo_db_resultat,
+      version_datum = version_datum,                                             # här kan man skicka med vilket datum versionen av tabellen är
+      version_tid = version_tid                                                # här kan man skicka med vilken tid versionen av tabellen är
     )
   })
 } # slut funktion
