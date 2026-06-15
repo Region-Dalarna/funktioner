@@ -2419,6 +2419,16 @@ postgres_tabell_uppdaterades <- function(con = "default",        # uppkoppling, 
 } # slut funktion postgres_tabell_uppdaterades
 
 
+pxweb2_uppdaterad_till_text_datum_tid <- function(datum_tid_txt){
+  
+  datum_txt <- datum_tid_txt %>% as.Date() %>% as.character()
+  tid_txt <- datum_tid_txt %>% as.POSIXct(format = "%Y-%m-%dT%H:%M:%SZ") %>% format("%H:%M:%S") %>% as.character()
+  retur_lista <- list(datum = datum_txt,
+                      tid = tid_txt)
+  
+  return(retur_lista)
+}
+
 postgres_grants_auto_skapa <- function(con,
                                        remove_old = TRUE,
                                        rattigheter_pa_befintliga = TRUE,
