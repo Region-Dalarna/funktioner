@@ -34,7 +34,9 @@ pxweb2_hamta_data <- function(
     allow_api_wildcards = TRUE,                     # TRUE = om query innehåller "*" så används API:ets inbyggda wildcard-funktion, FALSE = "*" hanteras som vanligt värde och matchas mot giltiga värden i tabellen
     variabelnamn_harmonisera = NULL,                # används när man hämtar flera tabeller på en gång. Skicka in en namnsatt vektor, tex. c("Region" = "Kommun"), då kommer variabeln "Kommun" döpas om till "Region" så att alla tabeller har samma variabelnamn för kommuner och kommunkoder
     deso_regso_versioner_hantera = "senaste",       # om det finns flera deso- och regsoversioner så används den senaste versionen som har ett värde, vid summering summeras alla versioner och vid NULL görs ingenting
-    deso_regso_splitta_kommun = TRUE                # lägger till kolumnerna kommun_kod och kommun samt behåller bara namnet på Regso och Deso i kolumnen region
+    deso_regso_splitta_kommun = TRUE,               # lägger till kolumnerna kommun_kod och kommun samt behåller bara namnet på Regso och Deso i kolumnen region
+    include_aggregations = "none",                  # styr aggregeringar i giltiga_varden_list (se pxweb2_varden): "none"/FALSE = inga, "all"/TRUE = alla, "auto" = auto, "codelists" = bara metadata, eller namnsatt vektor c(Region = "agg_RegionLA2018")
+    auto_limit = 30L                               # max antal totala kodliste-anrop vid include_aggregations = "auto"
 ){
   if (is.null(tabell)) stop("table_id måste anges")
   if (!query_om_enbart_ogiltiga_varden_for_variabel %in% c("stop", "*", "null")) {
@@ -57,7 +59,8 @@ pxweb2_hamta_data <- function(
         allow_api_wildcards = allow_api_wildcards,
         variabelnamn_harmonisera = variabelnamn_harmonisera,
         deso_regso_versioner_hantera = deso_regso_versioner_hantera,
-        deso_regso_splitta_kommun = deso_regso_splitta_kommun
+        deso_regso_splitta_kommun = deso_regso_splitta_kommun,
+        include_aggregations = include_aggregations
       )
     )
   }
@@ -80,7 +83,7 @@ pxweb2_hamta_data <- function(
   data_url <- paste0(base_url, tabell, "/data")
   
   variabler_df <- pxweb2_variabler(metadata)          # hämta alla variabler
-  giltiga_varden_list <- pxweb2_varden(metadata)      # hämta alla unika värden för alla variabler (inkl. aggregeringar om det är valt)
+  giltiga_varden_list <- pxweb2_varden(metadata, include_aggregations = include_aggregations, auto_limit = auto_limit)      # hämta alla unika värden för alla variabler (inkl. aggregeringar om det är valt)
   
   # skapa querylista av medskickad query alternativt skapa en för alla giltiga värden
   query_list <- if (is.null(query)) {
@@ -153,7 +156,6 @@ pxweb2_hamta_data <- function(
   
   # här hämtas all data ============
   retur_tabell <- purrr::map(query_chunks, function(req) {
-    intern_pxweb2_rate_limiter()
     
     # avgör om vi måste köra GET (codelist/outputValues funkar här) eller POST
     use_get <- length(req$extra_query) > 0
@@ -167,17 +169,17 @@ pxweb2_hamta_data <- function(
       }) |>
         purrr::flatten()
       
-      data_resp <- httr::GET(
+      data_resp <- intern_pxweb2_GET(
         data_url,
         query = c(list(lang = lang, outputFormat = output_format), vc_query, req$extra_query),
         httr::accept_json()
       )
     } else {
-      data_resp <- httr::POST(
+      data_resp <- intern_pxweb2_POST(
         data_url,
         body = jsonlite::toJSON(req$body, auto_unbox = TRUE),
         query = list(lang = lang, outputFormat = output_format),
-        encode = "json",
+        encode = "raw",
         httr::content_type_json(),
         httr::accept_json()
       )
@@ -195,7 +197,7 @@ pxweb2_hamta_data <- function(
     
     # om det finns kolumner som vi ska ta med koder för så hämtas de här
     df_koder <- if (nrow(cols_to_add) > 0) {
-       rjstat::fromJSONstat(json_text, naming = "id") |> 
+      rjstat::fromJSONstat(json_text, naming = "id") |> 
         dplyr::select(dplyr::all_of(setNames(cols_to_add$code_col, cols_to_add$new_name)))
     } else NULL
     
@@ -244,7 +246,7 @@ pxweb2_hamta_data <- function(
   # flytta varje kod-kolumn och placera framför sin klartext-kolumn
   df_resultat <- purrr::reduce(seq_len(nrow(cols_to_add)), function(acc, i) {
     dplyr::relocate(acc, dplyr::all_of(cols_to_add$new_name[i]),
-             .before = dplyr::all_of(cols_to_add$txt_col[i]))
+                    .before = dplyr::all_of(cols_to_add$txt_col[i]))
   }, .init = retur_tabell)
   
   
@@ -255,7 +257,7 @@ pxweb2_hamta_data <- function(
 # hämta när en tabell uppdaterades
 pxweb2_tabell_uppdaterades <- function(
     tabell
-  ) {
+) {
   pxweb2_meta(tabell)$updated
 }
 
@@ -775,7 +777,9 @@ intern_pxweb2_hamta_flera_tabeller <- function(
     allow_api_wildcards = TRUE,
     variabelnamn_harmonisera = NULL,
     deso_regso_versioner_hantera = "senaste",
-    deso_regso_splitta_kommun = TRUE
+    deso_regso_splitta_kommun = TRUE,
+    include_aggregations = "none",
+    auto_limit = 30L
 ) {
   
   if (!all(stringr::str_detect(tabeller, "^TAB\\d+$"))) {
@@ -789,6 +793,31 @@ intern_pxweb2_hamta_flera_tabeller <- function(
     purrr::map(pxweb2_meta)
   
   names(metadata_lista) <- tabeller
+  
+  # Lös upp "auto" en gång baserat på totalt antal kodlistor för ALLA tabeller
+  if (identical(include_aggregations, "auto")) {
+    intern_cl_antal <- function(meta) {
+      purrr::map_int(meta$dimension, function(dim_el) {
+        cl <- purrr::pluck(dim_el, "extension", "codelists", .default = NULL)
+        if (is.null(cl)) 0L else sum(purrr::map_lgl(cl, ~ tolower(purrr::pluck(.x, "type", .default = "")) == "aggregation"))
+      }) |> sum()
+    }
+    totalt <- purrr::map_int(metadata_lista, intern_cl_antal) |> sum()
+    include_aggregations <- if (totalt <= auto_limit) {
+      message(
+        "include_aggregations = \"auto\": hittade ", totalt, " kodlistor totalt (",
+        length(tabeller), " tabeller, gräns ", auto_limit, ") och hämtar alla aggregeringar."
+      )
+      "all"
+    } else {
+      message(
+        "include_aggregations = \"auto\": hittade ", totalt, " kodlistor totalt (",
+        length(tabeller), " tabeller) vilket överstiger gränsen ", auto_limit,
+        ". Hämtar bara kodlistemetadata (\"codelists\"). Sätt \"all\" för att hämta allt."
+      )
+      "codelists"
+    }
+  }
   
   innehaller_senaste_tid <- intern_pxweb2_query_innehaller_senaste_tid(
     query = query,
@@ -856,7 +885,7 @@ intern_pxweb2_hamta_flera_tabeller <- function(
         )
       
       pxweb2_hamta_data(
-        tabell = tabell_id,
+        tabell = metadata_tabell,
         query = query_tabell,
         lang = lang,
         output_format = output_format,
@@ -867,7 +896,9 @@ intern_pxweb2_hamta_flera_tabeller <- function(
         senaste_tid_kod = senaste_tid_kod,
         allow_api_wildcards = allow_api_wildcards,
         deso_regso_versioner_hantera = deso_regso_versioner_hantera,
-        deso_regso_splitta_kommun = deso_regso_splitta_kommun
+        deso_regso_splitta_kommun = deso_regso_splitta_kommun,
+        include_aggregations = include_aggregations,
+        auto_limit = auto_limit
       ) |>
         intern_pxweb2_harmonisera_resultatnamn(
           variabelnamn_harmonisera = variabelnamn_harmonisera
@@ -1256,6 +1287,127 @@ intern_pxweb2_rate_limiter <- local({
 })
 
 
+.pxweb2_api_log <- new.env(parent = emptyenv())
+
+.pxweb2_api_log$rows <- list()
+
+intern_pxweb2_api_log_reset <- function() {
+  .pxweb2_api_log$rows <- list()
+  invisible(NULL)
+}
+
+intern_pxweb2_api_log_get <- function() {
+  if (length(.pxweb2_api_log$rows) == 0) {
+    return(tibble::tibble(
+      time = as.POSIXct(character()),
+      method = character(),
+      url = character(),
+      status = integer(),
+      attempt = integer(),
+      endpoint_type = character()
+    ))
+  }
+  tibble::as_tibble(do.call(rbind, lapply(.pxweb2_api_log$rows, as.data.frame)))
+}
+
+intern_pxweb2_api_endpoint_type <- function(url) {
+  url_chr <- as.character(url)
+  
+  if (grepl("/metadata", url_chr, fixed = TRUE)) {
+    return("metadata")
+  }
+  
+  if (grepl("/data", url_chr, fixed = TRUE)) {
+    return("data")
+  }
+  
+  if (grepl("/tables", url_chr, fixed = TRUE)) {
+    return("tables")
+  }
+  
+  if (grepl("/codelists", url_chr, fixed = TRUE) ||
+      grepl("codelist", url_chr, ignore.case = TRUE)) {
+    return("codelist")
+  }
+  
+  "annat"
+}
+
+intern_pxweb2_api_log_add <- function(method, url, status, attempt) {
+  .pxweb2_api_log$rows <- c(
+    .pxweb2_api_log$rows,
+    list(list(
+      time = Sys.time(),
+      method = as.character(method),
+      url = as.character(url),
+      status = as.integer(status),
+      attempt = as.integer(attempt),
+      endpoint_type = intern_pxweb2_api_endpoint_type(url)
+    ))
+  )
+  
+  invisible(NULL)
+}
+
+intern_pxweb2_GET <- function(url, ..., max_tries = 3, retry_wait_default = 10) {
+  
+  resp <- NULL
+  
+  for (attempt in seq_len(max_tries)) {
+    
+    intern_pxweb2_rate_limiter()
+    
+    resp <- httr::GET(url, ...)
+    
+    intern_pxweb2_api_log_add(
+      method = "GET",
+      url = url,
+      status = httr::status_code(resp),
+      attempt = attempt
+    )
+    
+    if (httr::status_code(resp) != 429) {
+      return(resp)
+    }
+    
+    retry_after <- suppressWarnings(as.numeric(httr::headers(resp)[["retry-after"]]))
+    wait <- ifelse(is.na(retry_after), retry_wait_default, retry_after)
+    Sys.sleep(wait + 0.2)
+  }
+  
+  resp
+}
+
+intern_pxweb2_POST <- function(url, ..., max_tries = 3, retry_wait_default = 10) {
+  
+  resp <- NULL
+  
+  for (attempt in seq_len(max_tries)) {
+    
+    intern_pxweb2_rate_limiter()
+    
+    resp <- httr::POST(url, ...)
+    
+    intern_pxweb2_api_log_add(
+      method = "POST",
+      url = url,
+      status = httr::status_code(resp),
+      attempt = attempt
+    )
+    
+    if (httr::status_code(resp) != 429) {
+      return(resp)
+    }
+    
+    retry_after <- suppressWarnings(as.numeric(httr::headers(resp)[["retry-after"]]))
+    wait <- ifelse(is.na(retry_after), retry_wait_default, retry_after)
+    Sys.sleep(wait + 0.2)
+  }
+  
+  resp
+}
+
+
 intern_pxweb2_make_chunks <- function(variabler_df, query, giltiga_varden_list,
                                       max_cells = 150000) {
   total_cells <- intern_pxweb2_count_cells(variabler_df, query)
@@ -1359,11 +1511,11 @@ intern_pxweb2_choose_split_variable <- function(variabler_df, query = list()) {
 }
 
 intern_pxweb2_list_to_query_list <- function(variabler_df,
-                                            query = list(),
-                                            giltiga_varden_list, 
-                                            default_value = "*",
-                                            allow_label_values = TRUE,
-                                            warn = TRUE) {
+                                             query = list(),
+                                             giltiga_varden_list, 
+                                             default_value = "*",
+                                             allow_label_values = TRUE,
+                                             warn = TRUE) {
   stopifnot(is.data.frame(variabler_df))
   
   if (!all(c("code", "label", "elimination") %in% names(variabler_df))) {
@@ -1512,7 +1664,7 @@ pxweb2_meta <- function(
   
   meta_url <- paste0(base_url, table_id, "/metadata")
   
-  resp <- httr::GET(meta_url, httr::accept_json())
+  resp <- intern_pxweb2_GET(meta_url, httr::accept_json())
   httr::stop_for_status(resp)
   
   meta <- httr::content(resp, as = "parsed", encoding = "UTF-8")
@@ -1597,7 +1749,7 @@ intern_pxweb2_count_cells <- function(variabler_df, query = list()) {
 pxweb2_variabler <- function(
     tabell = NULL,             # kan vara tabell-id eller meta-objekt
     base_url = "https://statistikdatabasen.scb.se/api/v2/tables/"
-    ) {
+) {
   if (is.null(tabell)) stop("tabell måste anges, antingen som tabell-id eller som metadata-objekt.")
   
   if (!is.list(tabell)) {
@@ -1612,11 +1764,11 @@ pxweb2_variabler <- function(
     size = purrr::map_int(metadata$dimension, ~ length(.x$category$label %||% list())),
     elimination = purrr::map_lgl(metadata$id, ~ isTRUE(metadata$dimension[[.x]]$extension$elimination)),
     role = purrr::map_chr(metadata$id, ~ {
-        if (!is.null(metadata$role$time) && .x %in% metadata$role$time) return("time")
-        if (!is.null(metadata$role$metric) && .x %in% metadata$role$metric) return("contents")
-        if (!is.null(metadata$role$geo) && .x %in% metadata$role$geo) return("geo")
-        "other"
-      }),
+      if (!is.null(metadata$role$time) && .x %in% metadata$role$time) return("time")
+      if (!is.null(metadata$role$metric) && .x %in% metadata$role$metric) return("contents")
+      if (!is.null(metadata$role$geo) && .x %in% metadata$role$geo) return("geo")
+      "other"
+    }),
     show = purrr::map_chr(metadata$dimension, ~ .x$extension$show %||% NA_character_)
   )
   
@@ -1628,164 +1780,324 @@ pxweb2_variabler <- function(
 
 # hämta värden för en pxweb-tabell
 pxweb2_varden <- function(
-    tabell,                # skicka med metadataobjekt som man får genom att köra pxweb2_meta()
-    variabler = NULL,      # skicka med variabelnamn om man inte vill ha värden för alla variabler
+    tabell,                              # skicka med metadataobjekt som man får genom att köra pxweb2_meta()
+    variabler = NULL,                    # skicka med variabelnamn om man inte vill ha värden för alla variabler
     return_df_if_only_one_variable = TRUE,
-    include_aggregations = TRUE,                    # TRUE = both variables and aggregations, FALSE = only variables and no aggregations
-    aggregation_members_separation = ";",           # aggragation members are separeted with this character(s)
+    include_aggregations = "auto",       # "auto"      = hämta allt om totalt antal kodlistor <= auto_limit, annars "codelists"
+    # "all"       = hämta alltid alla aggregeringar fullt ut
+    # "none"      = ingenting, inte ens kodlistemetadata
+    # "codelists" = bara kodlistemetadata (id + label, typ "AggregationCodelist"), inga medlemmar
+    # namnsatt vektor, t.ex. c(Region = "agg_RegionLA2018", Alder = "all", Tid = "codelists")
+    #   => selektiv styrning per variabel; namn kan vara kod eller klartext (skiftlägesokänsligt)
+    #   => värde per variabel: "all", "codelists", eller ett/flera agg-id:n (t.ex. "agg_RegionLA2018")
+    auto_limit = 30L,                    # max antal kodliste-anrop vid "auto"
+    aggregation_members_separation = ";",# aggregation members are separated with this character(s)
     base_url = "https://statistikdatabasen.scb.se/api/v2/tables/"
-    ) {
+) {
   
   if (is.null(tabell)) stop("tabell måste anges, antingen som tabell-id eller som metadata-objekt.")
   if (!is.list(tabell)) {
-    if (!stringr::str_detect(tabell, "^TAB\\d+$")) stop("tabell-id är inte giltigt, ska vara av typen 'TAB' följt av siffror.")    
+    if (!stringr::str_detect(tabell, "^TAB\\d+$")) stop("tabell-id är inte giltigt, ska vara av typen 'TAB' följt av siffror.")
     metadata <- pxweb2_meta(tabell)
   } else metadata <- tabell
   
-  # lägg alla variabler i en vektor, både kod och klartext
+  # Alla variabler: kod + klartext
   var_df <- tibble::tibble(
-    code       = names(metadata$dimension),
-    label      = purrr::map_chr(metadata$dimension, ~ .x$label %||% NA_character_)
+    code  = names(metadata$dimension),
+    label = purrr::map_chr(metadata$dimension, ~ .x$label %||% NA_character_)
   )
   
-  tabell_variabler <- metadata$dimension           # alla variabler med värden läggs i en df
+  tabell_variabler <- metadata$dimension
   
+  # Filtrera variabler om variabler-parametern är satt
   if (!is.null(variabler)) {
-    
     var_finns_ej <- variabler[!tolower(variabler) %in% tolower(var_df$code) &
                                 !tolower(variabler) %in% tolower(var_df$label)]
-                                
     var_finns <- variabler[tolower(variabler) %in% tolower(var_df$code) |
                              tolower(variabler) %in% tolower(var_df$label)]
-    
-    if (length(var_finns_ej) > 0) cat(paste0("Variablerna ", paste0(var_finns_ej, collapse = ", "), " finns inte i tabellen och utelämnas därmed."))
+    if (length(var_finns_ej) > 0) {
+      cat(paste0("Variablerna ", paste0(var_finns_ej, collapse = ", "), " finns inte i tabellen och utelämnas därmed."))
+    }
     if (length(var_finns) > 0) {
       tabell_variabler <- tabell_variabler[
         tolower(names(tabell_variabler)) %in% tolower(var_finns) |
           tolower(purrr::map_chr(tabell_variabler, "label")) %in% tolower(var_finns)
       ]
     }
-  } # slut if-sats om parametern variabler har värden
+  }
   
-  # 1) funktion för GET -> JSON (fortsätt även om någon url strular)
+  # ---------------------------------------------------------------------------
+  # Hjälp: normalisera variabelnamn/koder -> kod
+  intern_till_var_kod <- function(namn) {
+    hits <- var_df$code[
+      tolower(var_df$code)  %in% tolower(namn) |
+        tolower(var_df$label) %in% tolower(namn)
+    ]
+    hits
+  }
+  
+  # Hjälp: extrahera kodlisteinfo (id + label + url) från ett dimension-element
+  intern_cl_info <- function(dim_el) {
+    cl <- purrr::pluck(dim_el, "extension", "codelists", .default = NULL)
+    if (is.null(cl) || length(cl) == 0) {
+      return(tibble::tibble(code = character(), label = character(),
+                            type = character(), url = character()))
+    }
+    purrr::map_df(cl, function(item) {
+      lbl <- purrr::pluck(item, "label", .default = NA)
+      if (is.list(lbl)) {
+        lbl <- purrr::pluck(lbl, "sv",
+                            .default = (unlist(lbl, use.names = FALSE)[1] %||% NA_character_))
+      }
+      tibble::tibble(
+        code  = purrr::pluck(item, "id",    .default = NA_character_),
+        label = lbl %||% NA_character_,
+        type  = purrr::pluck(item, "type",  .default = NA_character_),
+        url   = purrr::pluck(item, "links", 1, "href", .default = NA_character_)
+      )
+    }) |>
+      dplyr::filter(tolower(type) == "aggregation")
+  }
+  
+  # ---------------------------------------------------------------------------
+  # Räkna totalt antal kodlistor i tabellen (för "auto"-läget)
+  totalt_antal_kodlistor <- sum(purrr::map_int(tabell_variabler, function(dim_el) {
+    nrow(intern_cl_info(dim_el))
+  }))
+  
+  # ---------------------------------------------------------------------------
+  # Tolka include_aggregations -> per-variabel instruktion
+  # Resultat: en namnsatt lista  var_kod -> läge
+  #   läge är ett av: "all", "codelists", "none", eller en character-vektor med agg-id:n
+  #
+  ia <- include_aggregations
+  
+  # Bakåtkompatibilitet: TRUE -> "all", FALSE -> "none"
+  if (isTRUE(ia))        ia <- "all"
+  if (identical(ia, FALSE)) ia <- "none"
+  
+  # Validera skalära strängvärden
+  if (is.character(ia) && is.null(names(ia)) && length(ia) == 1) {
+    if (!ia %in% c("auto", "all", "none", "codelists")) {
+      stop('include_aggregations: ogiltigt värde "', ia,
+           '". Tillåtna: "auto", "all", "none", "codelists", eller en namnsatt vektor.', call. = FALSE)
+    }
+  }
+  
+  # Lös upp "auto": välj "all" eller "codelists" beroende på totalt antal kodlistor
+  auto_valde_all <- FALSE
+  if (identical(ia, "auto")) {
+    if (totalt_antal_kodlistor <= auto_limit) {
+      ia <- "all"
+      auto_valde_all <- TRUE
+    } else {
+      ia <- "codelists"
+    }
+  }
+  
+  # Bygg per-variabel instruktionsvektor
+  # var_lage: namnsatt character-vektor  var_kod -> "all" | "codelists" | "none" | "agg_..."
+  if (is.character(ia) && is.null(names(ia))) {
+    # Skalärt läge ("all", "none", "codelists") -> gäller alla variabler
+    skalart_lage <- ia
+    var_lage <- stats::setNames(rep(skalart_lage, length(tabell_variabler)),
+                                names(tabell_variabler))
+  } else if (is.character(ia) && !is.null(names(ia))) {
+    # Namnsatt vektor: c(Region = "agg_RegionLA2018", Alder = "all", ...)
+    # Okända variabelnamn -> warning; ej nämnda variabler -> "codelists"
+    var_lage <- stats::setNames(rep("codelists", length(tabell_variabler)),
+                                names(tabell_variabler))
+    
+    ia_namn <- names(ia)
+    okanda  <- ia_namn[
+      !tolower(ia_namn) %in% tolower(var_df$code) &
+        !tolower(ia_namn) %in% tolower(var_df$label)
+    ]
+    if (length(okanda) > 0) {
+      warning("Följande variabelnamn i include_aggregations känns inte igen och ignoreras: ",
+              paste(okanda, collapse = ", "), call. = FALSE)
+    }
+    
+    # Grupp per variabelkod (kan ha flera poster med samma namn, t.ex. Region = "agg_X", Region = "agg_Y")
+    for (i in seq_along(ia)) {
+      vkoder <- intern_till_var_kod(ia_namn[i])
+      if (length(vkoder) == 0) next
+      val <- ia[[i]]
+      
+      for (vk in vkoder) {
+        befintligt <- var_lage[[vk]]
+        if (val %in% c("all", "none", "codelists")) {
+          # Explicit läge: skriv alltid över
+          var_lage[[vk]] <- val
+        } else {
+          # Specifikt agg-id: samla ihop (kan finnas flera poster)
+          if (befintligt %in% c("codelists", "none")) {
+            var_lage[[vk]] <- val          # första agg-id för denna variabel
+          } else if (!befintligt %in% c("all")) {
+            var_lage[[vk]] <- paste(c(befintligt, val), collapse = "\n")  # lägg till
+          }
+          # om befintligt == "all" -> lämna som "all"
+        }
+      }
+    }
+  } else {
+    stop('include_aggregations måste vara "auto", "all", "none", "codelists" eller en namnsatt vektor.', call. = FALSE)
+  }
+  
+  # ---------------------------------------------------------------------------
+  # funktion för GET -> JSON med cache
   .codelist_cache <- new.env(parent = emptyenv())
   
   fetch_codelist <- purrr::possibly(function(u) {
     if (exists(u, envir = .codelist_cache, inherits = FALSE)) {
       return(get(u, envir = .codelist_cache, inherits = FALSE))
     }
-    
-    resp <- httr::GET(u, httr::accept_json())
+    resp <- intern_pxweb2_GET(u, httr::accept_json())
     httr::stop_for_status(resp)
-    
     out <- jsonlite::fromJSON(
       httr::content(resp, "text", encoding = "UTF-8"),
       simplifyVector = FALSE
     )
-    
     assign(u, out, envir = .codelist_cache)
     out
   }, otherwise = NULL)
   
+  # Hjälp: hämta fullständigt innehåll för ett urval kodlistor (filtrerat på agg-id:n om angett)
+  intern_hamta_agg_varden <- function(cl_info_df, agg_ids_filter = NULL) {
+    # agg_ids_filter: character-vektor med specifika agg-id:n att hämta, NULL = alla
+    df <- cl_info_df
+    if (!is.null(agg_ids_filter)) {
+      df <- df |> dplyr::filter(tolower(code) %in% tolower(agg_ids_filter))
+    }
+    if (nrow(df) == 0) {
+      return(tibble::tibble(code = character(), label = character(), type = character()))
+    }
+    
+    aggr_parsed <- df |>
+      dplyr::transmute(agg_id = code, agg_label = label, url) |>
+      dplyr::mutate(
+        codelist = purrr::map(url, fetch_codelist),
+        values_long_df = purrr::map(codelist, ~ {
+          v <- .x$values
+          if (is.null(v) || length(v) == 0) {
+            return(tibble::tibble(code = character(), label = character(), members = character()))
+          }
+          purrr::map_df(v, ~ tibble::tibble(
+            code    = as.character(purrr::pluck(.x, "code",  .default = NA_character_)),
+            label   = as.character(purrr::pluck(.x, "label", .default = NA_character_)),
+            members = {
+              vm <- purrr::pluck(.x, "valueMap", .default = NULL)
+              if (is.null(vm)) NA_character_
+              else paste(unlist(vm, use.names = FALSE), collapse = aggregation_members_separation)
+            }
+          )) |>
+            dplyr::filter(!is.na(code))
+        })
+      ) |>
+      dplyr::select(-codelist)
+    
+    if (nrow(aggr_parsed) == 0) {
+      return(tibble::tibble(code = character(), label = character(), type = character()))
+    }
+    
+    aggr_parsed |>
+      dplyr::select(agg_id, agg_label, values_long_df) |>
+      tidyr::unnest(values_long_df) |>
+      dplyr::mutate(type = "Aggregation") |>
+      dplyr::relocate(c(code, label, type), .before = 1)
+  }
   
-  # 1) Bygg listan: en tibble per dimension-element
+  # ---------------------------------------------------------------------------
+  # Bygg listan: en tibble per dimension-element
+  variabler_med_enbart_codelist <- character(0)
+  
   varden <- purrr::imap(tabell_variabler, function(dim_el, dim_name) {
     
-    # --- 1) category$label -> tibble::tibble(code, label, type="Category")
+    # --- Variabelvärden (type = "Variable")
     cat_lab <- purrr::pluck(dim_el, "category", "label", .default = NULL)
-    
     cat_df <- if (is.null(cat_lab)) {
       tibble::tibble(code = character(), label = character(), type = character())
     } else {
-      v <- unlist(cat_lab, use.names = TRUE)     # gör till namnad vektor
-      tibble::tibble(
-        code  = names(v),
-        label = unname(v),
-        type  = "Variable"
-      )
+      v <- unlist(cat_lab, use.names = TRUE)
+      tibble::tibble(code = names(v), label = unname(v), type = "Variable")
     }
     
-    # --- 2) extension$codeLists -> filtrera till type == "Aggregation"
-    if (include_aggregations) {
-      cl <- purrr::pluck(dim_el, "extension", "codelists", .default = NULL)
-      
-      aggr_varden <- if (is.null(cl) | length(cl) == 0) {
-        tibble::tibble(code = character(), label = character(), type = character())
-      } else {
-        # Om label i codeLists är flerspråkig (lista), välj "sv" om den finns, annars första
-        agglista_df <- purrr::map_df(cl, function(item) {
-          lbl <- purrr::pluck(item, "label", .default = NA)
-          if (is.list(lbl)) {
-            lbl <- purrr::pluck(lbl, "sv",
-                         .default = (unlist(lbl, use.names = FALSE)[1] %||% NA_character_))
-          }
-          tibble::tibble(
-            code  = purrr::pluck(item, "id",   .default = NA_character_),
-            label = lbl %||% NA_character_,
-            type  = purrr::pluck(item, "type", .default = NA_character_),
-            url = purrr::pluck(item, "links", 1, "href", .default = NA_character_)
-          )
-        }) |>
-          dplyr::filter(tolower(type) == "aggregation")
-        
-        
-        # 2) Hämta alla codelists och bygg två “del-tabeller” per aggregation:
-        #    - values_df: code+label för de aggregerade koderna
-        #    - value_map_df: code + members (ihopklistrade underkoder)
-        aggr_parsed <- agglista_df |>
-          dplyr::transmute(
-            agg_id    = code,
-            agg_label = label,
-            url
-          ) |>
-          dplyr::mutate(
-            codelist = purrr::map(url, fetch_codelist),
-            
-            values_long_df = purrr::map(codelist, ~{
-              v <- .x$values
-              if (is.null(v) || length(v) == 0) {
-                return(tibble::tibble(code = character(), label = character(), members = character()))
-              }
-              
-              purrr::map_df(v, ~ tibble::tibble(
-                code    = as.character(purrr::pluck(.x, "code",  .default = NA_character_)),
-                label   = as.character(purrr::pluck(.x, "label", .default = NA_character_)),
-                members = {
-                  vm <- purrr::pluck(.x, "valueMap", .default = NULL)
-                  if (is.null(vm)) NA_character_ else paste(unlist(vm, use.names = FALSE), collapse = aggregation_members_separation)
-                }
-              )) |>
-                dplyr::filter(!is.na(code))
-            })
-            
-          ) |>
-          dplyr::select(-codelist) 
-        
-        if (nrow(aggr_parsed) > 0) {
-          aggr_varden <- aggr_parsed |>
-            dplyr::select(agg_id, agg_label, values_long_df) |>
-            tidyr::unnest(values_long_df) |> 
-            dplyr::mutate(type = "Aggregation") |> 
-            dplyr::relocate(c(code, label, type), .before = 1)
-        }
+    lage <- var_lage[[dim_name]] %||% "codelists"
+    cl_info <- intern_cl_info(dim_el)
+    
+    if (lage == "none") {
+      return(cat_df)
+    }
+    
+    if (lage == "codelists") {
+      if (nrow(cl_info) == 0) return(cat_df)
+      variabler_med_enbart_codelist <<- c(variabler_med_enbart_codelist, dim_name)
+      codelist_meta <- cl_info |>
+        dplyr::select(code, label, type) |>
+        dplyr::mutate(type = "AggregationCodelist")
+      return(dplyr::bind_rows(cat_df, codelist_meta))
+    }
+    
+    if (lage == "all") {
+      if (nrow(cl_info) == 0) return(cat_df)
+      return(dplyr::bind_rows(cat_df, intern_hamta_agg_varden(cl_info)))
+    }
+    
+    # Specifika agg-id:n (en eller flera, newline-separerade internt)
+    agg_ids <- unlist(stringr::str_split(lage, "\n"), use.names = FALSE)
+    okanda_ids <- agg_ids[!tolower(agg_ids) %in% tolower(cl_info$code)]
+    if (length(okanda_ids) > 0) {
+      warning("Följande agg-id:n känns inte igen för variabeln '", dim_name, "' och ignoreras: ",
+              paste(okanda_ids, collapse = ", "), call. = FALSE)
+    }
+    agg_ids <- agg_ids[tolower(agg_ids) %in% tolower(cl_info$code)]
+    
+    if (length(agg_ids) == 0) {
+      # Inga giltiga agg-id:n -> falla tillbaka på codelist-metadata
+      if (nrow(cl_info) > 0) {
+        variabler_med_enbart_codelist <<- c(variabler_med_enbart_codelist, dim_name)
+        codelist_meta <- cl_info |>
+          dplyr::select(code, label, type) |>
+          dplyr::mutate(type = "AggregationCodelist")
+        return(dplyr::bind_rows(cat_df, codelist_meta))
       }
-    } else aggr_varden <- NULL  # end if - include aggregations
-        # --- 3) slå ihop rader från category och Aggregation-codelists
-    dplyr::bind_rows(cat_df, aggr_varden)
+      return(cat_df)
+    }
+    
+    dplyr::bind_rows(cat_df, intern_hamta_agg_varden(cl_info, agg_ids_filter = agg_ids))
   })
   
-  if (return_df_if_only_one_variable & length(varden) == 1) {
+  # ---------------------------------------------------------------------------
+  # Meddelanden
+  if (auto_valde_all) {
+    message(
+      "include_aggregations = \"auto\": hittade ", totalt_antal_kodlistor,
+      " kodlistor (<= ", auto_limit, ") och hämtade alla aggregeringar automatiskt."
+    )
+  } else if (length(variabler_med_enbart_codelist) > 0) {
+    message(
+      "Följande variabler har aggregeringskodlistor som inte hämtats fullt ut: ",
+      paste(variabler_med_enbart_codelist, collapse = ", "), ".\n",
+      "Sätt include_aggregations = \"all\" (eller ange variabelnamnen med specifika agg-id:n) ",
+      "för att hämta alla aggregeringar och deras värden."
+    )
+  }
+  
+  if (return_df_if_only_one_variable && length(varden) == 1) {
     varden <- tibble::as_tibble(varden[[1]])
   }
   
   return(varden)
 }
 
+
+
+
 pxweb2_query_list_txt_create <- function(table_id,
-                                     default_value = "*",
-                                     overrides = list(),
-                                     object_name = "query_list"
-                                     ) {
+                                         default_value = "*",
+                                         overrides = list(),
+                                         object_name = "query_list"
+) {
   # create the text with a query list for a script based on the table sent to the function
   var_df <- pxweb2_variabler(tabell = table_id)
   vars <- var_df$code
@@ -1818,9 +2130,9 @@ pxweb2_query_list_txt_create <- function(table_id,
 }
 
 pxweb2_get_data_script_create <- function(table_id,
-                                     default_value = "*",
-                                     overrides = list(),
-                                     to_clipboard = TRUE
+                                          default_value = "*",
+                                          overrides = list(),
+                                          to_clipboard = TRUE
 ) {
   
   meta <- pxweb2_meta(table_id)
@@ -1865,13 +2177,13 @@ pxweb2_get_data_script_create <- function(table_id,
 
 
 pxweb2_search_tables <- function(query = NULL,
-                                     base_url = "https://statistikdatabasen.scb.se/api/v2/tables",
-                                     lang = "sv",
-                                     pastDays = NULL,
-                                     includeDiscontinued = NULL,
-                                     pageSize = 200,
-                                     timeout_sec = 60,
-                                     max_pages = Inf) {
+                                 base_url = "https://statistikdatabasen.scb.se/api/v2/tables",
+                                 lang = "sv",
+                                 pastDays = NULL,
+                                 includeDiscontinued = NULL,
+                                 pageSize = 200,
+                                 timeout_sec = 60,
+                                 max_pages = Inf) {
   
   base_url <- sub("/+$", "", base_url)
   
@@ -1884,7 +2196,7 @@ pxweb2_search_tables <- function(query = NULL,
   ))
   
   fetch_page <- function(pageNumber) {
-    resp <- httr::GET(
+    resp <- intern_pxweb2_GET(
       url = base_url,
       query = c(qs_base, list(pageNumber = pageNumber)),
       httr::accept_json(),
@@ -2030,11 +2342,11 @@ intern_pxweb2_var_alternatives <- function(query_list,
   
   # 1) var="**" => default "*" + en per agg_id med "*"
   if (length(vals) == 1 && identical(vals, "**")) {
-      if (!has_agg) {
-        if (warn) warning("Variabeln `", var, "` saknar aggregations; '**' tolkas som '*'.")
-        vals <- "*"
-      } else {
-        all_agg_ids <- unique(agg_tbl$agg_id)
+    if (!has_agg) {
+      if (warn) warning("Variabeln `", var, "` saknar aggregations; '**' tolkas som '*'.")
+      vals <- "*"
+    } else {
+      all_agg_ids <- unique(agg_tbl$agg_id)
       
       out <- list(
         list(var = var, vals = "*", extra_query = list())  # default
@@ -2048,7 +2360,7 @@ intern_pxweb2_var_alternatives <- function(query_list,
       )))
       
       return(out)
-      }
+    }
   }
   
   # 2) var="agg_..." => en alt: vals="*" + codelist[var]=agg_...
@@ -2127,5 +2439,3 @@ intern_pxweb2_expand_requests_generic <- function(query_list, giltiga_varden_lis
     intern_pxweb2_request(body = body, extra_query = extra, tag = list(kind = "expanded"))
   })
 }
-
-
