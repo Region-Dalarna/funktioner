@@ -2365,6 +2365,8 @@ postgres_tabell_uppdaterades <- function(con = "default",        # uppkoppling, 
                                          meddelande_tid = FALSE  # om TRUE skrivs tidsåtgången ut
 ){
 
+  # hämta datum och tid för när en tabell i en databas är uppdaterad, vilket hämtas från metadata.uppdateringar
+  # och retrunerar en textsträng med datum och tid i samma format som pxweb2 använder (ISO 8601), t.ex. "2024-04-12T06:00:00Z"
   starttid <- Sys.time()  # Starta tidstagning
 
   # Tillåt att schema och tabell skickas ihop med punkt emellan, t.ex. "malpunkter.akutmottagningar"
@@ -2419,8 +2421,34 @@ postgres_tabell_uppdaterades <- function(con = "default",        # uppkoppling, 
 } # slut funktion postgres_tabell_uppdaterades
 
 
-pxweb2_uppdaterad_till_text_datum_tid <- function(datum_tid_txt){
+fil_dataset_uppdaterades <- function(
+    filnamn_med_sokvag,                               # den fil man vill hämta datum för
+    meddelande_tid = FALSE                            # om TRUE skrivs tidsåtgången ut
+) {
+  # funktion för att hämta datum + tid för en fil som innehåller ett dataset, och kunna jämföra med när en tabell i en databas
+  # är uppdaterad (behöver vi uppdatera tabellen i databasen?
+  
+  starttid <- Sys.time()  # Starta tidstagning
+  
+  # Bygg ISO 8601-sträng på formatet "2024-04-12T06:00:00Z"
+  # OBS: Z anger UTC. version_tid lagras i lokal tid och konverteras INTE här (se not nedan).
+  datum_txt <- format(as.Date(file.info(filnamn_med_sokvag)$mtime), "%Y-%m-%d")
+  tid_txt   <- substr(as.character(file.info(filnamn_med_sokvag)$mtime), 12, 19)
+  iso_tid   <- paste0(datum_txt, "T", tid_txt, "Z")
+  
+  # Beräkna och skriv ut tidsåtgång
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)
+  if (meddelande_tid) cat(glue::glue("Processen tog {berakningstid} sekunder att köra"))
+  
+  return(iso_tid)
+  
+}
 
+
+
+pxweb2_uppdaterad_till_text_datum_tid <- function(datum_tid_txt){
+  # läs in datum från när en tabell är uppdaterad i pxweb2, returnera en lista med två element, ett för datum och ett för tid
+  
   datum_txt <- datum_tid_txt %>% as.Date() %>% as.character()
   tid_txt <- datum_tid_txt %>% as.POSIXct(format = "%Y-%m-%dT%H:%M:%SZ") %>% format("%H:%M:%S") %>% as.character()
   retur_lista <- list(datum = datum_txt,
@@ -2428,6 +2456,7 @@ pxweb2_uppdaterad_till_text_datum_tid <- function(datum_tid_txt){
 
   return(retur_lista)
 }
+
 
 postgres_grants_auto_skapa <- function(con,
                                        remove_old = TRUE,
