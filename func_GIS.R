@@ -2575,6 +2575,8 @@ postgres_pxweb2_uppdatera_tabell_skapa_skript <- function(
     stop("Du måste ange tabell_db.", call. = FALSE)
   }
   
+  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_pxweb2.R")
+  
   if (!exists("pxweb2_get_data_script_create", mode = "function")) {
     stop(
       "Funktionen pxweb2_get_data_script_create() finns inte laddad. ",
