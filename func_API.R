@@ -6740,10 +6740,12 @@ shinyapp_flytta <- function(
     cat("Skapar _publicering_till_server.yml och committar till ",
         default_branch, "...\n", sep = "")
     .shinyapp_skriv_target(repo_sokvag, nuvarande_target)
-    kor_git("add", "_publicering_till_server.yml")
-    kor_git("commit", "-m",
-            paste0("Lägg till _publicering_till_server.yml (detekterat: ",
-                   nuvarande_target, ")"))
+    gert::git_add("_publicering_till_server.yml", repo = repo_sokvag)
+    gert::git_commit(
+      paste0("Lägg till _publicering_till_server.yml (detekterat: ",
+             nuvarande_target, ")"),
+      repo = repo_sokvag
+    )
     .gh_push(repo_sokvag, default_branch)
   }
   
@@ -6805,9 +6807,11 @@ shinyapp_flytta <- function(
   cat("\n[4/4] Uppdaterar _publicering_till_server.yml och tar bort från ",
       nuvarande_target, " servern...\n", sep = "")
   .shinyapp_skriv_target(repo_sokvag, nytt_target)
-  kor_git("add", "_publicering_till_server.yml")
-  kor_git("commit", "-m",
-          paste0("Flytta target: ", nuvarande_target, " → ", nytt_target))
+  gert::git_add("_publicering_till_server.yml", repo = repo_sokvag)
+  gert::git_commit(
+    paste0("Flytta target: ", nuvarande_target, " -> ", nytt_target),
+    repo = repo_sokvag
+  )
   .gh_push(repo_sokvag, default_branch)
   
   # --- 8. Avpublicera från gamla servern (utan andra bekräftelse) ---

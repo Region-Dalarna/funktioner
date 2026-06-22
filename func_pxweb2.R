@@ -138,8 +138,7 @@ pxweb2_hamta_data <- function(
     giltiga_varden_list = giltiga_varden_list
   )
   
-  #query_chunks <- intern_pxweb2_make_chunks(variabler_df, query_list)
-  
+
   # 1) Ta fram vilka kodkolumner som ska läggas till
   cols_to_add <- variabler_df |>
     dplyr::filter(
@@ -1418,9 +1417,26 @@ intern_pxweb2_make_chunks <- function(variabler_df, query, giltiga_varden_list,
   
   split_var <- intern_pxweb2_choose_split_variable(variabler_df, query)
   
-  all_vals <- giltiga_varden_list[[split_var]] |>
-    dplyr::filter(type == "Variable") |>
-    dplyr::pull(code)
+  selected_vals <- intern_pxweb2_get_valuecodes(query, split_var)
+  
+  if (is.null(selected_vals) || length(selected_vals) == 0 ||
+      (length(selected_vals) == 1 && identical(selected_vals, "*"))) {
+    
+    ok_tbl <- giltiga_varden_list[[split_var]]
+    
+    if ("type" %in% names(ok_tbl)) {
+      ok_tbl <- ok_tbl |>
+        dplyr::filter(type == "Variable")
+    }
+    
+    all_vals <- ok_tbl |>
+      dplyr::pull(code)
+    
+  } else {
+    
+    all_vals <- selected_vals
+  }
+  
   
   # Greedy-packning (purrr::accumulate): fyll så nära max_cells som möjligt
   state <- purrr::accumulate(
