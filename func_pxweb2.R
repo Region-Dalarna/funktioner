@@ -240,6 +240,11 @@ pxweb2_hamta_data <- function(
   # om man vill splitta kommunkod och kommun till egna kolumner samt bara behåller regsonamn (och desokod som namn) i kolumnen region
   if (isTRUE(deso_regso_splitta_kommun)) {
     retur_tabell <- intern_pxweb2_splitta_deso_regso_kommun(retur_tabell)
+    
+    retur_tabell <- intern_pxweb2_fyll_deso_kommun_fran_metadata(
+      df = retur_tabell,
+      metadata = metadata
+    )
   }
   
   # flytta varje kod-kolumn och placera framför sin klartext-kolumn
@@ -546,6 +551,160 @@ intern_pxweb2_hantera_deso_regso_versioner <- function(df,
       ))
     )
 }
+
+
+intern_pxweb2_hitta_kommun_valueset_url <- function(metadata,
+                                                    region_var = "Region") {
+  
+  region_dim <- metadata$dimension[[region_var]]
+  
+  if (is.null(region_dim)) {
+    return(NULL)
+  }
+  
+  cl <- purrr::pluck(region_dim, "extension", "codelists", .default = NULL)
+  
+  if (is.null(cl) || length(cl) == 0) {
+    return(NULL)
+  }
+  
+  cl_df <- purrr::map_dfr(cl, function(item) {
+    tibble::tibble(
+      id = purrr::pluck(item, "id", .default = NA_character_),
+      label = purrr::pluck(item, "label", .default = NA_character_),
+      type = purrr::pluck(item, "type", .default = NA_character_),
+      url = purrr::pluck(item, "links", 1, "href", .default = NA_character_)
+    )
+  })
+  
+  hit <- cl_df |>
+    dplyr::filter(
+      stringr::str_to_lower(type) == "valueset",
+      stringr::str_detect(stringr::str_to_lower(label), "kommun") |
+        stringr::str_detect(stringr::str_to_lower(id), "kommun")
+    )
+  
+  if (nrow(hit) == 0) {
+    return(NULL)
+  }
+  
+  hit$url[[1]]
+}
+
+
+intern_pxweb2_hamta_kommunnyckel_fran_metadata <- function(metadata,
+                                                           region_var = "Region") {
+  
+  url <- intern_pxweb2_hitta_kommun_valueset_url(
+    metadata = metadata,
+    region_var = region_var
+  )
+  
+  if (is.null(url) || is.na(url) || identical(url, "")) {
+    return(NULL)
+  }
+  
+  resp <- intern_pxweb2_GET(url, httr::accept_json())
+  httr::stop_for_status(resp)
+  
+  cl <- jsonlite::fromJSON(
+    httr::content(resp, "text", encoding = "UTF-8"),
+    simplifyVector = FALSE
+  )
+  
+  values <- purrr::pluck(cl, "values", .default = NULL)
+  
+  if (is.null(values) || length(values) == 0) {
+    return(NULL)
+  }
+  
+  kommunnyckel <- purrr::map_dfr(values, function(x) {
+    tibble::tibble(
+      kommun_kod = as.character(purrr::pluck(x, "code", .default = NA_character_)),
+      kommun = as.character(purrr::pluck(x, "label", .default = NA_character_))
+    )
+  }) |>
+    dplyr::filter(!is.na(kommun_kod), !is.na(kommun)) |>
+    dplyr::mutate(
+      kommun = intern_pxweb2_rensa_kodprefix_i_label(
+        label = kommun,
+        kod = kommun_kod
+      )
+    ) |>
+    dplyr::distinct(kommun_kod, .keep_all = TRUE)
+  return(kommunnyckel)
+}
+
+intern_pxweb2_fyll_deso_kommun_fran_metadata <- function(df,
+                                                         metadata,
+                                                         region_kod_col = "region_kod",
+                                                         kommun_kod_col = "kommun_kod",
+                                                         kommun_col = "kommun") {
+  
+  if (!all(c(region_kod_col, kommun_kod_col, kommun_col) %in% names(df))) {
+    return(df)
+  }
+  
+  region_kod <- as.character(df[[region_kod_col]])
+  
+  ar_deso <- stringr::str_detect(region_kod, "^\\d{4}[ABC]\\d+")
+  
+  if (!any(ar_deso, na.rm = TRUE)) {
+    return(df)
+  }
+  
+  saknar_kommun <- is.na(df[[kommun_col]]) | df[[kommun_col]] == ""
+  
+  if (!any(ar_deso & saknar_kommun, na.rm = TRUE)) {
+    return(df)
+  }
+  
+  kommunnyckel <- intern_pxweb2_hamta_kommunnyckel_fran_metadata(metadata)
+  
+  if (is.null(kommunnyckel) || nrow(kommunnyckel) == 0) {
+    return(df)
+  }
+  
+  match_idx <- match(
+    as.character(df[[kommun_kod_col]]),
+    kommunnyckel$kommun_kod
+  )
+  
+  kommun_fran_metadata <- kommunnyckel$kommun[match_idx]
+  
+  fyll <- ar_deso & saknar_kommun & !is.na(kommun_fran_metadata)
+  
+  df[[kommun_col]][fyll] <- kommun_fran_metadata[fyll]
+  
+  df
+}
+
+
+intern_pxweb2_rensa_kodprefix_i_label <- function(label, kod) {
+  
+  label_chr <- as.character(label)
+  kod_chr <- as.character(kod)
+  
+  purrr::map2_chr(label_chr, kod_chr, function(lbl, k) {
+    
+    if (is.na(lbl) || is.na(k)) {
+      return(lbl)
+    }
+    
+    rensad <- stringr::str_remove(
+      lbl,
+      paste0("^", stringr::str_escape(k), "\\s+")
+    ) |>
+      stringr::str_trim()
+    
+    if (identical(rensad, "")) {
+      lbl
+    } else {
+      rensad
+    }
+  })
+}
+
 
 # Hjälpfunktion: kontrollera om query innehåller "9999"
 intern_pxweb2_query_innehaller_senaste_tid <- function(query, senaste_tid_kod = "9999") {
