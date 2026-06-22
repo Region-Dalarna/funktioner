@@ -2537,23 +2537,94 @@ urklipp <- function(x, sep = "\n") {
   invisible(x)
 }
 
-source_utan_cache <- function(url, encoding = NA, echo = FALSE) {
-  # använd istället för source för att säkerställa att den inte source:ar in en cache istället
-  # bra när man precis har commit:at och push:at till
+
+source_utan_cache <- function(url, encoding = "UTF-8", echo = FALSE, pat = NULL) {
   
-  tmp <- tempfile()
+  #' Source:a en R-fil från GitHub utan risk för gammal CDN-cache
+  #'
+  #' raw.githubusercontent.com ligger bakom Fastly, som kan servera en gammal
+  #' version i upp till några minuter efter en push. Varken `Cache-Control`-headern
+  #' eller en unik query-sträng bustar den cachen (testat — ger ändå `x-cache: HIT`).
+  #' Det enda pålitliga sättet att få färskt innehåll direkt är att gå via GitHubs
+  #' Contents-API med `Accept: raw`, som speglar senaste commit utan Fastly-cache.
+  #'
+  #' En PAT höjer API:ts rate-limit från 60 till 5000 anrop/timme (och krävs för
+  #' privata repon). Token läses i ordningen: argument -> GITHUB_PAT -> keyring.
+  #'
+  #' Contents-API:t med `Accept: raw` hanterar filer upp till 100 MB. Är filen
+  #' större faller funktionen automatiskt tillbaka på vanlig source() och skriver
+  #' ut ett meddelande (då kan dock CDN-cache ge en gammal version). I praktiken
+  #' slår gränsen aldrig i för vanliga R-funktionsfiler.
+  #'
+  #' @param url   Vanlig raw-URL, t.ex.
+  #'   "https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R"
+  #' @param encoding Teckenkodning som skickas till source() (default "UTF-8").
+  #' @param echo  Skickas till source() (default FALSE).
+  #' @param pat   Valfri GitHub-PAT. Lämna NULL för att läsa från miljö/keyring.
   
-  res <- httr::GET(url, add_headers("Cache-Control" = "no-cache"))
-  httr::stop_for_status(res)
-  writeBin(httr::content(res, "raw"), tmp)
-  
-  if (!is.na(encoding)) {
-    source(tmp, encoding = encoding, echo = echo)  
-  } else {
-    source(tmp, echo = echo)
+  if (!requireNamespace("httr", quietly = TRUE)) {
+    stop("Paketet 'httr' krävs.", call. = FALSE)
   }
   
-  unlink(tmp)
+  # Plocka ut owner / repo / branch / path ur raw-URL:en.
+  m <- regmatches(
+    url,
+    regexec("raw\\.githubusercontent\\.com/([^/]+)/([^/]+)/([^/]+)/(.+)$", url)
+  )[[1]]
+  
+  # Inte en raw.githubusercontent-URL? Fall tillbaka på vanlig source().
+  if (length(m) != 5) {
+    return(invisible(source(url, encoding = encoding, echo = echo)))
+  }
+  
+  owner <- m[2]; repo <- m[3]; branch <- m[4]; path <- m[5]
+  
+  # PAT: argument > GITHUB_PAT > keyring (samma mönster som övriga funktioner).
+  if (is.null(pat) || !nzchar(pat)) pat <- Sys.getenv("GITHUB_PAT", "")
+  if (!nzchar(pat) && requireNamespace("keyring", quietly = TRUE)) {
+    kp <- tryCatch(keyring::key_list(service = "github_token"), error = function(e) NULL)
+    if (!is.null(kp) && nrow(kp) > 0) {
+      pat <- tryCatch(keyring::key_get("github_token", kp$username[1]),
+                      error = function(e) "")
+    }
+  }
+  
+  api_url <- sprintf(
+    "https://api.github.com/repos/%s/%s/contents/%s?ref=%s",
+    owner, repo, utils::URLencode(path, reserved = FALSE), branch
+  )
+  
+  hdrs <- c(
+    Accept = "application/vnd.github.raw",
+    "X-GitHub-Api-Version" = "2022-11-28"
+  )
+  if (nzchar(pat)) hdrs <- c(hdrs, Authorization = paste("token", pat))
+  
+  res <- httr::GET(api_url, httr::add_headers(.headers = hdrs))
+  
+  # Hantera 403: rate-limit (fel) eller för stor fil (fall tillbaka på source()).
+  if (httr::status_code(res) == 403) {
+    body <- httr::content(res, "text", encoding = "UTF-8")
+    if (grepl("rate limit", body, ignore.case = TRUE)) {
+      stop("GitHub API rate-limit nådd. Sätt GITHUB_PAT (eller spara token i ",
+           "keyring service = 'github_token') för 5000 anrop/timme istället ",
+           "för 60.", call. = FALSE)
+    }
+    if (grepl("too large|larger than", body, ignore.case = TRUE)) {
+      message("source_utan_cache(): '", basename(path), "' överskrider ",
+              "Contents-API:ts gräns (100 MB). Faller tillbaka på vanlig ",
+              "source(). OBS: vanlig source() kan leverera en CDN-cachad ",
+              "(eventuellt gammal) version strax efter en push.")
+      return(invisible(source(url, encoding = encoding, echo = echo)))
+    }
+  }
+  httr::stop_for_status(res)
+  
+  tmp <- tempfile(fileext = ".R")
+  on.exit(unlink(tmp), add = TRUE)
+  writeBin(httr::content(res, "raw"), tmp)
+  
+  invisible(source(tmp, encoding = encoding, echo = echo))
 }
 
 source_funktioner <- function(skriptfil, funktioner) {
