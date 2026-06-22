@@ -2458,6 +2458,200 @@ pxweb2_uppdaterad_till_text_datum_tid <- function(datum_tid_txt){
 }
 
 
+# skript för att hämta data från pxweb2 och skriva till en tabell i en postgresdatabas, denna funktion kräver att man har 
+# konfigurerat uppkoppling_adm() med läsrättigheter på den databas man skickar med som argument
+postgres_pxweb2_uppdatera_tabell <- function(
+    tabell_id_pxweb2,                                    # tabell_id för en pxweb2-tabell
+    db_namn,                                             # databasnamn i en postgres-databas dit datasetet ska skrivas
+    schema_db,                                           # schema i postgres-databasen där tabellen ska skrivas
+    tabell_db,                                           # tabellnamn i postgres-databasen där tabellen ska skrivas
+    hamta_data_funktion,                                 # en funktion som hämtar data från pxweb2, ska skrivas typ så här: 
+                                        # hamta_data_funktion = function(tabell_id_pxweb2) {
+                                        #   pxweb2_hamta_data(
+                                        #     tabell = tabell_id_pxweb2,
+                                        #     query = list(
+                                        #       Region = c("20??A*", "20??B*", "20??C*"),
+                                        #       Alder = "*",
+                                        #       Kon = c("kvinnor", "män"),
+                                        #       ContentsCode = "*",
+                                        #       Tid = "*"
+                                        #     )
+                                        #   ) |>
+                                        #     dplyr::filter(ålder != "totalt")
+                                        # }
+    id_kol = NA,                        # om datasetet har en id-kolumn som kan användas som primärnyckel i databasen så skickas namnet på den kolumnen med här, annars blir det NA och ingen primärnyckel skapas
+    kommentar_metadata = NA,            # en textsträng som skickas med och sparas i metadata-tabellen i postgres-databasen, kan användas för att beskriva datasetet eller ge annan relevant information
+    uppdatering_tvinga = FALSE,         # om TRUE så kommer tabellen att uppdateras även om den inte behöver det, dvs även om tabellen i pxweb2 inte har uppdaterats sedan senaste uppdateringen av tabellen i postgres-databasen
+    verbose = TRUE                      # TRUE = skriv ut meddelanden om vad som händer, FALSE = inga meddelanden skrivs ut
+) {
+  
+  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_pxweb2.R")
+  
+  con <- uppkoppling_adm(db_namn)
+  
+  tabell_db_uppdaterad <- postgres_tabell_uppdaterades(
+    con = con,
+    schema = schema_db,
+    tabell = tabell_db
+  )
+  
+  behover_uppdateras <- pxweb2_tabell_behover_uppdateras(
+    tabell_id_pxweb2,
+    tabell_db_uppdaterad
+  )
+  
+  if (!behover_uppdateras && !uppdatering_tvinga) {
+    msg <- paste0(
+      "Tabell ", tabell_id_pxweb2,
+      " har inte uppdaterats sedan senaste uppdateringen av tabell ",
+      schema_db, ".", tabell_db,
+      " i databasen. Ingen uppdatering behövs."
+    )
+    
+    if (verbose) {
+      message(msg)
+    }
+    
+    return(invisible(list(
+      uppdaterad = FALSE,
+      tabell_id = tabell_id_pxweb2,
+      schema_db = schema_db,
+      tabell_db = tabell_db,
+      meddelande = msg
+    )))
+  }
+  
+  if (verbose) {
+    message("Hämtar data för tabell ", tabell_id_pxweb2, "...")
+  }
+  
+  inlas_df <- hamta_data_funktion(tabell_id_pxweb2)
+  
+  datum_tid_lista <- pxweb2_uppdaterad_till_text_datum_tid(
+    pxweb2_tabell_uppdaterades(tabell_id_pxweb2)
+  )
+  
+  if (verbose) {
+    message("Skriver data till ", schema_db, ".", tabell_db, "...")
+  }
+  
+  postgres_databas_skriv_med_metadata(
+    con = con,
+    inlas_df = inlas_df,
+    schema = schema_db,
+    tabell = tabell_db,
+    id_kol = id_kol,
+    kommentar_metadata = kommentar_metadata,
+    version_datum = datum_tid_lista$datum,
+    version_tid = datum_tid_lista$tid
+  )
+  
+  invisible(list(
+    uppdaterad = TRUE,
+    tabell_id = tabell_id_pxweb2,
+    schema_db = schema_db,
+    tabell_db = tabell_db,
+    antal_rader = nrow(inlas_df),
+    version_datum = datum_tid_lista$datum,
+    version_tid = datum_tid_lista$tid
+  ))
+}
+
+# skript för att skapa skript-rader för att hämta data med skriptet postgres_pxweb2_uppdatera_tabell() här ovanför,
+# man skickar in ett tabell-id för en pxweb2-tabell, ett tabellnamn i postgresdatabasen (och schema samt databasnamn men där finns default)
+postgres_pxweb2_uppdatera_tabell_skapa_skript <- function(
+    tabell_id_pxweb2,
+    tabell_db,
+    schema_db = "scb",
+    db_namn = "oppna_data",
+    till_urklippshanteraren = TRUE
+) {
+  
+  if (missing(tabell_id_pxweb2) || !nzchar(tabell_id_pxweb2)) {
+    stop("Du måste ange tabell_id_pxweb2.", call. = FALSE)
+  }
+  
+  if (missing(tabell_db) || !nzchar(tabell_db)) {
+    stop("Du måste ange tabell_db.", call. = FALSE)
+  }
+  
+  if (!exists("pxweb2_get_data_script_create", mode = "function")) {
+    stop(
+      "Funktionen pxweb2_get_data_script_create() finns inte laddad. ",
+      "Kör source() för func_pxweb2.R först.",
+      call. = FALSE
+    )
+  }
+  
+  r_string <- function(x) {
+    encodeString(enc2utf8(as.character(x)), quote = "\"")
+  }
+  
+  pxweb2_script_obj <- NULL
+  
+  pxweb2_script_stdout <- capture.output({
+    pxweb2_script_obj <- pxweb2_get_data_script_create(tabell_id_pxweb2)
+  })
+  
+  if (is.character(pxweb2_script_obj) && length(pxweb2_script_obj) > 0) {
+    hamta_text <- paste(pxweb2_script_obj, collapse = "\n")
+  } else if (length(pxweb2_script_stdout) > 0) {
+    hamta_text <- paste(pxweb2_script_stdout, collapse = "\n")
+  } else {
+    stop(
+      "pxweb2_get_data_script_create() returnerade inget skript.",
+      call. = FALSE
+    )
+  }
+  
+  hamta_rader <- strsplit(hamta_text, "\n", fixed = TRUE)[[1]]
+  hamta_rader <- hamta_rader[nzchar(trimws(hamta_rader))]
+  
+  hamta_text <- paste(hamta_rader, collapse = "\n")
+  
+  # Om pxweb2_get_data_script_create() skapar t.ex.
+  # data <- pxweb2_hamta_data(...)
+  # så tar vi bort tilldelningen, eftersom detta ska ligga inuti en funktion.
+  hamta_text <- sub(
+    "^\\s*[[:alnum:]_.]+\\s*(<-|=)\\s*pxweb2_hamta_data\\s*\\(",
+    "pxweb2_hamta_data(",
+    hamta_text,
+    perl = TRUE
+  )
+  
+  # Byt ut hårdkodat tabell-id mot funktionsargumentet inne i hamta_data_funktion.
+  hamta_text <- gsub(
+    "tabell\\s*=\\s*['\"][^'\"]+['\"]",
+    "tabell = tabell_id_pxweb2",
+    hamta_text,
+    perl = TRUE
+  )
+  
+  hamta_rader <- strsplit(hamta_text, "\n", fixed = TRUE)[[1]]
+  hamta_rader <- paste0("    ", hamta_rader)
+  
+  skript <- paste0(
+    "postgres_pxweb2_uppdatera_tabell(\n",
+    "  tabell_id_pxweb2 = ", r_string(tabell_id_pxweb2), ",\n",
+    "  db_namn = ", r_string(db_namn), ",\n",
+    "  schema_db = ", r_string(schema_db), ",\n",
+    "  tabell_db = ", r_string(tabell_db), ",\n",
+    "  hamta_data_funktion = function(tabell_id_pxweb2) {\n",
+    paste(hamta_rader, collapse = "\n"), "\n",
+    "    # efter de båda parenteserna på raden ovan kan pipes läggas till om så önskas, t.ex.:\n",
+    "    #   |> dplyr::filter(ålder != \"totalt\")\n",
+    "  }\n",
+    ")"
+  )
+  
+  if (till_urklippshanteraren) {
+    writeLines(text = skript, con = "clipboard", sep = "")
+  }
+  
+  invisible(cat(skript))
+}
+
+
 postgres_grants_auto_skapa <- function(con,
                                        remove_old = TRUE,
                                        rattigheter_pa_befintliga = TRUE,
