@@ -5847,6 +5847,20 @@ if (isTRUE(test_skapa_ej_repo)) {
               httr::status_code(resp), ").")
     }
   }
+  
+  # ---- Registrera avpublicera.yml hos GitHub Actions -----------------------
+  # En workflow med enbart workflow_dispatch indexeras inte alltid från
+  # initial-pushen — bara deploy.yml (som har en push-trigger) plockas upp.
+  # Vi rör avpublicera.yml en gång till på master så att GitHub Actions
+  # scannar in den. Utan detta failar första avpublicera()/flytta() på en
+  # oregistrerad workflow (HTTP 404 vid dispatch).
+  cat("\n# (touch för workflow-registrering)\n",
+      file = file.path(workflows_dir, "avpublicera.yml"), append = TRUE)
+  gert::git_add(".github/workflows/avpublicera.yml", repo = sokvag_proj)
+  gert::git_commit("Registrera-avpublicera-workflow", repo = sokvag_proj)
+  .gh_push(sokvag_proj, "master")
+  message("✅ avpublicera.yml registrerad hos GitHub Actions.")
+  
 }
 
 invisible(sokvag_proj)
