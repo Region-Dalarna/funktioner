@@ -1,10 +1,10 @@
 
 
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(httr, 
-               dplyr, 
-               data.table, 
-               purrr, 
+pacman::p_load(httr,
+               dplyr,
+               data.table,
+               purrr,
                zip,
                tidyverse,
                mapview,
@@ -16,26 +16,26 @@ pacman::p_load(httr,
                keyring) # finns zip i tidyverse?
 
 gtfs_operatorer_sverige_nyckeltabell_hamta <- function(tabort_na = TRUE){
-  
+
   # hämta nyckeltabell för regioner och operatörer så att man kan hämta en operatör med
   # regionkod
-  
+
   if (!require("pacman")) install.packages("pacman")
-  p_load(tidyverse, 
+  p_load(tidyverse,
          rvest)
-  
+
   source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R", encoding = "utf-8")
-  
+
   # URL till sidan
   url_trafiklab <- "https://www.trafiklab.se/sv/api/gtfs-datasets/gtfs-regional/"
-  
+
   # Läs in HTML-innehållet från sidan
   page <- read_html(url_trafiklab)
-  
+
   # Hitta tabellen med data för operatörerna
   retur_df <- page %>%
     html_node("table") %>%  # Välj första tabellen
-    html_table() %>% 
+    html_table() %>%
     select(operator = Operator, operatorkod = Abbreviation) %>%
     mutate(regionkod = case_when(
       operatorkod == "sl" ~ "01",
@@ -60,29 +60,29 @@ gtfs_operatorer_sverige_nyckeltabell_hamta <- function(tabort_na = TRUE){
       operatorkod == "vasterbotten" ~ "24",
       operatorkod == "norrbotten" ~ "25",
       TRUE ~ NA_character_
-    )) %>% 
+    )) %>%
     filter(!is.na(regionkod))
-  
-  # gammal som vi tagit bort för att Trafiklab ändrat tabellen och länsnamnen inte är med i tabellen längre. Vi måste därför koppla på 
-  # länskoder manuellt  
-  # %>% 
+
+  # gammal som vi tagit bort för att Trafiklab ändrat tabellen och länsnamnen inte är med i tabellen längre. Vi måste därför koppla på
+  # länskoder manuellt
+  # %>%
   #   mutate(region = str_extract(operator, "\\(([^)]+)\\)"),  # Extrahera regionen
   #          operator = str_remove(operator, "\\s*\\([^)]*\\)"),
   #          region = str_replace_all(region, "[()]", ""),
   #          region = ifelse(is.na(region) & str_detect(operator, "Länstrafiken "), operator %>% str_remove("Länstrafiken "), region),
-  #          region = region %>% skapa_kortnamn_lan() %>% str_to_title()) %>% 
+  #          region = region %>% skapa_kortnamn_lan() %>% str_to_title()) %>%
   #   filter(!is.na(region),
   #          operatorkod != "sjostadstrafiken")
-  
+
   regionnyckel <- hamtaregtab() %>%
-    filter(nchar(regionkod) == 2 & regionkod != "00") %>% 
+    filter(nchar(regionkod) == 2 & regionkod != "00") %>%
     mutate(region = region %>% skapa_kortnamn_lan())
-  
-  retur_df <- retur_df %>% 
+
+  retur_df <- retur_df %>%
     left_join(regionnyckel, by = "regionkod")
-  
+
   if (tabort_na) retur_df <- retur_df %>% filter(!is.na(regionkod))
-  
+
   # Visa tabellen
   return(retur_df)
 } # slut funktion
@@ -91,8 +91,8 @@ gtfs_operatorer_sverige_nyckeltabell_hamta <- function(tabort_na = TRUE){
 # ================================ gtfs calendar ====================================
 
 gtfs_fyll_calendar_dagar <- function(calendar_dates_df){
-  
-  retur_df <- calendar_dates_df %>% 
+
+  retur_df <- calendar_dates_df %>%
     mutate(datum = if (!inherits(date, "Date")) {
       as.Date(paste0(str_sub(date, 1, 4), "-",
                      str_sub(date, 5, 6), "-",
@@ -103,13 +103,13 @@ gtfs_fyll_calendar_dagar <- function(calendar_dates_df){
     veckodag = weekdays(datum),
     weekday = c("Sunday", "Monday", "Tuesday",     # Convert dates to weekdays
                 "Wednesday", "Thursday", "Friday",
-                "Saturday")[as.numeric(format(datum, "%w")) + 1]) %>% 
+                "Saturday")[as.numeric(format(datum, "%w")) + 1]) %>%
     pivot_wider(names_from = weekday, values_from = exception_type) %>%
     mutate(across(c("Sunday", "Monday", "Tuesday",     # Convert dates to weekdays
                     "Wednesday", "Thursday", "Friday",
-                    "Saturday"), as.numeric)) %>% 
+                    "Saturday"), as.numeric)) %>%
     replace(is.na(.), 0) %>%
-    group_by(service_id) %>% 
+    group_by(service_id) %>%
     summarise(monday = max(Monday),
               tuesday = max(Tuesday),
               wednesday = max(Wednesday),
@@ -118,26 +118,26 @@ gtfs_fyll_calendar_dagar <- function(calendar_dates_df){
               saturday = max(Saturday),
               sunday = max(Sunday),
               start_date = min(date),
-              end_date = max(date)) %>% 
+              end_date = max(date)) %>%
     ungroup()
-  
+
   return(retur_df)
 }
 
 
-gtfs_fyll_calendar_dates_fran_calendar <- function(calendar_df, 
-                                                   skickade_service_id = NA, 
+gtfs_fyll_calendar_dates_fran_calendar <- function(calendar_df,
+                                                   skickade_service_id = NA,
                                                    exception_kol = "1"){
-  
+
   # om man skickar med service_id så kör vi bara på dem, annars hela datasetet
-  if (!is.na(skickade_service_id)) { 
+  if (!is.na(skickade_service_id)) {
     filtrerad_df <- calendar_df %>% filter(service_id %in% skickade_service_id)
   } else {
     filtrerad_df <- calendar_df
   }
-  
+
   # vi skapar ett longdataset utifrån calendar_df med alla möjliga datum
-  retur_brutto_df <- filtrerad_df %>% 
+  retur_brutto_df <- filtrerad_df %>%
     mutate(start_date = as.Date(paste0(str_sub(start_date, 1,4), "-",
                                        str_sub(start_date, 5,6), "-",
                                        str_sub(start_date, 7,8))),
@@ -150,17 +150,17 @@ gtfs_fyll_calendar_dates_fran_calendar <- function(calendar_df,
     mutate(veckodag = c("Sunday", "Monday", "Tuesday",     # Convert dates to weekdays
                         "Wednesday", "Thursday", "Friday",
                         "Saturday")[as.numeric(format(date, "%w"))+1] %>% tolower())
-  
-  
-  # vi skapar ett dataset där varje service_id har en vektor med de veckodagar 
+
+
+  # vi skapar ett dataset där varje service_id har en vektor med de veckodagar
   # som ska vara kvar
   service_veckodagar_df <- filtrerad_df %>%
     pivot_longer(cols = monday:sunday, names_to = "weekday", values_to = "value") %>%
     filter(value == 1) %>%
     group_by(service_id) %>%
     summarise(weekday_vector = list(weekday), .groups = "drop")
-  
-  # vi lägger ihop dessa två dataset och filtrerar på de veckodagar som finns i 
+
+  # vi lägger ihop dessa två dataset och filtrerar på de veckodagar som finns i
   # den vektor vi skapade i service_veckodagar_df ovan
   retur_df <- retur_brutto_df %>%
     inner_join(service_veckodagar_df, by = "service_id") %>%
@@ -170,21 +170,21 @@ gtfs_fyll_calendar_dates_fran_calendar <- function(calendar_df,
     mutate(exception_type = exception_kol,
            date = date %>% as.character() %>% str_remove_all("-")) %>%
     select(service_id, date, exception_type)
-  
+
   return(retur_df)
-  
+
 }
 
 # =================== Hämtar GTFS-dataset ===================
 
 # Huvudfunktion för nedladdning och bearbetning av GTFS-data
 #
-# För att köra skriptet krävs att man har installerat paketet keyring() och där sparat en 
-# service som heter "API_trafiklab_token", där användarnamn är "GTFS_Regional", "GTFS_Sverige_2" 
-# eller "GTFS_Sweden_3" beroende på vilket dataset man vill hämta. Själva token läggs som 
-# lösenord. Man måste skapa en användare hos Trafiklab för att få tokens som man använder för 
-# att ladda ned data. Detta skapar man här: https://developer.trafiklab.se/login och det är 
-# kostnadsfritt. 
+# För att köra skriptet krävs att man har installerat paketet keyring() och där sparat en
+# service som heter "API_trafiklab_token", där användarnamn är "GTFS_Regional", "GTFS_Sverige_2"
+# eller "GTFS_Sweden_3" beroende på vilket dataset man vill hämta. Själva token läggs som
+# lösenord. Man måste skapa en användare hos Trafiklab för att få tokens som man använder för
+# att ladda ned data. Detta skapar man här: https://developer.trafiklab.se/login och det är
+# kostnadsfritt.
 #
 # Parametrar i funktionen:
 #   - gtfs_dataset: Specificerar dataset att ladda ner. Kan vara en RKM-kod (ex. "skane") eller "sverige_2" eller "sweden_3".
@@ -202,21 +202,21 @@ gtfs_fyll_calendar_dates_fran_calendar <- function(calendar_df,
 #
 # Felhantering:
 # Hanterar fel under nedladdning och bearbetning, och ger ett felmeddelande vid problem.
-# 
+#
 # Förbättringspotential:
 #   - använda länskod för att hämta regionala dataset, funkar backar därför till en tidigare version!
 #   - funktionalitet för att ladda ner länsversioner av sweden_3 eller sverige_2? Så att man får med all trafik i länet och inte bara den regionala operatören
 
-hamta_gtfs_data <- function(gtfs_dataset = "20",   # 
-                            spara_filmap = NA, 
+hamta_gtfs_data <- function(gtfs_dataset = "20",   #
+                            spara_filmap = NA,
                             test_mode = FALSE) {
-  
+
   # kontrollera att gtfs_dataset bara är ett värde
   if (length(gtfs_dataset) > 1) stop("Parametern gtfs_dataset kan för närvarande bara ha ett värde. Korrigera parametern och försök igen.")
-  
+
   tryCatch({
     datum <- str_remove_all(Sys.Date(), "-")
-    
+
     # Retrieve API key from keyring based on dataset
     if (tolower(gtfs_dataset) == "sweden_3" | tolower(gtfs_dataset) == "sweden3") {
       api_key <- key_get("API_trafiklab_token", "GTFS_Sweden_3")
@@ -229,11 +229,11 @@ hamta_gtfs_data <- function(gtfs_dataset = "20",   #
       regionnyckel <- gtfs_operatorer_sverige_nyckeltabell_hamta()
       # om gtfs-dataset
       rkm <- if (gtfs_dataset %in% regionnyckel$operatorkod) gtfs_dataset else regionnyckel$operatorkod[gtfs_dataset == regionnyckel$regionkod]
-      
+
       api_key <- key_get("API_trafiklab_token", "GTFS_Regional")
       url <- paste0("https://opendata.samtrafiken.se/gtfs/", rkm, "/", rkm, ".zip?key=", api_key)
     }
-    
+
     # Test mode: only check if the URL is accessible
     if (test_mode) {
       if (gtfs_dataset == "sverige_2") {
@@ -243,7 +243,7 @@ hamta_gtfs_data <- function(gtfs_dataset = "20",   #
         # Use HEAD request for others
         response <- HEAD(url)
       }
-      
+
       if (response$status_code == 200) {
         message("Test framgångsrikt: URL:en finns och fungerar.")
       } else {
@@ -251,7 +251,7 @@ hamta_gtfs_data <- function(gtfs_dataset = "20",   #
       }
       return(invisible())  # Exits function without further execution
     }
-    
+
     # Filnamn och sökväg för nedladdning om en sökväg anges
     if (!is.na(spara_filmap)) {
       if (!dir.exists(spara_filmap)) {
@@ -261,24 +261,24 @@ hamta_gtfs_data <- function(gtfs_dataset = "20",   #
     } else {
       gtfs_fil <- tempfile(fileext = ".zip")
     }
-    
+
     GET(url, write_disk(gtfs_fil, overwrite = TRUE))
     unzip_dir <- if (!is.na(spara_filmap)) paste0(spara_filmap, "/", gtfs_dataset, "_", datum) else tempfile()
     unzip(gtfs_fil, exdir = unzip_dir)
-    
+
     # Lista alla filer i zip-arkivet
     zip_innehall <- zip_list(gtfs_fil)$filename
-    
+
     # skapa tom lista som vi fyller på med information nedan
     gtfs_lista <- list()
-    
+
     # Läs in och bearbeta gtfs-filerna
-    
+
     # routes
     routes <- read.csv2(file.path(unzip_dir, "routes.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
       mutate(route_type = as.integer(route_type))
     gtfs_lista <- c(gtfs_lista, list(routes = routes))     # fyll på gtfs_lista med detta dataset
-    
+
     # stops
     stops <- read.csv2(file.path(unzip_dir, "stops.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
       mutate(
@@ -288,7 +288,7 @@ hamta_gtfs_data <- function(gtfs_dataset = "20",   #
         location_type = as.integer(location_type)
       )
     gtfs_lista <- c(gtfs_lista, list(stops = stops))      # fyll på gtfs_lista med detta dataset
-    
+
     # stop_times
     stop_times <- read.csv2(file.path(unzip_dir, "stop_times.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
       mutate(
@@ -299,14 +299,14 @@ hamta_gtfs_data <- function(gtfs_dataset = "20",   #
         timepoint = if ("timepoint" %in% names(.)) suppressWarnings(as.integer(timepoint)) else NA_integer_
       )
     gtfs_lista <- c(gtfs_lista, list(stop_times = stop_times))     # fyll på gtfs_lista med detta dataset
-    
+
     # trips
     trips <- read.csv2(file.path(unzip_dir, "trips.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
       mutate(
         direction_id = if ("direction_id" %in% names(.)) suppressWarnings(as.integer(direction_id)) else NA_integer_
       )
     gtfs_lista <- c(gtfs_lista, list(trips = trips))     # fyll på gtfs_lista med detta dataset
-    
+
     # caledar_dates
     calendar_dates <- read.csv2(file.path(unzip_dir, "calendar_dates.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
       mutate(
@@ -314,16 +314,25 @@ hamta_gtfs_data <- function(gtfs_dataset = "20",   #
         exception_type = as.integer(exception_type)
       )
     gtfs_lista <- c(gtfs_lista, list(calendar_dates = calendar_dates))     # fyll på gtfs_lista med detta dataset
-    
+
     # calendar
     if (file.exists(file.path(unzip_dir, "calendar.txt"))) {
       calendar <- read.csv2(file.path(unzip_dir, "calendar.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
+
+      veckodagar <- c("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+
+      total_aktiva <- calendar %>%
+        summarise(across(all_of(veckodagar), ~ sum(as.integer(.)))) %>%  # Kollar om filen är fylls med bara nollor -> måste fylla på från calednar_dates
+        rowSums()
+
+      if (total_aktiva == 0) {
+        calendar <- gtfs_fyll_calendar_dagar(calendar_dates)
+      }
     } else {
-      calendar <- gtfs_fyll_calendar_dagar(calendar_dates)          # funktion för att skapa calendar-dataset om bara calendar_dates finns, calendar-datasetet behövs för vissa funktioner, tex. gtfsrouter-paketet i r
+      calendar <- gtfs_fyll_calendar_dagar(calendar_dates)  # Om filen calendar inte existerar
     }
-    gtfs_lista <- c(gtfs_lista, list(calendar = calendar))     # fyll på gtfs_lista med detta dataset
-    
-    
+    gtfs_lista <- c(gtfs_lista, list(calendar = calendar))
+
     # Lägg bara till om shapes finns i datasetet
     if (file.exists(file.path(unzip_dir, "shapes.txt"))) {
       shapes <- read.csv2(file.path(unzip_dir, "shapes.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
@@ -332,47 +341,47 @@ hamta_gtfs_data <- function(gtfs_dataset = "20",   #
           shape_dist_traveled = if ("shape_dist_traveled" %in% names(.)) suppressWarnings(as.numeric(shape_dist_traveled)) else NA_real_
         )
       gtfs_lista <- c(gtfs_lista, list(shapes = shapes))     # fyll på gtfs_lista med detta dataset
-    } 
-    
+    }
+
     # agency - om det finns
     if (file.exists(file.path(unzip_dir, "agency.txt"))) {
       agency <- read.csv2(file.path(unzip_dir, "agency.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
       gtfs_lista <- c(gtfs_lista, list(agency = agency))     # fyll på gtfs_lista med detta dataset
-      
+
     }
-    
+
     # feed_info - om det finns
     if (file.exists(file.path(unzip_dir, "feed_info.txt"))) {
       feed_info <- read.csv2(file.path(unzip_dir, "feed_info.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
       gtfs_lista <- c(gtfs_lista, list(feed_info = feed_info))     # fyll på gtfs_lista med detta dataset
     }
-    
+
     # attributions - om det finns
     if (file.exists(file.path(unzip_dir, "attributions.txt"))) {
       attributions <- read.csv2(file.path(unzip_dir, "attributions.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
       gtfs_lista <- c(gtfs_lista, list(attributions = attributions))     # fyll på gtfs_lista med detta dataset
     }
-    
+
     # transfers - om det finns
     if (file.exists(file.path(unzip_dir, "transfers.txt"))) {
       transfers <- read.csv2(file.path(unzip_dir, "transfers.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
       gtfs_lista <- c(gtfs_lista, list(transfers = transfers))     # fyll på gtfs_lista med detta dataset
     }
-    
+
     # Return as a list of data frames
     return(gtfs_lista)
-    
+
   }, error = function(e) {
     stop(paste("Följande fel har uppstått under nedladdning och bearbetning av gtfs-datasetet: ", e$message))
   })
-}    
+}
 
 # Example usage
 # sweden_3 <- hamta_gtfs_data("sweden_3", test_mode = TRUE)
-# 
+#
 # sverige_2 <- hamta_gtfs_data("sverige_2", test_mode = TRUE)
-# 
-# dt <- hamta_gtfs_data("dt", test_mode = TRUE)   
+#
+# dt <- hamta_gtfs_data("dt", test_mode = TRUE)
 #
 # skane <- hamta_gtfs_data("skane")
 
@@ -383,7 +392,7 @@ hamta_gtfs_data <- function(gtfs_dataset = "20",   #
 #   - gtfs_data: Ett objekt returnerat av funktionen för att hämta GTFS-data. Innehåller GTFS-data som bearbetats till dataframes.
 #
 # Beskrivning:
-# Funktionen skapar en karta med linjer baserade på shapes-data från ett GTFS-dataset. Shapes-data 
+# Funktionen skapar en karta med linjer baserade på shapes-data från ett GTFS-dataset. Shapes-data
 # konverteras till ett sf-objekt (spatial format) och kombineras per shape_id till linjesegment.
 # Om GTFS-datasetet saknar shapes-information (exempelvis "gtfs_sverige_2"), avbryts funktionen med ett felmeddelande.
 #
@@ -396,28 +405,28 @@ hamta_gtfs_data <- function(gtfs_dataset = "20",   #
 
 
 mapview_gtfs <- function(gtfs_data) {
-  
+
   # Check if shapes data exists
   if (is.null(gtfs_data$shapes)) {
     stop("The GTFS data does not contain shapes information. Unable to create map.") # gtfs_sverige_2 does not have shapes.txt
   }
   shapes <- gtfs_data$shapes
-  
+
   shapes <- shapes %>%
     mutate(
       shape_pt_lat = as.numeric(shape_pt_lat),
       shape_pt_lon = as.numeric(shape_pt_lon)
     )
-  
+
   shapes_sf <- st_as_sf(shapes, coords = c("shape_pt_lon", "shape_pt_lat"), crs = 4326)
-  
+
   shapes_lines <- shapes_sf %>%
     group_by(shape_id) %>%
     summarize(
       geometry = st_cast(st_combine(geometry), "LINESTRING"),
       .groups = 'drop'
     )
-  
+
   mapview(shapes_lines, zcol = "shape_id", legend = TRUE)
 }
 
