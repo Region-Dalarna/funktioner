@@ -2444,7 +2444,10 @@ fil_dataset_uppdaterades <- function(
   
 }
 
-
+tidformat_uppdaterad_till_text_datum_tid <- function(datum_tid_txt) {
+  # wrapper till pxweb2_uppdaterad_till_text_datum_tid, pga fel namn från början men orkar inte ändra i alla skript som använder den funktionen
+  pxweb2_uppdaterad_till_text_datum_tid(datum_tid_txt)
+}
 
 pxweb2_uppdaterad_till_text_datum_tid <- function(datum_tid_txt){
   # läs in datum från när en tabell är uppdaterad i pxweb2, returnera en lista med två element, ett för datum och ett för tid
