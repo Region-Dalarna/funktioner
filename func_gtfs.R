@@ -348,7 +348,7 @@ hamta_gtfs_data <- function(gtfs_dataset = "20",   #
       agency <- read.csv2(file.path(unzip_dir, "agency.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
       gtfs_lista <- c(gtfs_lista, list(agency = agency))     # fyll på gtfs_lista med detta dataset
 
-    }""
+    }
 
     # feed_info - om det finns
     if (file.exists(file.path(unzip_dir, "feed_info.txt"))) {
@@ -491,6 +491,14 @@ gtfs_rensa_for_db <- function(gtfs) {
     arrange(stop_sequence) %>%
     mutate(stop_sequence = row_number()) %>%
     ungroup()
+
+  if (!is.null(gtfs$shapes)) {
+    gtfs$shapes <- gtfs$shapes %>%
+      mutate(shape_pt_lat = as.numeric(shape_pt_lat),
+             shape_pt_lon = as.numeric(shape_pt_lon),
+             shape_pt_sequence = as.integer(shape_pt_sequence)) %>%
+      arrange(shape_id, shape_pt_sequence)
+  }
 
   gtfs
 }
