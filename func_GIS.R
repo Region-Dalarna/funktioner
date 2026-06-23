@@ -2489,17 +2489,31 @@ postgres_pxweb2_uppdatera_tabell <- function(
   
   con <- uppkoppling_adm(db_namn)
   
-  tabell_db_uppdaterad <- postgres_tabell_uppdaterades(
-    con = con,
-    schema = schema_db,
-    tabell = tabell_db
-  )
+  if (postgres_tabell_finns(con, schema_db, tabell_db)) {
   
-  behover_uppdateras <- pxweb2_tabell_behover_uppdateras(
-    tabell_id_pxweb2,
-    tabell_db_uppdaterad
-  )
-  
+    tabell_db_uppdaterad <- postgres_tabell_uppdaterades(
+      con = con,
+      schema = schema_db,
+      tabell = tabell_db
+    )
+    
+    behover_uppdateras <- pxweb2_tabell_behover_uppdateras(
+      tabell_id_pxweb2,
+      tabell_db_uppdaterad
+    )
+  } else {
+    behover_uppdateras <- TRUE
+    msg <- paste0(
+      schema_db, ".", tabell_db,
+      " finns inte i databasen och skapas nu för att lagra data från tabellen ", tabell_id_pxweb2, "."
+      )
+    
+    if (verbose) {
+      message(msg)
+    }
+  }
+    
+    
   if (!behover_uppdateras && !uppdatering_tvinga) {
     msg <- paste0(
       "Tabell ", tabell_id_pxweb2,
