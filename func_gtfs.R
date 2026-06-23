@@ -348,7 +348,7 @@ hamta_gtfs_data <- function(gtfs_dataset = "20",   #
       agency <- read.csv2(file.path(unzip_dir, "agency.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
       gtfs_lista <- c(gtfs_lista, list(agency = agency))     # fyll på gtfs_lista med detta dataset
 
-    }
+    }""
 
     # feed_info - om det finns
     if (file.exists(file.path(unzip_dir, "feed_info.txt"))) {
@@ -433,3 +433,186 @@ mapview_gtfs <- function(gtfs_data) {
 # Example usage
 
 # mapview_gtfs(skane)
+
+
+# ========== r5r hjälpfunktioner för att läsa in gtfs data till databasen samt hämta korrekt data för r5r ruttning ==========
+# Validera GTFS-data med Google GTFS-validator
+#
+# Kör Google GTFS-validator på ett GTFS-objekt och skriver ut alla fel
+# och varningar i konsolen. Kräver att gtfs-validator.jar finns installerad.
+#
+#  gtfs GTFS-objekt eller sökväg till zip-fil
+#  output_path Mapp där valideringsrapporten (report.json) sparas
+#  validator_path Sökväg till gtfs-validator.jar
+#  return Valideringsrapporten som lista (invisibly)
+
+gtfs_validera <- function(gtfs,
+                          output_path    = "validering",
+                          validator_path = paste0(getwd(), "/gtfstools/gtfs-validator-v6.0.0.jar")) {
+
+  validate_gtfs(gtfs, output_path = output_path, validator_path = validator_path)
+
+  rapport <- jsonlite::read_json(file.path(output_path, "report.json"))
+  for (notice in rapport$notices) {
+    if (notice$severity %in% c("ERROR", "WARNING")) {
+      cat(notice$severity, "-", notice$code, "-", notice$totalNotices, "fel\n")
+    }
+  }
+  invisible(rapport)
+}
+
+
+# Minimal rensning av GTFS-data innan skrivning till databas
+#
+# Bevarar hela datastrukturen (anropsstyrd trafik, transfers, attributions,
+# stationshierarki, shape_dist_traveled och feed_info) så att tabellstrukturen
+# i skapa_tabeller() matchas exakt. Fixar endast genuina datafel: säkerställer
+# numeriska koordinater, tar bort hållplatser utanför Sverige med tillhörande
+# stop_times, och normaliserar stop_sequence så den börjar på 1.
+#
+#  gtfs GTFS-objekt läst med gtfstools::read_gtfs() eller hämtat från källan
+#  return Rensat GTFS-objekt med oförändrad struktur
+gtfs_rensa_for_db <- function(gtfs) {
+
+  # Säkerställ numeriska koordinater (ofta character från källan)
+  gtfs$stops <- gtfs$stops %>%
+    mutate(stop_lat = as.numeric(stop_lat),
+           stop_lon = as.numeric(stop_lon))
+
+  # Ta bort hållplatser med ogiltiga koordinater + tillhörande stop_times
+  gtfs$stops <- gtfs$stops %>%
+    filter(between(stop_lat, 55, 70), between(stop_lon, 10, 25))
+  gtfs$stop_times <- gtfs$stop_times %>%
+    filter(stop_id %in% gtfs$stops$stop_id)
+
+  # Normalisera stop_sequence
+  gtfs$stop_times <- gtfs$stop_times %>%
+    group_by(trip_id) %>%
+    arrange(stop_sequence) %>%
+    mutate(stop_sequence = row_number()) %>%
+    ungroup()
+
+  gtfs
+}
+
+
+# Rensa GTFS för r5r
+#
+# Tar bort anropsstyrd trafik (1501), konverterar tågkoder, kaskadfiltrerar,
+# tar bort parent stations, attributions och transfers, samt sätter
+# feed_info-datum dynamiskt. Kan anropas separat på vilket GTFS-objekt
+# som helst eller via gtfs_hamta_for_r5r().
+gtfs_rensa_for_r5r <- function(gtfs) {
+
+  # Ta bort anropsstyrd trafik (1501) och konvertera tågkoder till standard
+  gtfs$routes <- gtfs$routes %>%
+    filter(route_type != 1501) %>%
+    mutate(route_type = if_else(route_type %in% c(100, 103, 106), 2L, as.integer(route_type)))
+
+  # Kaskadfiltrering efter borttagna routes
+  gtfs$trips          <- gtfs$trips %>% filter(route_id %in% gtfs$routes$route_id)
+  gtfs$stop_times     <- gtfs$stop_times %>% filter(trip_id %in% gtfs$trips$trip_id)
+  kvarv_service       <- unique(gtfs$trips$service_id)
+  if (!is.null(gtfs$calendar))
+    gtfs$calendar       <- gtfs$calendar %>% filter(service_id %in% kvarv_service)
+  gtfs$calendar_dates <- gtfs$calendar_dates %>% filter(service_id %in% kvarv_service)
+
+  # Ta bort parent stations + tillhörande stop_times
+  gtfs$stops <- gtfs$stops %>%
+    filter(is.na(location_type) | location_type == 0) %>%
+    select(-any_of(c("location_type", "parent_station", "platform_code", "hpl_id")))
+  gtfs$stop_times <- gtfs$stop_times %>% filter(stop_id %in% gtfs$stops$stop_id)
+
+  # Ta bort shape_dist_traveled (orsakar valideringsfel i r5r)
+  gtfs$stop_times <- gtfs$stop_times %>% select(-any_of("shape_dist_traveled"))
+  if (!is.null(gtfs$shapes))
+    gtfs$shapes <- gtfs$shapes %>% select(-any_of("shape_dist_traveled"))
+
+  # Ta bort oanvändbara filer och trips utan stop_times
+  gtfs$attributions <- NULL
+  gtfs$transfers    <- NULL
+  gtfs$trips <- gtfs$trips %>% filter(trip_id %in% unique(gtfs$stop_times$trip_id))
+
+  # Sätt feed_info-datum dynamiskt från datan
+  gtfs$feed_info$feed_start_date <- min(gtfs$calendar_dates$date, na.rm = TRUE)
+  gtfs$feed_info$feed_end_date   <- max(gtfs$calendar_dates$date, na.rm = TRUE)
+
+  gtfs
+}
+
+
+# Hämta GTFS från databas, förbered för r5r och spara körklar zip
+#
+# Läser GTFS-tabellerna från databasen, kör gtfs_rensa_for_r5r() och
+# skriver en körklar GTFS-zip som kan användas direkt med setup_r5().
+#
+#  con Databasanslutning (DBI)
+#  schema Schema att läsa från
+#  output_zip Sökväg till zip-fil som skapas. NULL = ingen zip skrivs, bara GTFS-objektet returneras.
+#  datum Valfritt datum (Date eller "YYYY-MM-DD") att filtrera trafiken till. NULL = ingen datumfiltrering (r5r väljer ändå rätt turer vid körning).
+#  return Rensat GTFS-objekt (invisibly om zip skrivs)
+gtfs_hamta_fran_db_for_r5r <- function(con,
+                               schema     = "gtfs",
+                               output_zip = NULL,
+                               datum      = NULL) {
+
+  las <- function(tabell) {
+    if (!DBI::dbExistsTable(con, Id(schema = schema, table = tabell))) return(NULL)
+    dbReadTable(con, Id(schema = schema, table = tabell))
+  }
+
+  # ── Läs in tabeller ─────────────────────────────────────────────────────────
+  gtfs <- list(
+    routes         = las("routes"),
+    trips          = las("trips"),
+    stop_times     = las("stop_times"),
+    stops          = las("stops"),
+    calendar       = las("calendar"),
+    calendar_dates = las("calendar_dates"),
+    shapes         = las("shapes"),
+    agency         = las("agency"),
+    feed_info      = las("feed_info"),
+    transfers      = las("transfers"),
+    attributions   = las("attributions")
+  )
+  gtfs <- gtfs[!sapply(gtfs, is.null)]  # ta bort tabeller som inte finns
+
+  # stops lagras med geometri i databasen → konvertera tillbaka till lon/lat
+  if (inherits(gtfs$stops, "sf") || "geometry" %in% names(gtfs$stops) ||
+      "geom" %in% names(gtfs$stops)) {
+    stops_sf <- sf::st_as_sf(gtfs$stops)
+    koord    <- sf::st_coordinates(sf::st_transform(stops_sf, 4326))
+    gtfs$stops <- sf::st_drop_geometry(stops_sf) %>%
+      mutate(stop_lon = koord[, 1], stop_lat = koord[, 2])
+  }
+
+  # shapes lagras som linjer i databasen (shapes_line) → r5r behöver punktformat.
+  # Om bara shapes_line finns, hämta råa shapes om de finns, annars utelämna.
+  if (is.null(gtfs$shapes)) {
+    shapes_pt <- las("shapes")  # försök igen ifall annat tabellnamn
+    if (!is.null(shapes_pt)) gtfs$shapes <- shapes_pt
+  }
+
+  # ── Valfri datumfiltrering ──────────────────────────────────────────────────
+  if (!is.null(datum)) {
+    datum <- as.Date(datum)
+    aktiva <- gtfs$calendar_dates %>%
+      filter(as.Date(date) >= datum, exception_type == 1) %>%
+      pull(service_id) %>%
+      unique()
+    gtfs$trips <- gtfs$trips %>% filter(service_id %in% aktiva)
+  }
+
+  # ── Rensa för r5r ───────────────────────────────────────────────────────────
+  gtfs <- gtfs_rensa_for_r5r(gtfs)
+
+  # ── Spara körklar zip ───────────────────────────────────────────────────────
+  if (!is.null(output_zip)) {
+    gtfs_dt <- gtfstools::as_dt_gtfs(gtfs)
+    gtfstools::write_gtfs(gtfs_dt, output_zip)
+    message("Körklar GTFS-zip skriven: ", output_zip)
+    return(invisible(gtfs))
+  }
+
+  gtfs
+}
