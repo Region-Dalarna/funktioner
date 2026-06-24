@@ -5497,6 +5497,7 @@ dependencies_R <- glue::glue(
 library(DBI)
 library(RPostgres)
 library(sf)
+library(dbplyr)
 # ... lägg till fler paket vid behov
 "
 )
