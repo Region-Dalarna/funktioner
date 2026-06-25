@@ -445,7 +445,6 @@ mapview_gtfs <- function(gtfs_data) {
 #  output_path Mapp där valideringsrapporten (report.json) sparas
 #  validator_path Sökväg till gtfs-validator.jar
 #  return Valideringsrapporten som lista (invisibly)
-
 gtfs_validera <- function(gtfs,
                           output_path    = "validering",
                           validator_path = paste0(getwd(), "/gtfstools/gtfs-validator-v6.0.0.jar")) {
@@ -462,18 +461,21 @@ gtfs_validera <- function(gtfs,
 }
 
 
-# Minimal rensning av GTFS-data innan skrivning till databas
+# Minimal rensning innan skrivning till databas
 #
 # Bevarar hela datastrukturen (anropsstyrd trafik, transfers, attributions,
-# stationshierarki, shape_dist_traveled och feed_info) så att tabellstrukturen
-# i skapa_tabeller() matchas exakt. Fixar endast genuina datafel: säkerställer
-# numeriska koordinater, tar bort hållplatser utanför Sverige med tillhörande
-# stop_times, och normaliserar stop_sequence så den börjar på 1.
+# stationshierarki, shape_dist_traveled, feed_info som den är) så att
+# databasstrukturen i skapa_tabeller() matchas exakt.
 #
-#  gtfs GTFS-objekt läst med gtfstools::read_gtfs() eller hämtat från källan
-#  return Rensat GTFS-objekt med oförändrad struktur
-gtfs_rensa_for_db <- function(gtfs) {
+# Fixar endast genuina datafel:
+# - Säkerställer numeriska koordinater
+# - Tar bort hållplatser med ogiltiga koordinater + tillhörande stop_times
+# - Normaliserar stop_sequence så den börjar på 1
+gtfs_rensa_for_db <- function(gtfs, gtfs_dataset = "regional") {
 
+  sweden_3 <- gtfs_dataset == "sweden_3"
+
+  # ── Stops ──────────────────────────────────────────────────────────────
   # Säkerställ numeriska koordinater (ofta character från källan)
   gtfs$stops <- gtfs$stops %>%
     mutate(stop_lat = as.numeric(stop_lat),
@@ -492,17 +494,46 @@ gtfs_rensa_for_db <- function(gtfs) {
     mutate(stop_sequence = row_number()) %>%
     ungroup()
 
-  if (!is.null(gtfs$shapes)) {
-    gtfs$shapes <- gtfs$shapes %>%
-      mutate(shape_pt_lat = as.numeric(shape_pt_lat),
-             shape_pt_lon = as.numeric(shape_pt_lon),
-             shape_pt_sequence = as.integer(shape_pt_sequence)) %>%
-      arrange(shape_id, shape_pt_sequence)
+  # ── Endast sweden_3 ────────────────────────────────────────────────────
+  if (sweden_3) {
+
+    # transfers — tomma strängar → NA, heltal-kolumner konverteras
+    if (!is.null(gtfs$transfers)) {
+      gtfs$transfers <- gtfs$transfers %>%
+        mutate(across(where(is.character), ~ na_if(., ""))) %>%
+        mutate(
+          transfer_type     = suppressWarnings(as.integer(transfer_type)),
+          min_transfer_time = suppressWarnings(as.integer(min_transfer_time))
+        )
+    }
+
+    # attributions — tomma strängar → NA, is_operator konverteras
+    if (!is.null(gtfs$attributions)) {
+      gtfs$attributions <- gtfs$attributions %>%
+        mutate(across(where(is.character), ~ na_if(., ""))) %>%
+        mutate(is_operator = suppressWarnings(as.integer(is_operator)))
+    }
+
+    # calendar — tomma strängar → NA, dagkolumner och datum konverteras
+    if (!is.null(gtfs$calendar)) {
+      gtfs$calendar <- gtfs$calendar %>%
+        mutate(across(where(is.character), ~ na_if(., ""))) %>%
+        mutate(
+          across(c(monday, tuesday, wednesday, thursday,
+                   friday, saturday, sunday), ~ suppressWarnings(as.integer(.)))
+        )
+    }
+
+    # feed_info — tomma strängar → NA
+    if (!is.null(gtfs$feed_info)) {
+      gtfs$feed_info <- gtfs$feed_info %>%
+        mutate(across(where(is.character), ~ na_if(., "")))
+    }
+
   }
 
   gtfs
 }
-
 
 # Rensa GTFS för r5r
 #
@@ -559,7 +590,7 @@ gtfs_rensa_for_r5r <- function(gtfs) {
 #  output_zip Sökväg till zip-fil som skapas. NULL = ingen zip skrivs, bara GTFS-objektet returneras.
 #  datum Valfritt datum (Date eller "YYYY-MM-DD") att filtrera trafiken till. NULL = ingen datumfiltrering (r5r väljer ändå rätt turer vid körning).
 #  return Rensat GTFS-objekt (invisibly om zip skrivs)
-gtfs_hamta_fran_db_for_r5r <- function(con,
+gtfs_hamta_for_r5r <- function(con,
                                schema     = "gtfs",
                                output_zip = NULL,
                                datum      = NULL) {
@@ -569,12 +600,17 @@ gtfs_hamta_fran_db_for_r5r <- function(con,
     dbReadTable(con, Id(schema = schema, table = tabell))
   }
 
+  las_sf <- function(tabell) {
+    if (!DBI::dbExistsTable(con, Id(schema = schema, table = tabell))) return(NULL)
+    sf::st_read(con, Id(schema = schema, table = tabell), quiet = TRUE)
+  }
+
   # ── Läs in tabeller ─────────────────────────────────────────────────────────
   gtfs <- list(
     routes         = las("routes"),
     trips          = las("trips"),
     stop_times     = las("stop_times"),
-    stops          = las("stops"),
+    stops          = las_sf("stops"),
     calendar       = las("calendar"),
     calendar_dates = las("calendar_dates"),
     shapes         = las("shapes"),
@@ -583,27 +619,19 @@ gtfs_hamta_fran_db_for_r5r <- function(con,
     transfers      = las("transfers"),
     attributions   = las("attributions")
   )
-  gtfs <- gtfs[!sapply(gtfs, is.null)]  # ta bort tabeller som inte finns
+  gtfs <- gtfs[!sapply(gtfs, is.null)]
 
-  # stops lagras med geometri i databasen → konvertera tillbaka till lon/lat
-  if (inherits(gtfs$stops, "sf") || "geometry" %in% names(gtfs$stops) ||
-      "geom" %in% names(gtfs$stops)) {
-    stops_sf <- sf::st_as_sf(gtfs$stops)
-    koord    <- sf::st_coordinates(sf::st_transform(stops_sf, 4326))
-    gtfs$stops <- sf::st_drop_geometry(stops_sf) %>%
-      mutate(stop_lon = koord[, 1], stop_lat = koord[, 2])
+  # ── stops: konvertera från sf/SWEREF99 tillbaka till lon/lat-kolumner ───────
+  if (inherits(gtfs$stops, "sf")) {
+    koord <- sf::st_coordinates(sf::st_transform(gtfs$stops, 4326))
+    gtfs$stops <- sf::st_drop_geometry(gtfs$stops) %>%
+      mutate(stop_lon = koord[, 1],
+             stop_lat = koord[, 2])
   }
 
-  # shapes lagras som linjer i databasen (shapes_line) → r5r behöver punktformat.
-  # Om bara shapes_line finns, hämta råa shapes om de finns, annars utelämna.
-  if (is.null(gtfs$shapes)) {
-    shapes_pt <- las("shapes")  # försök igen ifall annat tabellnamn
-    if (!is.null(shapes_pt)) gtfs$shapes <- shapes_pt
-  }
-
-  # ── Valfri datumfiltrering ──────────────────────────────────────────────────
+  # ── Valfri datumfiltrering ───────────────────────────────────────────────────
   if (!is.null(datum)) {
-    datum <- as.Date(datum)
+    datum  <- as.Date(datum)
     aktiva <- gtfs$calendar_dates %>%
       filter(as.Date(date) >= datum, exception_type == 1) %>%
       pull(service_id) %>%
@@ -611,10 +639,10 @@ gtfs_hamta_fran_db_for_r5r <- function(con,
     gtfs$trips <- gtfs$trips %>% filter(service_id %in% aktiva)
   }
 
-  # ── Rensa för r5r ───────────────────────────────────────────────────────────
+  # ── Rensa för r5r ────────────────────────────────────────────────────────────
   gtfs <- gtfs_rensa_for_r5r(gtfs)
 
-  # ── Spara körklar zip ───────────────────────────────────────────────────────
+  # ── Spara körklar zip ────────────────────────────────────────────────────────
   if (!is.null(output_zip)) {
     gtfs_dt <- gtfstools::as_dt_gtfs(gtfs)
     gtfstools::write_gtfs(gtfs_dt, output_zip)
@@ -623,4 +651,103 @@ gtfs_hamta_fran_db_for_r5r <- function(con,
   }
 
   gtfs
+}
+
+
+# Göra ett geografiskt avgränsat urval av GTFS data
+gtfs_filtrera_geografiskt <- function(gtfs_data, polygon, buffert_km = 0, gtfs_dataset = "regional") {
+
+  # Validering
+  if (!gtfs_dataset %in% c("regional", "sweden_3")) {
+    stop("gtfs_dataset måste vara 'regional' eller 'sweden_3'")
+  }
+  sweden_3 <- gtfs_dataset == "sweden_3"
+
+  if (!inherits(polygon, "sf") && !inherits(polygon, "sfc")) {
+    stop("polygon måste vara ett sf- eller sfc-objekt")
+  }
+  if (!inherits(gtfs_data, "dt_gtfs")) {
+    message("gtfs_data är inte av typen dt_gtfs — konverterar med as_dt_gtfs()")
+    gtfs_data <- gtfstools::as_dt_gtfs(gtfs_data)
+  }
+
+  # Buffra polygon om buffert_km > 0
+  if (buffert_km > 0) {
+    polygon <- polygon %>%
+      sf::st_transform(3006) %>%
+      sf::st_buffer(dist = buffert_km * 1000) %>%
+      sf::st_transform(4326)
+    message(glue::glue("Polygon buffrad med {buffert_km} km"))
+  }
+
+  polygon_union <- sf::st_union(sf::st_transform(polygon, 4326))
+
+  # 1. Stops inom polygon
+  stops_sf <- sf::st_as_sf(
+    gtfs_data$stops,
+    coords = c("stop_lon", "stop_lat"),
+    crs = 4326
+  )
+  inom_polygon <- sf::st_intersects(stops_sf, polygon_union, sparse = FALSE)[, 1]
+  stops_ids <- gtfs_data$stops$stop_id[inom_polygon]
+
+  if (length(stops_ids) == 0) {
+    stop("Inga stops hittades inom angiven polygon — kontrollera CRS och polygonens utbredning")
+  }
+  message(glue::glue("{length(stops_ids)} stops hittades inom polygon"))
+
+  # 2. Filtrera nerifrån och upp
+  stop_times_filtrerade <- gtfs_data$stop_times[stop_id %in% stops_ids]
+  trips_ids             <- unique(stop_times_filtrerade$trip_id)
+  trips_filtrerade      <- gtfs_data$trips[trip_id %in% trips_ids]
+
+  route_ids   <- unique(trips_filtrerade$route_id)
+  service_ids <- unique(trips_filtrerade$service_id)
+  shape_ids   <- unique(trips_filtrerade$shape_id)
+  agency_ids  <- unique(gtfs_data$routes[route_id %in% route_ids]$agency_id)
+
+  message(glue::glue(
+    "{length(trips_ids)} trips | {length(route_ids)} routes | ",
+    "{length(service_ids)} service_ids | {length(shape_ids)} shapes"
+  ))
+
+  # 3. Bygg filtrerat gtfs-objekt
+  gtfs_filtrerat <- gtfs_data
+  gtfs_filtrerat$stops      <- gtfs_data$stops[stop_id %in% stops_ids]
+  gtfs_filtrerat$stop_times <- stop_times_filtrerade
+  gtfs_filtrerat$trips      <- trips_filtrerade
+  gtfs_filtrerat$routes     <- gtfs_data$routes[route_id %in% route_ids]
+  gtfs_filtrerat$agency     <- gtfs_data$agency[agency_id %in% agency_ids]
+
+  # calendar_dates finns i båda formaten
+  if (!is.null(gtfs_data$calendar_dates)) {
+    gtfs_filtrerat$calendar_dates <- gtfs_data$calendar_dates[service_id %in% service_ids]
+  }
+
+  # shapes finns i båda men kan vara NULL efter as_dt_gtfs()
+  if (!is.null(gtfs_data$shapes)) {
+    gtfs_filtrerat$shapes <- gtfs_data$shapes[shape_id %in% shape_ids]
+  }
+
+  # ── Endast sweden_3 ────────────────────────────────────────────────────
+  if (sweden_3) {
+
+    if (!is.null(gtfs_data$calendar)) {
+      gtfs_filtrerat$calendar <- gtfs_data$calendar[service_id %in% service_ids]
+    }
+    if (!is.null(gtfs_data$transfers)) {
+      gtfs_filtrerat$transfers <- gtfs_data$transfers[
+        from_stop_id %in% stops_ids | to_stop_id %in% stops_ids
+      ]
+    }
+    if (!is.null(gtfs_data$attributions)) {
+      gtfs_filtrerat$attributions <- gtfs_data$attributions[trip_id %in% trips_ids]
+    }
+    if (!is.null(gtfs_data$feed_info)) {
+      gtfs_filtrerat$feed_info <- gtfs_data$feed_info  # ingen filtrering, gäller hela feeden
+    }
+
+  }
+
+  return(gtfs_filtrerat)
 }
