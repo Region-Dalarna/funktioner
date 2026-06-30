@@ -4757,6 +4757,235 @@ hitta_funktioner_i_fil_ej_inuti_andra_funktioner <- function(filnamn) {
 # ======================================== skapa och hantera Rmarkdown-rapporter samt Shiny-appar ======================================================
 
 
+# ==== Hämta filer från Region-Dalarna/depot ==================================
+#
+# Delade tillgångar (stilfiler, mallar, typsnitt, loggor m.m.) hämtas via
+# GitHub Contents API istället för raw.githubusercontent.com, eftersom rå-URL:er
+# cachas hårt av Fastly (samma problem som löstes för source_utan_cache() i
+# func_shinyappar.R). Contents API:et missar den cachen och ger alltid senaste
+# committade innehållet.
+
+#' Hämta en fil från depot-repot
+#'
+#' @param rel_sokvag Sökväg till filen inom depot-repot, t.ex.
+#'   "regiondalarna_ruf.css" eller "mallar/webbsida_portal/index.qmd.tmpl".
+#' @param target_path Om angiven: filen skrivs till denna sökväg på disk.
+#'   Om NULL: filinnehållet returneras istället (som text eller raw, se as_text).
+#' @param as_text TRUE för textfiler (.css, .qmd, .yml, .R ...), FALSE för
+#'   binärfiler (bilder, typsnitt, ico).
+#' @param repo Depot-repots namn. Default "depot".
+#' @param org  GitHub-org. Default "Region-Dalarna".
+#' @param branch Branch att hämta från. Default "main".
+#'
+#' @return Om target_path är NULL: filinnehållet (character om as_text = TRUE,
+#'   annars raw vector). Om target_path anges: target_path osynligt (invisible),
+#'   för att kunna kedjas.
+depot_hamta_fran <- function(rel_sokvag,
+                             target_path = NULL,
+                             as_text     = TRUE,
+                             repo        = "depot",
+                             org         = "Region-Dalarna",
+                             branch      = "main") {
+  
+  api_url <- sprintf("https://api.github.com/repos/%s/%s/contents/%s?ref=%s",
+                     org, repo, utils::URLencode(rel_sokvag), branch)
+  
+  resp <- httr::GET(
+    api_url,
+    httr::accept("application/vnd.github.raw+json"),  # ber om rått filinnehåll direkt
+    httr::add_headers(`Cache-Control` = "no-cache")
+  )
+  
+  if (httr::status_code(resp) == 404) {
+    stop("Filen hittades inte i depot: ", rel_sokvag,
+         " (repo: ", org, "/", repo, ", branch: ", branch, ")", call. = FALSE)
+  }
+  httr::stop_for_status(resp, task = paste("hämta", rel_sokvag, "från depot"))
+  
+  raw_innehall <- httr::content(resp, as = "raw")
+  
+  if (is.null(target_path)) {
+    if (as_text) {
+      return(rawToChar(raw_innehall))
+    }
+    return(raw_innehall)
+  }
+  
+  dir.create(dirname(target_path), recursive = TRUE, showWarnings = FALSE)
+  
+  if (as_text) {
+    writeLines(rawToChar(raw_innehall), target_path, useBytes = TRUE)
+  } else {
+    writeBin(raw_innehall, target_path)
+  }
+  
+  invisible(target_path)
+}
+
+
+#' Lista och ladda ner alla filer i en mapp i depot-repot
+#'
+#' Motsvarar fonts/-hämtningen i Brottsappen, men generaliserad. Laddar INTE
+#' ner undermappar rekursivt (depot har hittills bara platta mappar som
+#' fonts/ och mallar/<namn>/) — utöka vid behov om det blir aktuellt.
+#'
+#' @param rel_mapp Mappens sökväg inom depot-repot, t.ex. "fonts" eller
+#'   "mallar/webbsida_portal".
+#' @param target_dir Lokal mapp filerna ska sparas i.
+#' @param as_text TRUE om filerna i mappen är textfiler, FALSE om binära.
+#'   Går inte att blanda i samma anrop — kör depot_hamta_fran() filvis om så behövs.
+#' @param repo,org,branch Se depot_hamta_fran().
+#'
+#' @return Osynligt: character vector med namnen på nedladdade filer.
+depot_hamta_mapp_fran <- function(rel_mapp,
+                                  target_dir,
+                                  as_text = FALSE,
+                                  repo    = "depot",
+                                  org     = "Region-Dalarna",
+                                  branch  = "main") {
+  
+  api_url <- sprintf("https://api.github.com/repos/%s/%s/contents/%s?ref=%s",
+                     org, repo, utils::URLencode(rel_mapp), branch)
+  
+  resp <- httr::GET(api_url, httr::accept("application/vnd.github+json"))
+  
+  if (httr::status_code(resp) != 200) {
+    warning("Kunde inte lista depot/", rel_mapp, "/ (status ",
+            httr::status_code(resp), "). Inga filer hämtades.", call. = FALSE)
+    return(invisible(character(0)))
+  }
+  
+  innehall <- httr::content(resp, as = "parsed")
+  filer    <- purrr::keep(innehall, ~ identical(.x$type, "file"))
+  
+  if (length(filer) == 0) {
+    warning("Mappen depot/", rel_mapp, "/ är tom eller saknar filer.", call. = FALSE)
+    return(invisible(character(0)))
+  }
+  
+  dir.create(target_dir, recursive = TRUE, showWarnings = FALSE)
+  
+  namn <- purrr::map_chr(filer, "name")
+  purrr::walk(namn, function(filnamn) {
+    depot_hamta_fran(
+      rel_sokvag  = paste0(rel_mapp, "/", filnamn),
+      target_path = file.path(target_dir, filnamn),
+      as_text     = as_text,
+      repo        = repo, org = org, branch = branch
+    )
+  })
+  
+  message("✅ Hämtade ", length(namn), " fil(er) från depot/", rel_mapp, "/.")
+  invisible(namn)
+}
+
+
+#' Hämta en mallfil från depot och fyll i {{variabler}}
+#'
+#' Tunn wrapper runt depot_hamta_fran() specifikt för .tmpl-filer som ska
+#' textsubstitueras innan de skrivs till ett nytt repo, t.ex. vid
+#' webbsida_med_portal_skapa_med_github_repo().
+#'
+#' @param mallfil Filnamn inom mallmappen, t.ex. "_quarto.yml.tmpl".
+#' @param malfil Lokal sökväg den ifyllda filen ska skrivas till.
+#' @param variabler Named list med värden att fylla i, t.ex.
+#'   list(titel = "Min portal", runner_label = "rapport").
+#' @param mallmapp Sökväg till mallmappen inom depot-repot.
+#' @param repo,org,branch Se depot_hamta_fran().
+depot_skriv_mall_fran <- function(mallfil, malfil, variabler,
+                                  mallmapp = "mallar/webbsida_portal",
+                                  repo     = "depot",
+                                  org      = "Region-Dalarna",
+                                  branch   = "main") {
+  
+  raw_mall <- depot_hamta_fran(
+    rel_sokvag = paste0(mallmapp, "/", mallfil),
+    as_text    = TRUE,
+    repo = repo, org = org, branch = branch
+  )
+  
+  ifylld <- glue::glue(raw_mall, .open = "{{", .close = "}}", .envir = list2env(variabler))
+  
+  dir.create(dirname(malfil), recursive = TRUE, showWarnings = FALSE)
+  writeLines(ifylld, malfil, useBytes = TRUE)
+  
+  invisible(malfil)
+}
+
+webbsida_med_portal_skapa_med_github_repo <- function(github_repo,
+                                                      server = c("publik", "intern"),
+                                                      titel = github_repo,
+                                                      beskrivning = titel,
+                                                      privat_repo = TRUE,
+                                                      github_org = "Region-Dalarna",
+                                                      lokal_root = "c:/gh") {
+  
+  server <- match.arg(server)
+  
+  # Skiljer publik/intern åt: vilken runner som ska plocka upp jobbet.
+  # Målsökvägen är identisk på båda servrarna (/srv/rapporter/), verifierat live.
+  malkonfig <- switch(server,
+                      publik = list(runner_label = "rapport"),
+                      intern = list(runner_label = "rapport-intern")
+  )
+  
+  lokal_path <- file.path(lokal_root, github_repo)
+  if (dir.exists(lokal_path)) {
+    stop("Mappen finns redan: ", lokal_path, ". Avbryter för säkerhets skull.")
+  }
+  
+  # 1. Skapa repo på GitHub
+  gh::gh("POST /orgs/{org}/repos",
+         org = github_org,
+         name = github_repo,
+         private = privat_repo,
+         auto_init = FALSE)
+  
+  # 2. Klona ner lokalt
+  repo_url <- sprintf("https://github.com/%s/%s.git", github_org, github_repo)
+  gert::git_clone(repo_url, path = lokal_path)
+  
+  # 3. Hämta och skriv ut mallfilerna från depot, ifyllda med repo-specifika värden
+  dir.create(file.path(lokal_path, ".github", "workflows"), recursive = TRUE)
+  
+  variabler <- list(titel        = titel,
+                    beskrivning  = beskrivning,
+                    runner_label = malkonfig$runner_label,
+                    github_repo  = github_repo)
+  
+  depot_skriv_mall_fran("_quarto.yml.tmpl", file.path(lokal_path, "_quarto.yml"), variabler)
+  depot_skriv_mall_fran("index.qmd.tmpl",   file.path(lokal_path, "index.qmd"),   variabler)
+  depot_skriv_mall_fran("deploy.yml.tmpl",  file.path(lokal_path, ".github/workflows/deploy.yml"), variabler)
+  depot_skriv_mall_fran("README.md.tmpl",   file.path(lokal_path, "README.md"),  variabler)
+  
+  # Delad identitet (samma fil som Shinyapparna använder) + portal-specifika overrides
+  depot_hamta_fran("regiondalarna_ruf.css",
+                   file.path(lokal_path, "regiondalarna_ruf.css"),
+                   as_text = TRUE)
+  
+  depot_hamta_fran("mallar/webbsida_portal/portal_overrides.css",
+                   file.path(lokal_path, "portal_overrides.css"),
+                   as_text = TRUE)
+  
+  writeLines(c(".quarto/", "_site/"), file.path(lokal_path, ".gitignore"))
+  
+  # 4. Commit + push grundstrukturen
+  gert::git_add(".", repo = lokal_path)
+  gert::git_commit("Initiera webbsida/portal-struktur", repo = lokal_path)
+  gert::git_push(repo = lokal_path)
+  
+  url_server <- switch(server,
+                       publik = "https://samhallsanalys.regiondalarna.se",
+                       intern = "https://samhallsanalys.ltdalarna.se"
+  )
+  
+  message("Repo skapat: https://github.com/", github_org, "/", github_repo)
+  message("Publiceras vid push till main till: ", url_server, "/", github_repo, "/")
+  message("(kräver att runnern '", malkonfig$runner_label, "' är aktiv på rätt server)")
+  invisible(lokal_path)
+}
+
+
 skapa_webbrapport_github <- function(githubmapp_lokalt,                 # sökväg till den mapp där du har alla github-repos (ska INTE innehålla själva repositoryt), tex c:/github_repos/
                                      github_repo,                       # namn på själva github-repot, döper mappen och github-repot. Mappen skapas om den inte finns
                                      github_org = "Region-Dalarna",     # ändra till NULL om man vill lägga repo:t i sin privata github
@@ -5310,16 +5539,16 @@ shinyapp_skapa_med_github_repo <- function(
   depot_raw_bas <- "https://raw.githubusercontent.com/Region-Dalarna/depot/main"
   
   # Helper: ladda ner binär eller text-fil från depot via httr::GET
-  hamta_fran_depot <- function(rel_sokvag, target_path) {
+  depot_hamta_fran <- function(rel_sokvag, target_path) {
     url  <- paste0(depot_raw_bas, "/", rel_sokvag)
     resp <- httr::GET(url)
     httr::stop_for_status(resp, task = paste("hämta", rel_sokvag, "från depot"))
     writeBin(httr::content(resp, as = "raw"), target_path)
   }
   
-  hamta_fran_depot("favicon.ico",               file.path(www_dir, "favicon.ico"))
-  hamta_fran_depot("regiondalarna_ruf.css",     file.path(www_dir, "regiondalarna_ruf.css"))
-  hamta_fran_depot("logo_liggande_fri_vit.png", file.path(www_dir, "logo_liggande_fri_vit.png"))
+  depot_hamta_fran("favicon.ico",               file.path(www_dir, "favicon.ico"))
+  depot_hamta_fran("regiondalarna_ruf.css",     file.path(www_dir, "regiondalarna_ruf.css"))
+  depot_hamta_fran("logo_liggande_fri_vit.png", file.path(www_dir, "logo_liggande_fri_vit.png"))
   
   # Lista fonts/-katalogen i depot via GitHub Contents API och ladda ner varje fil
   fonts_api_url <- "https://api.github.com/repos/Region-Dalarna/depot/contents/fonts"
@@ -5328,7 +5557,7 @@ shinyapp_skapa_med_github_repo <- function(
     fonts_lista <- httr::content(fonts_resp, as = "parsed")
     purrr::walk(fonts_lista, function(f) {
       if (identical(f$type, "file")) {
-        hamta_fran_depot(paste0("fonts/", f$name), file.path(fonts_dir, f$name))
+        depot_hamta_fran(paste0("fonts/", f$name), file.path(fonts_dir, f$name))
       }
     })
     message("✅ Hämtade ", length(fonts_lista), " typsnittsfiler från depot/fonts/.")

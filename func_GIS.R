@@ -1234,7 +1234,7 @@ postgres_alla_rattigheter <- function(con = "default",
     default_flagga <- FALSE
   }
 
-  filter_anvandare <- if (!is.null(anvandarnamn)) glue::glue("WHERE u.role_or_user = '{anvandarnamn}'") else ""
+  filter_anvandare <- if (!is.null(anvandarnamn)) glue::glue_sql("WHERE role_or_user = {anvandarnamn}", .con = con) else ""
 
   query <- glue::glue("
     WITH recursive role_inheritance AS (
@@ -1348,45 +1348,55 @@ postgres_alla_rattigheter <- function(con = "default",
                                       anvandarnamn = NULL,
                                       meddelande_tid = FALSE) {
   starttid <- Sys.time()
-
+  
   if (is.character(con) && con == "default") {
     con <- uppkoppling_db()
     default_flagga <- TRUE
   } else {
     default_flagga <- FALSE
   }
-
-  filter_anvandare <- if (!is.null(anvandarnamn)) glue::glue("WHERE u.role_or_user = '{anvandarnamn}'") else ""
-
+  
+  filter_anvandare <- if (!is.null(anvandarnamn)) {
+    glue::glue_sql("WHERE role_or_user = {anvandarnamn}", .con = con)
+  } else {
+    ""
+  }
+  
   query <- glue::glue("
-    WITH recursive role_inheritance AS (
+    WITH RECURSIVE role_closure AS (
+      -- Varje roll/användare får först sina egna direkta rättigheter
       SELECT
-        member.oid AS user_oid,
-        member.rolname AS user_or_role,
-        role.oid AS inherited_role_oid,
-        role.rolname AS inherited_role
-      FROM pg_auth_members m
-      JOIN pg_roles member ON m.member = member.oid
-      JOIN pg_roles role ON m.roleid = role.oid
+        r.oid AS principal_oid,
+        r.rolname AS role_or_user,
+        r.oid AS grant_role_oid,
+        r.rolname AS grant_role,
+        r.rolsuper AS rolsuper
+      FROM pg_roles r
+
       UNION ALL
+
+      -- Lägg sedan till alla roller som rollen/användaren ärver
       SELECT
-        ri.user_oid,
-        ri.user_or_role,
-        role.oid AS inherited_role_oid,
-        role.rolname AS inherited_role
-      FROM role_inheritance ri
-      JOIN pg_auth_members m ON ri.inherited_role_oid = m.member
-      JOIN pg_roles role ON m.roleid = role.oid
+        rc.principal_oid,
+        rc.role_or_user,
+        parent_role.oid AS grant_role_oid,
+        parent_role.rolname AS grant_role,
+        rc.rolsuper
+      FROM role_closure rc
+      JOIN pg_auth_members m
+        ON m.member = rc.grant_role_oid
+      JOIN pg_roles parent_role
+        ON parent_role.oid = m.roleid
     ),
-    all_users AS (
-      SELECT oid AS user_oid, rolname AS role_or_user, rolsuper FROM pg_roles WHERE rolcanlogin = TRUE
-    ),
+
     all_schemas AS (
       SELECT schema_name
       FROM information_schema.schemata
-      WHERE schema_name NOT LIKE 'pg_%' AND schema_name != 'information_schema'
+      WHERE schema_name NOT LIKE 'pg_%'
+        AND schema_name != 'information_schema'
     ),
-    privileges AS (
+
+    table_privileges AS (
       SELECT
         grantee AS role_or_user,
         table_schema,
@@ -1394,24 +1404,27 @@ postgres_alla_rattigheter <- function(con = "default",
       FROM information_schema.role_table_grants
       GROUP BY grantee, table_schema
     ),
+
     schema_create_privileges AS (
       SELECT
         r.rolname AS role_or_user,
         n.nspname AS table_schema,
-        'CREATE' AS privilege_type
+        'CREATE' AS privileges
       FROM pg_roles r
       CROSS JOIN pg_namespace n
       WHERE has_schema_privilege(r.rolname, n.nspname, 'CREATE')
     ),
+
     merged_privileges AS (
-      SELECT * FROM privileges
+      SELECT role_or_user, table_schema, privileges
+      FROM table_privileges
+
       UNION ALL
-      SELECT
-        role_or_user,
-        table_schema,
-        privilege_type AS privileges
+
+      SELECT role_or_user, table_schema, privileges
       FROM schema_create_privileges
     ),
+
     access_levels AS (
       SELECT
         role_or_user,
@@ -1427,45 +1440,212 @@ postgres_alla_rattigheter <- function(con = "default",
       FROM merged_privileges
       GROUP BY role_or_user, table_schema
     ),
-    combined_access AS (
+
+    effective_access AS (
       SELECT
-        u.role_or_user,
+        rc.role_or_user,
         s.schema_name,
         CASE
-          WHEN u.rolsuper THEN 'write'
-          ELSE COALESCE(p.access_type, 'no access')
-        END AS access_type
-      FROM
-        (SELECT role_or_user, rolsuper FROM all_users
-         UNION
-         SELECT inherited_role AS role_or_user, FALSE AS rolsuper FROM role_inheritance) u
+          WHEN BOOL_OR(rc.rolsuper) THEN 'write'
+          WHEN MAX(
+            CASE
+              WHEN al.access_type = 'write' THEN 2
+              WHEN al.access_type = 'read' THEN 1
+              ELSE 0
+            END
+          ) = 2 THEN 'write'
+          WHEN MAX(
+            CASE
+              WHEN al.access_type = 'write' THEN 2
+              WHEN al.access_type = 'read' THEN 1
+              ELSE 0
+            END
+          ) = 1 THEN 'read'
+          ELSE 'no access'
+        END AS access_level
+      FROM role_closure rc
       CROSS JOIN all_schemas s
-      LEFT JOIN access_levels p ON u.role_or_user = p.role_or_user AND s.schema_name = p.table_schema
+      LEFT JOIN access_levels al
+        ON al.role_or_user = rc.grant_role
+       AND al.table_schema = s.schema_name
+      GROUP BY rc.role_or_user, s.schema_name
     )
-    SELECT role_or_user, schema_name,
-           MAX(CASE
-                 WHEN access_type = 'write' THEN 'write'
-                 WHEN access_type = 'read' THEN 'read'
-                 ELSE 'no access'
-               END) AS access_level
-    FROM combined_access
+
+    SELECT
+      role_or_user,
+      schema_name,
+      access_level
+    FROM effective_access
     {filter_anvandare}
-    GROUP BY role_or_user, schema_name
     ORDER BY role_or_user, schema_name;
   ")
-
+  
   resultat <- DBI::dbGetQuery(con, query)
-
+  
   if (default_flagga) DBI::dbDisconnect(con)
-  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)
-  if (meddelande_tid) cat(glue::glue("Processen tog {berakningstid} sekunder att köra"))
-
+  
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") |> round(1)
+  
+  if (meddelande_tid) {
+    cat(glue::glue("Processen tog {berakningstid} sekunder att köra"))
+  }
+  
   return(resultat)
 }
 
-
-
-
+# Funktion för att per användare lista alla rättigheter på servern, dvs. till alla databaser och deras scheman
+postgres_alla_rattigheter_server <- function(anvandarnamn,
+                                             con = "default",
+                                             databaser = NULL,
+                                             visa_databaser_utan_connect = TRUE,
+                                             visa_alla_scheman = FALSE,
+                                             meddelande_tid = FALSE) {
+  starttid <- Sys.time()
+  
+  if (missing(anvandarnamn) || is.null(anvandarnamn) || !nzchar(anvandarnamn)) {
+    stop("Parametern 'anvandarnamn' måste anges.", call. = FALSE)
+  }
+  
+  if (is.character(con) && con == "default") {
+    con_server <- uppkoppling_adm("postgres")
+    default_flagga <- TRUE
+  } else {
+    con_server <- con
+    default_flagga <- FALSE
+  }
+  
+  if (is.null(con_server)) {
+    stop("Kunde inte skapa serveruppkoppling.", call. = FALSE)
+  }
+  
+  if (default_flagga) {
+    on.exit({
+      if (DBI::dbIsValid(con_server)) {
+        DBI::dbDisconnect(con_server)
+      }
+    }, add = TRUE)
+  }
+  
+  databas_connect <- DBI::dbGetQuery(
+    con_server,
+    glue::glue_sql("
+      SELECT
+        datname AS databas,
+        has_database_privilege({anvandarnamn}, datname, 'CONNECT') AS connect,
+        has_database_privilege({anvandarnamn}, datname, 'CREATE') AS database_create,
+        has_database_privilege({anvandarnamn}, datname, 'TEMPORARY') AS database_temp
+      FROM pg_database
+      WHERE datistemplate = false
+      ORDER BY datname;
+    ", .con = con_server)
+  )
+  
+  if (!is.null(databaser)) {
+    databas_connect <- databas_connect |>
+      dplyr::filter(databas %in% databaser)
+  }
+  
+  resultat <- purrr::map_dfr(
+    seq_len(nrow(databas_connect)),
+    function(i) {
+      
+      db <- databas_connect$databas[i]
+      har_connect <- databas_connect$connect[i]
+      
+      if (!isTRUE(har_connect)) {
+        
+        if (!visa_databaser_utan_connect) {
+          return(tibble::tibble())
+        }
+        
+        return(
+          tibble::tibble(
+            databas = db,
+            connect = FALSE,
+            database_create = databas_connect$database_create[i],
+            database_temp = databas_connect$database_temp[i],
+            role_or_user = anvandarnamn,
+            schema_name = NA_character_,
+            access_level = "no access",
+            felmeddelande = NA_character_
+          )
+        )
+      }
+      
+      con_db <- NULL
+      
+      rattigheter <- tryCatch({
+        
+        con_db <- uppkoppling_adm(db)
+        
+        if (is.null(con_db)) {
+          stop("Kunde inte ansluta till databasen med uppkoppling_adm().")
+        }
+        
+        postgres_alla_rattigheter(
+          con = con_db,
+          anvandarnamn = anvandarnamn
+        )
+        
+      }, error = function(e) {
+        
+        tibble::tibble(
+          role_or_user = anvandarnamn,
+          schema_name = NA_character_,
+          access_level = NA_character_,
+          felmeddelande = e$message
+        )
+        
+      }, finally = {
+        
+        if (!is.null(con_db) && DBI::dbIsValid(con_db)) {
+          DBI::dbDisconnect(con_db)
+        }
+      })
+      
+      if (!"felmeddelande" %in% names(rattigheter)) {
+        rattigheter$felmeddelande <- NA_character_
+      }
+      
+      if (nrow(rattigheter) == 0) {
+        rattigheter <- tibble::tibble(
+          role_or_user = anvandarnamn,
+          schema_name = NA_character_,
+          access_level = "no access",
+          felmeddelande = NA_character_
+        )
+      }
+      
+      rattigheter |>
+        dplyr::mutate(
+          databas = db,
+          connect = TRUE,
+          database_create = databas_connect$database_create[i],
+          database_temp = databas_connect$database_temp[i],
+          .before = 1
+        )
+    }
+  )
+  
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") |>
+    round(1)
+  
+  if (meddelande_tid) {
+    cat(glue::glue("Processen tog {berakningstid} sekunder att köra"))
+  }
+  
+  retur_df <- resultat |>
+    dplyr::arrange(databas, schema_name)
+  
+  
+  if (visa_alla_scheman) {
+    return(retur_df)
+  } else {
+    return(retur_df |>
+             dplyr::count(databas, connect, access_level))
+  }
+  
+}
 
 
 # Funktion för att lägga till en användare och ge rättigheter till flera databaser
@@ -1533,6 +1713,239 @@ postgres_anvandare_ta_bort <- function(con = "default",
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)         # Beräkna och skriv ut tidsåtgång
   if (meddelande_tid) cat(glue("Processen tog {berakningstid} sekunder att köra"))
 
+}
+
+postgres_roll_lagg_till <- function(
+    con = "default",
+    rollnamn,
+    meddelande_tid = FALSE
+) {
+  
+  starttid <- Sys.time()
+  
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
+  
+  query <- glue::glue("
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_roles
+        WHERE rolname = '{rollnamn}'
+      ) THEN
+        CREATE ROLE {rollnamn} NOLOGIN;
+      END IF;
+    END
+    $$;
+  ")
+  
+  DBI::dbExecute(con, query)
+  
+  if (default_flagga) DBI::dbDisconnect(con)
+  
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") |> round(1)
+  
+  if (meddelande_tid) {
+    cat(glue::glue('Processen tog {berakningstid} sekunder att köra'))
+  }
+}
+
+postgres_roll_ta_bort <- function(
+    con = "default",
+    rollnamn,
+    meddelande_tid = FALSE
+) {
+  
+  starttid <- Sys.time()
+  
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
+  
+  tryCatch({
+    
+    DBI::dbExecute(
+      con,
+      glue::glue("DROP ROLE {rollnamn};")
+    )
+    
+    message("Rollen ", rollnamn, " har tagits bort.")
+    
+  }, error = function(e) {
+    
+    message(
+      "Kunde inte ta bort rollen ",
+      rollnamn,
+      ": ",
+      e$message
+    )
+    
+  })
+  
+  if (default_flagga) DBI::dbDisconnect(con)
+  
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") |> round(1)
+  
+  if (meddelande_tid) {
+    cat(glue::glue('Processen tog {berakningstid} sekunder att köra'))
+  }
+}
+
+
+postgres_roll_tilldela_till_anvandare <- function(
+    con = "default",
+    rollnamn,
+    anvandarnamn,
+    meddelande_tid = FALSE
+) {
+  
+  starttid <- Sys.time()
+  
+  if (missing(rollnamn) || !nzchar(rollnamn)) {
+    stop("Parametern 'rollnamn' måste anges.", call. = FALSE)
+  }
+  
+  if (missing(anvandarnamn) || !nzchar(anvandarnamn)) {
+    stop("Parametern 'anvandarnamn' måste anges.", call. = FALSE)
+  }
+  
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
+  
+  if (is.null(con)) {
+    stop("Kunde inte skapa uppkoppling.", call. = FALSE)
+  }
+  
+  tryCatch({
+    
+    DBI::dbExecute(
+      con,
+      glue::glue_sql(
+        "GRANT {`rollnamn`} TO {`anvandarnamn`};",
+        .con = con
+      )
+    )
+    
+    message(
+      "✅ Rollen ",
+      rollnamn,
+      " har tilldelats användaren ",
+      anvandarnamn,
+      "."
+    )
+    
+  }, error = function(e) {
+    
+    message(
+      postgres_felmeddelande(
+        e = e,
+        atgard = glue::glue(
+          "tilldela rollen '{rollnamn}' till användaren '{anvandarnamn}'"
+        )
+      )
+    )
+    
+  })
+  
+  if (default_flagga) {
+    DBI::dbDisconnect(con)
+  }
+  
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") |>
+    round(1)
+  
+  if (meddelande_tid) {
+    cat(glue::glue("Processen tog {berakningstid} sekunder att köra"))
+  }
+  
+  invisible(TRUE)
+}
+
+postgres_roll_ta_bort_fran_anvandare <- function(
+    con = "default",
+    rollnamn,
+    anvandarnamn,
+    meddelande_tid = FALSE
+) {
+  
+  starttid <- Sys.time()
+  
+  if (missing(rollnamn) || is.null(rollnamn) || !nzchar(rollnamn)) {
+    stop("Parametern 'rollnamn' måste anges.", call. = FALSE)
+  }
+  
+  if (missing(anvandarnamn) || is.null(anvandarnamn) || !nzchar(anvandarnamn)) {
+    stop("Parametern 'anvandarnamn' måste anges.", call. = FALSE)
+  }
+  
+  if (is.character(con) && con == "default") {
+    con <- uppkoppling_db()
+    default_flagga <- TRUE
+  } else {
+    default_flagga <- FALSE
+  }
+  
+  if (is.null(con)) {
+    stop("Kunde inte skapa uppkoppling.", call. = FALSE)
+  }
+  
+  tryCatch({
+    
+    DBI::dbExecute(
+      con,
+      glue::glue_sql(
+        "REVOKE {`rollnamn`} FROM {`anvandarnamn`};",
+        .con = con
+      )
+    )
+    
+    message(
+      "✅ Rollen ",
+      rollnamn,
+      " har tagits bort från användaren ",
+      anvandarnamn,
+      "."
+    )
+    
+  }, error = function(e) {
+    
+    message(
+      postgres_felmeddelande(
+        e = e,
+        atgard = glue::glue(
+          "ta bort rollen '{rollnamn}' från användaren '{anvandarnamn}'"
+        )
+      )
+    )
+    
+  }, finally = {
+    
+    if (default_flagga && !is.null(con) && DBI::dbIsValid(con)) {
+      DBI::dbDisconnect(con)
+    }
+    
+  })
+  
+  berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") |>
+    round(1)
+  
+  if (meddelande_tid) {
+    cat(glue::glue("Processen tog {berakningstid} sekunder att köra"))
+  }
+  
+  invisible(TRUE)
 }
 
 
@@ -2674,29 +3087,31 @@ postgres_pxweb2_uppdatera_tabell_skapa_skript <- function(
 postgres_grants_auto_skapa <- function(con,
                                        remove_old = TRUE,
                                        rattigheter_pa_befintliga = TRUE,
+                                       lasroller = "lasroll",
+                                       skrivroller = "skrivroll",
                                        lasroll_tilldela = NULL,
                                        skrivroll_tilldela = NULL) {
-  # Skript för att skapa auto-grants som innebär att lasroll och skrivroll får läs- respektive skrivrättigheter
-  # när nya scheman, tabeller, vyer och materialiserade vyer skapas oavsett vem som skapar dem.
-  # Körs i regel en gång per databas.
-  #
-  # remove_old = tar bort gamla triggers
-  # rattigheter_pa_befintliga = lägger till dessa rättigheter på redan befintliga scheman, tabeller, vyer och materialiserade vyer
-  # lasroll_tilldela = tilldelar användare till lasroll
-  # skrivroll_tilldela = tilldelar användare till skrivroll
-
+  
+  # Säkerställ vektorer
+  lasroller <- unique(lasroller)
+  skrivroller <- unique(skrivroller)
+  
+  if (length(lasroller) < 1 && length(skrivroller) < 1) {
+    stop("Minst en läsroll eller skrivroll måste anges.", call. = FALSE)
+  }
+  
   message("🔍 Kontrollerar befintliga event triggers...")
-
+  
   old_triggers <- DBI::dbGetQuery(con, "
     SELECT evtname, evtevent, evtenabled, evtowner::regrole
     FROM pg_event_trigger
     ORDER BY evtname;
   ")
-
+  
   if (nrow(old_triggers) > 0) {
     message("⚠️  Befintliga triggers hittades:\n")
     print(old_triggers)
-
+    
     if (remove_old) {
       message("🧹 Tar bort gamla triggers...")
       DBI::dbExecute(con, "DROP EVENT TRIGGER IF EXISTS auto_grant_tables;")
@@ -2705,10 +3120,21 @@ postgres_grants_auto_skapa <- function(con,
   } else {
     message("✅ Inga gamla triggers hittades.")
   }
-
+  
   message("📦 Installerar ny universal auto_grant-funktion...")
-
-  DBI::dbExecute(con, "
+  
+  # SQL-litteraler för arrayer i PL/pgSQL
+  lasroller_sql <- paste(
+    DBI::dbQuoteString(con, lasroller),
+    collapse = ", "
+  )
+  
+  skrivroller_sql <- paste(
+    DBI::dbQuoteString(con, skrivroller),
+    collapse = ", "
+  )
+  
+  auto_grant_sql <- glue::glue("
     CREATE OR REPLACE FUNCTION public.auto_grant()
     RETURNS event_trigger
     LANGUAGE plpgsql
@@ -2716,152 +3142,288 @@ postgres_grants_auto_skapa <- function(con,
     DECLARE
         obj record;
         schema_name text;
+        lasroll text;
+        skrivroll text;
+        lasroller text[] := ARRAY[{lasroller_sql}];
+        skrivroller text[] := ARRAY[{skrivroller_sql}];
     BEGIN
         FOR obj IN
             SELECT * FROM pg_event_trigger_ddl_commands()
         LOOP
-            BEGIN  -- Inre exception block för varje objekt
-                -- Tabeller och vyer
+            BEGIN
+                -- Tabeller, vyer och materialiserade vyer
                 IF obj.object_type IN ('table', 'view', 'materialized view') THEN
                     RAISE NOTICE 'Ger rättigheter på %: %', obj.object_type, obj.object_identity;
-                    EXECUTE format('GRANT SELECT ON %s TO lasroll;', obj.object_identity);
-                    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %s TO skrivroll;', obj.object_identity);
-
+                    
+                    FOREACH lasroll IN ARRAY lasroller LOOP
+                        EXECUTE format(
+                            'GRANT SELECT ON %s TO %I;',
+                            obj.object_identity,
+                            lasroll
+                        );
+                    END LOOP;
+                    
+                    FOREACH skrivroll IN ARRAY skrivroller LOOP
+                        EXECUTE format(
+                            'GRANT SELECT, INSERT, UPDATE, DELETE ON %s TO %I;',
+                            obj.object_identity,
+                            skrivroll
+                        );
+                    END LOOP;
+                
                 -- Scheman
                 ELSIF obj.object_type = 'schema' THEN
                     schema_name := obj.object_identity;
                     RAISE NOTICE 'Ger rättigheter på schema: %', schema_name;
-
-                    EXECUTE format('GRANT USAGE ON SCHEMA %I TO lasroll;', schema_name);
-                    EXECUTE format('GRANT USAGE, CREATE ON SCHEMA %I TO skrivroll;', schema_name);
-                    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT ON TABLES TO lasroll;', schema_name);
-                    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO skrivroll;', schema_name);
+                    
+                    FOREACH lasroll IN ARRAY lasroller LOOP
+                        EXECUTE format(
+                            'GRANT USAGE ON SCHEMA %I TO %I;',
+                            schema_name,
+                            lasroll
+                        );
+                        
+                        EXECUTE format(
+                            'ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT ON TABLES TO %I;',
+                            schema_name,
+                            lasroll
+                        );
+                    END LOOP;
+                    
+                    FOREACH skrivroll IN ARRAY skrivroller LOOP
+                        EXECUTE format(
+                            'GRANT USAGE, CREATE ON SCHEMA %I TO %I;',
+                            schema_name,
+                            skrivroll
+                        );
+                        
+                        EXECUTE format(
+                            'ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I;',
+                            schema_name,
+                            skrivroll
+                        );
+                    END LOOP;
                 END IF;
+                
             EXCEPTION
                 WHEN OTHERS THEN
-                    RAISE WARNING 'Fel vid grant för % (type: %): %', obj.object_identity, obj.object_type, SQLERRM;
-                    -- Fortsätt ändå istället för att krascha hela transaktionen
+                    RAISE WARNING 'Fel vid grant för % (type: %): %',
+                        obj.object_identity,
+                        obj.object_type,
+                        SQLERRM;
             END;
         END LOOP;
     END;
     $$;
   ")
-
+  
+  DBI::dbExecute(con, auto_grant_sql)
+  
   message("⚙️ Skapar nya event triggers...")
-
+  
   DBI::dbExecute(con, "DROP EVENT TRIGGER IF EXISTS auto_grant_tables;")
+  
   DBI::dbExecute(con, "
     CREATE EVENT TRIGGER auto_grant_tables
       ON ddl_command_end
       WHEN TAG IN ('CREATE TABLE', 'CREATE VIEW', 'CREATE MATERIALIZED VIEW')
       EXECUTE FUNCTION public.auto_grant();
   ")
-
+  
   DBI::dbExecute(con, "DROP EVENT TRIGGER IF EXISTS auto_grant_schemas;")
+  
   DBI::dbExecute(con, "
     CREATE EVENT TRIGGER auto_grant_schemas
       ON ddl_command_end
       WHEN TAG IN ('CREATE SCHEMA')
       EXECUTE FUNCTION public.auto_grant();
   ")
-
+  
   message("✅ Klart! Nya triggers och funktion är installerade.")
-
+  
   if (rattigheter_pa_befintliga == TRUE) {
     message("🔄 Uppdaterar även rättigheter på befintliga objekt...")
-    postgres_grants_pa_befintliga_objekt(con)
+    
+    postgres_grants_pa_befintliga_objekt(
+      con = con,
+      lasroller = lasroller,
+      skrivroller = skrivroller
+    )
   }
-
-  # --- Tilldela användare till roller ---
+  
+  # --- Tilldela användare till läsroller ---
   if (!is.null(lasroll_tilldela) && length(lasroll_tilldela) > 0) {
-    purrr::walk(lasroll_tilldela, ~{
-      tryCatch({
-        DBI::dbExecute(con, glue::glue("GRANT lasroll TO {.x};"))
-        message(glue::glue("✅ Tilldelade lasroll till {.x}"))
-      },
-      error = function(e) {
-        message(glue::glue("⚠️  Kunde inte tilldela lasroll till {.x}: {e$message}"))
+    purrr::walk(lasroll_tilldela, \(anvandare) {
+      purrr::walk(lasroller, \(roll) {
+        tryCatch({
+          DBI::dbExecute(
+            con,
+            glue::glue_sql(
+              "GRANT {`roll`} TO {`anvandare`};",
+              .con = con
+            )
+          )
+          message(glue::glue("✅ Tilldelade {roll} till {anvandare}"))
+        }, error = function(e) {
+          message(glue::glue("⚠️  Kunde inte tilldela {roll} till {anvandare}: {e$message}"))
+        })
       })
     })
   }
-
+  
+  # --- Tilldela användare till skrivroller ---
   if (!is.null(skrivroll_tilldela) && length(skrivroll_tilldela) > 0) {
-    purrr::walk(skrivroll_tilldela, ~{
-      tryCatch({
-        DBI::dbExecute(con, glue::glue("GRANT skrivroll TO {.x};"))
-        message(glue::glue("✅ Tilldelade skrivroll till {.x}"))
-      },
-      error = function(e) {
-        message(glue::glue("⚠️  Kunde inte tilldela skrivroll till {.x}: {e$message}"))
+    purrr::walk(skrivroll_tilldela, \(anvandare) {
+      purrr::walk(skrivroller, \(roll) {
+        tryCatch({
+          DBI::dbExecute(
+            con,
+            glue::glue_sql(
+              "GRANT {`roll`} TO {`anvandare`};",
+              .con = con
+            )
+          )
+          message(glue::glue("✅ Tilldelade {roll} till {anvandare}"))
+        }, error = function(e) {
+          message(glue::glue("⚠️  Kunde inte tilldela {roll} till {anvandare}: {e$message}"))
+        })
       })
     })
   }
-
+  
+  invisible(TRUE)
 }
 
-postgres_grants_pa_befintliga_objekt <- function(con) {
-  # skript för att ge lasroll och skrivroll  läs- respektive skrivrättigheter
-  # för befintliga scheman, tabeller, vyer och materialiserade vyer
-
-  message("📦 Ger rättigheter till befintliga scheman, tabeller och vyer...")
-
-  sql_statements <- c(
-    # 1️⃣ Ge rättigheter till alla scheman
-    "
-    DO $$
-    DECLARE
-        s RECORD;
-    BEGIN
-        FOR s IN
-            SELECT schema_name
-            FROM information_schema.schemata
-            WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
-        LOOP
-            EXECUTE format('GRANT USAGE ON SCHEMA %I TO lasroll;', s.schema_name);
-            EXECUTE format('GRANT USAGE, CREATE ON SCHEMA %I TO skrivroll;', s.schema_name);
-        END LOOP;
-    END$$;
-    ",
-
-    # 2️⃣ Ge rättigheter till alla tabeller och vyer
-    "
-    DO $$
-    DECLARE
-        t RECORD;
-    BEGIN
-        FOR t IN
-            SELECT table_schema, table_name
-            FROM information_schema.tables
-            WHERE table_schema NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
-        LOOP
-            EXECUTE format('GRANT SELECT ON %I.%I TO lasroll;', t.table_schema, t.table_name);
-            EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %I.%I TO skrivroll;', t.table_schema, t.table_name);
-        END LOOP;
-    END$$;
-    ",
-
-    # 3️⃣ Ge rättigheter till alla materialized views
-    "
-    DO $$
-    DECLARE
-        mv RECORD;
-    BEGIN
-        FOR mv IN
-            SELECT schemaname, matviewname
-            FROM pg_matviews
-            WHERE schemaname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
-        LOOP
-            EXECUTE format('GRANT SELECT ON %I.%I TO lasroll;', mv.schemaname, mv.matviewname);
-            EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %I.%I TO skrivroll;', mv.schemaname, mv.matviewname);
-        END LOOP;
-    END$$;
-    "
-  )
-
-  purrr::walk(sql_statements, ~DBI::dbExecute(con, .x))
+postgres_grants_pa_befintliga_objekt <- function(con,
+                                                 lasroller = "lasroll",
+                                                 skrivroller = "skrivroll") {
+  
+  lasroller <- unique(lasroller)
+  skrivroller <- unique(skrivroller)
+  
+  message("📦 Ger rättigheter till befintliga scheman, tabeller, vyer och materialiserade vyer...")
+  
+  scheman <- DBI::dbGetQuery(con, "
+    SELECT schema_name
+    FROM information_schema.schemata
+    WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+      AND schema_name NOT LIKE 'pg_%'
+    ORDER BY schema_name;
+  ")
+  
+  tabeller_och_vyer <- DBI::dbGetQuery(con, "
+    SELECT table_schema, table_name
+    FROM information_schema.tables
+    WHERE table_schema NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+      AND table_schema NOT LIKE 'pg_%'
+    ORDER BY table_schema, table_name;
+  ")
+  
+  matviews <- DBI::dbGetQuery(con, "
+    SELECT schemaname, matviewname
+    FROM pg_matviews
+    WHERE schemaname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+      AND schemaname NOT LIKE 'pg_%'
+    ORDER BY schemaname, matviewname;
+  ")
+  
+  for (schema_namn in scheman$schema_name) {
+    
+    for (lasroll in lasroller) {
+      DBI::dbExecute(
+        con,
+        glue::glue_sql(
+          "GRANT USAGE ON SCHEMA {`schema_namn`} TO {`lasroll`};",
+          .con = con
+        )
+      )
+      
+      DBI::dbExecute(
+        con,
+        glue::glue_sql(
+          "ALTER DEFAULT PRIVILEGES IN SCHEMA {`schema_namn`}
+           GRANT SELECT ON TABLES TO {`lasroll`};",
+          .con = con
+        )
+      )
+    }
+    
+    for (skrivroll in skrivroller) {
+      DBI::dbExecute(
+        con,
+        glue::glue_sql(
+          "GRANT USAGE, CREATE ON SCHEMA {`schema_namn`} TO {`skrivroll`};",
+          .con = con
+        )
+      )
+      
+      DBI::dbExecute(
+        con,
+        glue::glue_sql(
+          "ALTER DEFAULT PRIVILEGES IN SCHEMA {`schema_namn`}
+           GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {`skrivroll`};",
+          .con = con
+        )
+      )
+    }
+  }
+  
+  for (i in seq_len(nrow(tabeller_och_vyer))) {
+    
+    schema_namn <- tabeller_och_vyer$table_schema[i]
+    tabell_namn <- tabeller_och_vyer$table_name[i]
+    
+    for (lasroll in lasroller) {
+      DBI::dbExecute(
+        con,
+        glue::glue_sql(
+          "GRANT SELECT ON {`schema_namn`}.{`tabell_namn`} TO {`lasroll`};",
+          .con = con
+        )
+      )
+    }
+    
+    for (skrivroll in skrivroller) {
+      DBI::dbExecute(
+        con,
+        glue::glue_sql(
+          "GRANT SELECT, INSERT, UPDATE, DELETE ON {`schema_namn`}.{`tabell_namn`} TO {`skrivroll`};",
+          .con = con
+        )
+      )
+    }
+  }
+  
+  for (i in seq_len(nrow(matviews))) {
+    
+    schema_namn <- matviews$schemaname[i]
+    matview_namn <- matviews$matviewname[i]
+    
+    for (lasroll in lasroller) {
+      DBI::dbExecute(
+        con,
+        glue::glue_sql(
+          "GRANT SELECT ON {`schema_namn`}.{`matview_namn`} TO {`lasroll`};",
+          .con = con
+        )
+      )
+    }
+    
+    for (skrivroll in skrivroller) {
+      DBI::dbExecute(
+        con,
+        glue::glue_sql(
+          "GRANT SELECT, INSERT, UPDATE, DELETE ON {`schema_namn`}.{`matview_namn`} TO {`skrivroll`};",
+          .con = con
+        )
+      )
+    }
+  }
+  
   message("✅ Rättigheter till befintliga objekt har uppdaterats.")
+  
+  invisible(TRUE)
 }
-
 
 postgres_grants_auto_visa <- function(con) {
   message("🔍 Hämtar befintliga event triggers...")
@@ -3038,7 +3600,42 @@ postgres_grants_auto_testa <- function(con) {
   invisible(results)
 }
 
-
+postgres_felmeddelande <- function(e, atgard) {
+  
+  feltext <- conditionMessage(e)
+  
+  if (
+    stringr::str_detect(feltext, stringr::regex("permission denied", ignore_case = TRUE)) ||
+    stringr::str_detect(feltext, stringr::regex("must have admin option", ignore_case = TRUE)) ||
+    stringr::str_detect(feltext, stringr::regex("must be member of role", ignore_case = TRUE)) ||
+    stringr::str_detect(feltext, stringr::regex("not permitted", ignore_case = TRUE)) ||
+    stringr::str_detect(feltext, stringr::regex("saknar behörighet", ignore_case = TRUE)) ||
+    stringr::str_detect(feltext, stringr::regex("åtkomst nekas", ignore_case = TRUE)) ||
+    stringr::str_detect(feltext, stringr::regex("måste vara medlem", ignore_case = TRUE))
+  ) {
+    
+    return(
+      paste0(
+        "Uppkopplingen saknar sannolikt behörighet för att ",
+        atgard,
+        ".\n\n",
+        "PostgreSQL meddelade:\n",
+        feltext,
+        "\n\n",
+        "Prova att använda en administrativ uppkoppling, t.ex. uppkoppling_adm()."
+      )
+    )
+    
+  }
+  
+  paste0(
+    "Ett fel uppstod vid försök att ",
+    atgard,
+    ".\n\n",
+    "PostgreSQL meddelade:\n",
+    feltext
+  )
+}
 
 # ================================= postgis-funktioner ================================================
 
