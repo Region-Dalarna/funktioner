@@ -3398,6 +3398,14 @@ github_commit_push <- function(
     }
   }
   
+  # Säkerställ att github_token finns i keyring innan vi kör vidare - används
+  # för både pull och push, och ger annars ett kryptiskt fel längre ner.
+  if (nrow(keyring::key_list(service = "github_token")) == 0) {
+    stop("Ingen nyckel hittades för service 'github_token' i keyring. ",
+         "Kör keyring::key_set('github_token', username = '<ditt-github-anvandarnamn>') ",
+         "och ange ett Personal Access Token med scope 'repo' (och 'workflow' om du pushar workflow-filer).")
+  }
+  
   lokal_sokvag_repo <- paste0(sokvag_lokal_repo, repo)
   
   # Skydd mot parallell körning (låser processen)
@@ -3460,8 +3468,8 @@ github_commit_push <- function(
       head_branch <- git2r::repository_head(push_repo)
       if (!is.null(git2r::branch_target(head_branch))) {
         git2r::pull(repo = push_repo,
-                    credentials = cred_user_pass(username = key_list(service = "github")$username,
-                                                 password = key_get("github", key_list(service = "github")$username)))
+                    credentials = cred_user_pass(username = key_list(service = "github_token")$username,
+                                                 password = key_get("github_token", key_list(service = "github_token")$username)))
       } else {
         message("⚠️ Ingen upstream-branch är satt – skippar git pull.")
       }
