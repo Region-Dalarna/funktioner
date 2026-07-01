@@ -4922,8 +4922,6 @@ webbsida_med_portal_skapa_med_github_repo <- function(github_repo,
   
   server <- match.arg(server)
   
-  # Skiljer publik/intern åt: vilken runner som ska plocka upp jobbet.
-  # Målsökvägen är identisk på båda servrarna (/srv/rapporter/), verifierat live.
   malkonfig <- switch(server,
                       publik = list(runner_label = "rapport"),
                       intern = list(runner_label = "rapport-intern")
@@ -4945,6 +4943,12 @@ webbsida_med_portal_skapa_med_github_repo <- function(github_repo,
   repo_url <- sprintf("https://github.com/%s/%s.git", github_org, github_repo)
   gert::git_clone(repo_url, path = lokal_path)
   
+  # Säkerställ att branchen heter "main" oavsett lokal git-konfiguration
+  current_branch <- gert::git_branch(repo = lokal_path)
+  if (current_branch != "main") {
+    gert::git_branch_move(current_branch, "main", repo = lokal_path)
+  }
+  
   # 3. Hämta och skriv ut mallfilerna från depot, ifyllda med repo-specifika värden
   dir.create(file.path(lokal_path, ".github", "workflows"), recursive = TRUE)
   
@@ -4958,7 +4962,6 @@ webbsida_med_portal_skapa_med_github_repo <- function(github_repo,
   depot_skriv_mall_fran("deploy.yml.tmpl",  file.path(lokal_path, ".github/workflows/deploy.yml"), variabler)
   depot_skriv_mall_fran("README.md.tmpl",   file.path(lokal_path, "README.md"),  variabler)
   
-  # Delad identitet (samma fil som Shinyapparna använder) + portal-specifika overrides
   depot_hamta_fran("regiondalarna_ruf.css",
                    file.path(lokal_path, "regiondalarna_ruf.css"),
                    as_text = TRUE)
@@ -4967,12 +4970,20 @@ webbsida_med_portal_skapa_med_github_repo <- function(github_repo,
                    file.path(lokal_path, "portal_overrides.css"),
                    as_text = TRUE)
   
-  writeLines(c(".quarto/", "_site/"), file.path(lokal_path, ".gitignore"))
+  writeLines(c(".quarto/", "_site/", "*.html", "*_files/"), file.path(lokal_path, ".gitignore"))
   
-  # 4. Commit + push grundstrukturen
+  # 4. Commit + push grundstrukturen till main
   gert::git_add(".", repo = lokal_path)
   gert::git_commit("Initiera webbsida/portal-struktur", repo = lokal_path)
-  gert::git_push(repo = lokal_path)
+  gert::git_push(remote = "origin",
+                 refspec = "refs/heads/main:refs/heads/main",
+                 repo = lokal_path)
+  
+  # 5. Sätt defaultbranch till "main" på GitHub
+  gh::gh("PATCH /repos/{owner}/{repo}",
+         owner = github_org,
+         repo  = github_repo,
+         default_branch = "main")
   
   url_server <- switch(server,
                        publik = "https://samhallsanalys.regiondalarna.se",
