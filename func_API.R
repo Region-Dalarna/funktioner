@@ -5057,7 +5057,7 @@ dokumentation_sida_skapa <- function(titel,
     "---",
     paste0('title: "', titel, '"'),
     paste0('subtitle: "', subtitel_varde, '"'),
-    paste0('description: "', beskrivning, '"'),
+    paste0('listing-description: "', beskrivning, '"'),
     "---"
   )
   
