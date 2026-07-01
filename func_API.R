@@ -5005,6 +5005,97 @@ webbsida_med_portal_skapa_med_github_repo <- function(github_repo,
 }
 
 
+dokumentation_sida_skapa <- function(titel,
+                                     beskrivning,
+                                     filnamn,
+                                     undertitel      = NULL,
+                                     repo            = "dokumentation",
+                                     lokal_root      = "c:/gh/",
+                                     oppna_i_rstudio = TRUE,
+                                     commit_och_push = FALSE) {
+  
+  # --- 1. Validera filnamn strikt, innan något annat händer -----------------
+  fel <- character(0)
+  
+  if (grepl(" ", filnamn)) fel <- c(fel, "innehåller mellanslag")
+  if (grepl("[A-ZÅÄÖ]", filnamn)) fel <- c(fel, "innehåller versaler")
+  if (grepl("[åäöÅÄÖ]", filnamn)) fel <- c(fel, "innehåller svenska tecken (å/ä/ö)")
+  
+  if (length(fel) > 0) {
+    forslag <- filnamn |> tolower() |> svenska_tecken_byt_ut() |> gsub(" ", "_", x = _)
+    stop(
+      "Ogiltigt filnamn '", filnamn, "': ", paste(fel, collapse = ", "), ".\n",
+      "Filnamn får bara innehålla gemener, siffror, understreck och bindestreck.\n",
+      "Förslag: '", forslag, "'"
+    )
+  }
+  
+  if (!grepl("\\.qmd$", filnamn)) filnamn <- paste0(filnamn, ".qmd")
+  
+  # --- 2. Kontrollera att repot finns lokalt --------------------------------
+  repo_path <- file.path(lokal_root, repo)
+  if (!dir.exists(repo_path)) {
+    stop(
+      "Repot '", repo, "' finns inte lokalt under '", repo_path, "'.\n",
+      "Klona det först, t.ex. med gert::git_clone(),\n",
+      "eller kontrollera att 'repo' och 'lokal_root' är korrekt angivna."
+    )
+  }
+  
+  fil_path <- file.path(repo_path, filnamn)
+  
+  # --- 3. Kontrollera kollision ----------------------------------------------
+  if (file.exists(fil_path)) {
+    stop("Filen finns redan: '", fil_path, "'. Avbryter för säkerhets skull.")
+  }
+  
+  # --- 4. Skapa filen med skelett ---------------------------------------------
+  # subtitle skrivs alltid ut, tomt om ingen undertitel angetts
+  subtitel_varde <- if (is.null(undertitel)) "" else undertitel
+  
+  yaml_rader <- c(
+    "---",
+    paste0('title: "', titel, '"'),
+    paste0('subtitle: "', subtitel_varde, '"'),
+    paste0('description: "', beskrivning, '"'),
+    "---"
+  )
+  
+  innehall <- c(
+    yaml_rader,
+    "",
+    "## Inledning",
+    "",
+    "## Struktur",
+    "",
+    "## Sammanfattning",
+    ""
+  )
+  
+  writeLines(innehall, fil_path, useBytes = TRUE)
+  message("Skapade '", fil_path, "'.")
+  
+  # --- 5. Öppna i RStudio -------------------------------------------------
+  if (oppna_i_rstudio && rstudioapi::isAvailable()) {
+    rstudioapi::navigateToFile(fil_path)
+  }
+  
+  # --- 6. Valfri commit + push, annars en vänlig påminnelse -----------------
+  if (commit_och_push) {
+    github_commit_push(repo, commit_txt = paste0("Ny sida: ", titel))
+  } else {
+    message(
+      "\nFilen ligger bara lokalt än så länge — den syns inte på ", repo,
+      "-portalen förrän du kört:\n",
+      "  github_commit_push(\"", repo, "\")\n",
+      "Skriv klart sidan, spara, och kör kommandot ovan när du är redo att publicera."
+    )
+  }
+  
+  invisible(fil_path)
+}
+
+
 skapa_webbrapport_github <- function(githubmapp_lokalt,                 # sökväg till den mapp där du har alla github-repos (ska INTE innehålla själva repositoryt), tex c:/github_repos/
                                      github_repo,                       # namn på själva github-repot, döper mappen och github-repot. Mappen skapas om den inte finns
                                      github_org = "Region-Dalarna",     # ändra till NULL om man vill lägga repo:t i sin privata github
