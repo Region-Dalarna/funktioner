@@ -4926,7 +4926,8 @@ webbsida_med_portal_skapa_med_github_repo <- function(github_repo,
                                                       beskrivning = titel,
                                                       privat_repo = TRUE,
                                                       github_org = "Region-Dalarna",
-                                                      lokal_root = "c:/gh") {
+                                                      behorighet_team = "samhallsanalys",  # namn på team som ska ges behörighet, NULL om man inte vill ge något team behörighet, teamet måste finnas i organisationen om detta ska fungera
+                                                      lokal_root = "c:/gh/") {
   
   server <- match.arg(server)
   
@@ -4946,6 +4947,24 @@ webbsida_med_portal_skapa_med_github_repo <- function(github_repo,
          name = github_repo,
          private = privat_repo,
          auto_init = FALSE)
+  
+  # Ställ in behörighet för angivet team, om parametern är satt
+  if (!is.null(behorighet_team) && !is.null(github_org)) {
+    
+    response <- httr::PUT(
+      url = glue::glue("https://api.github.com/orgs/{github_org}/teams/{behorighet_team}/repos/{github_org}/{github_repo}"),
+      httr::add_headers(Authorization = paste("token", keyring::key_get("github_token", keyring::key_list(service = "github_token")$username))),
+      body = list(permission = "push"),
+      encode = "json"
+    )
+    
+    if (httr::status_code(response) == 204) {
+      message("✅ Teamet '", behorighet_team, "' har fått push-behörighet.")
+    } else {
+      warning("⚠️ Kunde inte ge teamet '", behorighet_team, "' behörighet (status ",
+              httr::status_code(response), "). Kontrollera att teamet finns i organisationen.")
+    }
+  }
   
   # 2. Klona ner lokalt
   repo_url <- sprintf("https://github.com/%s/%s.git", github_org, github_repo)
@@ -5482,18 +5501,18 @@ if(uppdatera_hemsida==TRUE){{
   # # ställ in att vi ska använda Github pages
   # use_github_pages(branch = git_default_branch(), path = "/docs", cname = NA)
   
-  # ställ in behörighet för samhallsanalys om parametern är TRUE
-  if (behorighet_samhallsanalys && !is.null(github_org)) {
+  # ställ in behörighet för samhallsanalys om parametern är något annat än NULL
+  if (!is.null(behorighet_team) && !is.null(github_org)) {
     
     response <- PUT(
-      url = glue("https://api.github.com/orgs/{github_org}/teams/samhallsanalys/repos/{github_org}/{repo_namn}"),
+      url = glue("https://api.github.com/orgs/{github_org}/teams/{behorighet_team}/repos/{github_org}/{github_repo}"),
       add_headers(Authorization = paste("token", key_get("github_token", key_list(service = "github_token")$username))),
       body = list(permission = "push"),
       encode = "json"
     )
     
     if (httr::status_code(response) == 204) {
-      message("✅ Teamet 'samhallsanalys' har fått push-behörighet.")  # visa svar från GitHub
+      message("✅ Teamet '", behorighet_team, "' har fått push-behörighet.")
     }
     
   }
