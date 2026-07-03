@@ -3431,14 +3431,11 @@ github_commit_push <- function(
                        staged_added, staged_modified, staged_deleted)) > 0)) {
     
     if (!fran_rmarkdown) {
-      # Hämta remote repository-filnamn
-      github_fillista <- github_lista_repo_filer(owner = repo_org,
-                                                 repo = repo,
-                                                 url_vekt_enbart = FALSE,
-                                                 skriv_source_konsol = FALSE)$namn
-      
-      # Filklassificering
-      filer_tillagda  <- unique(c(unlist(staged_added), unlist(untracked_files)))                 #[!untracked_files %in% github_fillista]))
+      # Filklassificering — baseras enbart på lokal git-status, inget
+      # fjärranrop mot GitHub API behövs (och skulle bara riskera
+      # rate-limiting + trassel med specialtecken i mappnamn för inget,
+      # eftersom filtreringen mot fjärrfillistan redan var avstängd).
+      filer_tillagda  <- unique(c(unlist(staged_added), unlist(untracked_files)))
       filer_andrade   <- unique(c(unlist(staged_modified), unlist(unstaged_modified)))
       filer_borttagna <- unique(c(unlist(staged_deleted),  unlist(unstaged_deleted)))
       
@@ -5950,6 +5947,10 @@ jobs:
           else
             echo \"Ingen systemd-tjänst med namnet 'shiny-server' hittades. Hoppar över restart.\"
           fi
+
+      - name: Regenerera landningssida
+        run: |
+          sudo /usr/local/bin/generera_landningssida.sh || echo \"Varning: kunde inte regenerera landningssidan (ej kritiskt fel)\"
 "
 
 writeLines(deploy_yml, file.path(workflows_dir, "deploy.yml"))
@@ -6015,6 +6016,10 @@ jobs:
           if systemctl status shiny-server >/dev/null 2>&1; then
             sudo systemctl restart shiny-server && echo \"Shiny Server omstartad.\"
           fi
+
+      - name: Regenerera landningssida
+        run: |
+          sudo /usr/local/bin/generera_landningssida.sh || echo \"Varning: kunde inte regenerera landningssidan (ej kritiskt fel)\"
 "
 
 writeLines(avpublicera_yml, file.path(workflows_dir, "avpublicera.yml"))
@@ -7559,184 +7564,388 @@ shinyapp_flytta <- function(
   writeLines(paste0("target: ", target), yml_path)
 }
 
+
 webbrapport_publicera <- function(
     rapport_repo,
-    rapport_html_fil   = NULL,
-    repo               = "samhallsanalys-rapporter",
-    github_org         = "Region-Dalarna",
-    from_branch        = "master",
-    to_branch          = "publicera",
-    remote             = "origin",
-    sokvag_lokalt_repo = "c:/gh",
-    public_dir         = "public",
-    publicera_aven_om_html_fil_aldre_an_rmd_qmd_fil = FALSE
+    target              = c("publik", "intern"),
+    from_branch         = "main",
+    remote              = "origin",
+    sokvag_lokalt_repo  = "c:/gh",
+    github_org          = "Region-Dalarna",
+    publicera_aven_om_html_fil_aldre_an_rmd_qmd_fil = FALSE,
+    tolerans_sekunder   = 60,   # marginal innan "html äldre än källa" varnas
+    commit_meddelande   = NULL
 ) {
+  target <- match.arg(target)
+  to_branch <- paste0("publicera-", target)
+  
   stopifnot(
-    is.character(rapport_repo), length(rapport_repo) == 1, nzchar(rapport_repo),
-    is.character(github_org),   length(github_org) == 1,   nzchar(github_org)
+    is.character(rapport_repo), length(rapport_repo) == 1, nzchar(rapport_repo)
   )
   
-  # Default: <rapport_repo>.html i rotkatalogen för rapport_repo
-  if (is.null(rapport_html_fil) || !nzchar(rapport_html_fil)) {
-    rapport_html_fil <- paste0(rapport_repo, ".html")
-  }
-  
-  kalla_repo_dir <- normalizePath(
+  repo_dir <- normalizePath(
     file.path(sokvag_lokalt_repo, rapport_repo),
     winslash = "/", mustWork = TRUE
   )
-  mal_repo_dir <- normalizePath(
-    file.path(sokvag_lokalt_repo, repo),
-    winslash = "/", mustWork = TRUE
-  )
   
-  if (!grepl("\\.html?$", rapport_html_fil, ignore.case = TRUE)) {
-    stop("rapport_html_fil måste sluta på .html eller .htm: '", rapport_html_fil, "'")
-  }
-  
-  kalla_html <- normalizePath(
-    file.path(kalla_repo_dir, rapport_html_fil),
-    winslash = "/", mustWork = FALSE
-  )
-  
-  if (!file.exists(kalla_html)) {
+  html_fil  <- file.path(repo_dir, paste0(rapport_repo, ".html"))
+  if (!file.exists(html_fil)) {
     stop(
-      "Hittar inte HTML-filen: ", kalla_html,
-      "\nKontrollera att den är renderad och att rapport_html_fil är rätt."
+      "Hittar inte förväntad HTML-fil: ", html_fil,
+      "\nFilen måste heta samma som repot (", rapport_repo, ".html)."
     )
   }
   
-  if (!startsWith(paste0(kalla_html, "/"), paste0(kalla_repo_dir, "/"))) {
-    stop(
-      "rapport_html_fil pekar utanför rapport_repo '", rapport_repo, "'.\n",
-      "  Filen: ", kalla_html, "\n",
-      "  Repo:  ", kalla_repo_dir, "\n",
-      "Filer utanför rapport_repo är inte tillåtna."
-    )
-  }
-  
-  # Kontroll: HTML-filen får inte vara äldre än ev. .qmd/.Rmd-källa
-  html_stam <- sub("\\.html?$", "", basename(kalla_html), ignore.case = TRUE)
-  html_dir  <- dirname(kalla_html)
+  # --- Färskhetskontroll: varna (inte stoppa) om html är äldre än källfilen ---
+  html_stam <- rapport_repo
   kallfil_kandidater <- c(
-    file.path(html_dir, paste0(html_stam, ".qmd")),
-    file.path(html_dir, paste0(html_stam, ".Rmd")),
-    file.path(html_dir, paste0(html_stam, ".rmd"))
+    file.path(repo_dir, paste0(html_stam, ".qmd")),
+    file.path(repo_dir, paste0(html_stam, ".Rmd")),
+    file.path(repo_dir, paste0(html_stam, ".rmd"))
   )
-  kallfil <- kallfil_kandidater[file.exists(kallfil_kandidater)]
+  kallfil <- unique(normalizePath(kallfil_kandidater[file.exists(kallfil_kandidater)]))
   
   if (length(kallfil) > 0) {
     kallfil_mtime <- max(file.info(kallfil)$mtime)
-    html_mtime    <- file.info(kalla_html)$mtime
-    if (html_mtime < kallfil_mtime) {
+    html_mtime    <- file.info(html_fil)$mtime
+    if (as.numeric(html_mtime) < as.numeric(kallfil_mtime) - tolerans_sekunder) {
       msg <- paste0(
-        "HTML-filen är äldre än källfilen — rendera om innan publicering.\n",
-        "  HTML:  ", kalla_html, " (", format(html_mtime), ")\n",
+        "VARNING: HTML-filen är äldre än källfilen — kanske glömt rendera om?\n",
+        "  HTML:  ", html_fil, " (", format(html_mtime), ")\n",
         "  Källa: ", paste(kallfil, collapse = ", "), " (", format(kallfil_mtime), ")"
       )
       if (!isTRUE(publicera_aven_om_html_fil_aldre_an_rmd_qmd_fil)) {
-        stop(msg)
+        message(msg)
+        message("Fortsätter ändå (publicera_aven_om_html_fil_aldre_an_rmd_qmd_fil styr bara om detta ska stoppa körningen framöver).")
+      } else {
+        message(msg)
       }
-      warning(msg, "\nFortsätter eftersom publicera_aven_om_html_fil_aldre_an_rmd_qmd_fil = TRUE.")
     }
   }
   
-  mapp_namn <- sub("\\.html?$", "", basename(rapport_html_fil), ignore.case = TRUE)
-  
-  if (!grepl("^[A-Za-z0-9._-]+$", mapp_namn)) {
-    stop(
-      "Ogiltigt mappnamn '", mapp_namn, "' — får bara innehålla bokstäver, ",
-      "siffror, punkt, understreck och bindestreck."
-    )
-  }
-  
-  message("Källa: ", kalla_html)
-  message("Mål:   ", repo, "/", public_dir, "/", mapp_namn, "/index.html")
-  
   old_wd <- getwd()
   on.exit(setwd(old_wd), add = TRUE)
-  setwd(mal_repo_dir)
+  setwd(repo_dir)
   
-  # Verifiera att remote pekar mot rätt org/repo
+  # Verifiera remote
   remotes <- gert::git_remote_list()
   remote_rad <- remotes[remotes$name == remote, , drop = FALSE]
   if (nrow(remote_rad) == 0) {
-    stop("Hittar ingen remote med namnet '", remote, "' i ", mal_repo_dir)
+    stop("Hittar ingen remote med namnet '", remote, "' i ", repo_dir)
   }
   remote_url <- remote_rad$url[1]
-  forvantad <- paste0(github_org, "/", repo)
-  if (!grepl(forvantad, remote_url, fixed = TRUE)) {
+  forvantad <- paste0(github_org, "/", rapport_repo)
+  if (!grepl(tolower(forvantad), tolower(remote_url), fixed = TRUE)) {
     stop(
       "Remote '", remote, "' pekar inte mot '", forvantad, "'.\n",
-      "  Faktisk url: ", remote_url, "\n",
-      "Kontrollera github_org/repo eller byt remote."
+      "  Faktisk url: ", remote_url
     )
   }
   
   gert::git_fetch(remote = remote)
+  
+  # Fallback: om angiven from_branch inte finns (varken lokalt eller på remote),
+  # och from_branch är "main" eller "master", prova den andra av de två innan
+  # vi ger upp. Ingen annan gissning görs.
+  alla_branches <- gert::git_branch_list()$name
+  branch_finns <- function(namn) {
+    namn %in% alla_branches || paste0(remote, "/", namn) %in% alla_branches
+  }
+  
+  if (!branch_finns(from_branch)) {
+    alternativ <- switch(from_branch,
+                         "main"   = "master",
+                         "master" = "main",
+                         NA_character_
+    )
+    if (!is.na(alternativ) && branch_finns(alternativ)) {
+      message(
+        "Branchen '", from_branch, "' hittades inte i '", rapport_repo,
+        "' — använder '", alternativ, "' istället."
+      )
+      from_branch <- alternativ
+    } else {
+      stop(
+        "Hittar varken branchen '", from_branch, "'",
+        if (!is.na(alternativ)) paste0(" eller '", alternativ, "'") else "",
+        " i '", rapport_repo, "'. Kontrollera branch-namnet manuellt."
+      )
+    }
+  }
+  
   if (gert::git_branch() != from_branch) {
     gert::git_branch_checkout(from_branch)
   }
   suppressMessages(gert::git_pull(remote = remote))
   
-  # Skapa mappen om den inte finns, och kopiera HTML-filen som index.html
-  mal_dir <- file.path(public_dir, mapp_namn)
-  if (!dir.exists(mal_dir)) {
-    dir.create(mal_dir, recursive = TRUE)
-    message("Skapade ny mapp: ", mal_dir)
-  }
-  mal_html <- file.path(mal_dir, "index.html")
-  file.copy(kalla_html, mal_html, overwrite = TRUE)
-  
-  # Commit + push till from_branch
-  gert::git_add(mal_dir)
-  commit_ok <- tryCatch({
-    gert::git_commit(paste0("Uppdatera rapport: ", mapp_namn))
-    TRUE
-  }, error = function(e) {
-    if (grepl("No staged files", e$message, fixed = TRUE)) {
-      message("Inga ändringar att commita — rapporten är redan up-to-date på '", from_branch, "'.")
-      FALSE
-    } else {
-      stop(e)
+  # Committa ev. ändringar på from_branch (t.ex. nyrenderad html) om det finns
+  status <- gert::git_status()
+  if (nrow(status) > 0) {
+    if (is.null(commit_meddelande)) {
+      commit_meddelande <- paste0("Uppdatera rapport: ", rapport_repo, " (", Sys.Date(), ")")
     }
-  })
-  if (isTRUE(commit_ok)) {
+    gert::git_add(".")
+    gert::git_commit(commit_meddelande)
     gert::git_push(remote = remote)
-    message("Pushade till '", from_branch, "'.")
+    message("Committade och pushade ändringar till '", from_branch, "'.")
+  } else {
+    message("Inga lokala ändringar att committa på '", from_branch, "'.")
   }
   
-  # Selektiv merge till to_branch
-  gert::git_branch_checkout(to_branch)
-  suppressMessages(gert::git_pull(remote = remote))
+  # Kolla om publicera-<target> redan pekar på samma commit som from_branch —
+  # om så, är denna version redan publicerad till target-servern och vi
+  # kan hoppa över pushen (och därmed undvika en icke-triggande no-op-push).
+  gert::git_fetch(remote = remote)
+  branch_info   <- gert::git_branch_list()
+  lokal_sha     <- branch_info$commit[branch_info$name == from_branch]
+  remote_to_sha <- branch_info$commit[branch_info$name == paste0(remote, "/", to_branch)]
   
-  system2("git", c("checkout", from_branch, "--", mal_dir))
+  redan_publicerad <- length(lokal_sha) == 1 && length(remote_to_sha) == 1 &&
+    lokal_sha == remote_to_sha
   
-  gert::git_add(mal_dir)
-  publicera_ok <- tryCatch({
-    gert::git_commit(paste0("Publicera rapport: ", mapp_namn))
-    TRUE
-  }, error = function(e) {
-    if (grepl("No staged files", e$message, fixed = TRUE)) {
-      message("Inga ändringar att publicera — '", to_branch, "' har redan denna version.")
-      FALSE
-    } else {
-      stop(e)
-    }
-  })
-  if (isTRUE(publicera_ok)) {
-    gert::git_push(remote = remote)
-    message("Pushade till '", to_branch, "' — deploy triggas via GitHub Actions.")
+  if (redan_publicerad) {
+    message(
+      "Den här versionen av '", rapport_repo, "' är redan publicerad på ",
+      target, "-servern. Ingen updatering behöver därför göras."
+    )
+  } else {
+    # Push direkt till publicera-publik/publicera-intern via refspec.
+    # Detta ÄR hela publiceringen — deploy.yml i repot sköter resten
+    # (döper om html:en till index.html, kör rapport_deploy_repo.sh,
+    # regenererar landningssidan).
+    refspec <- paste0("refs/heads/", from_branch, ":refs/heads/", to_branch)
+    gert::git_push(remote = remote, refspec = refspec, force = TRUE)
+    
+    message("Pushade '", from_branch, "' -> '", to_branch, "' — deploy triggas via GitHub Actions (", target, ").")
   }
-  
-  # Tillbaka till from_branch
-  gert::git_branch_checkout(from_branch)
   
   invisible(list(
     rapport_repo = rapport_repo,
-    rapport_html_fil = rapport_html_fil,
-    mapp_namn = mapp_namn,
-    kalla = kalla_html,
-    mal = mal_html
+    target = target,
+    to_branch = to_branch,
+    html_fil = html_fil
   ))
+}
+
+
+webbrapport_avpublicera <- function(
+    rapport_repo,
+    target      = c("publik", "intern"),
+    github_org  = "Region-Dalarna",
+    ref         = "main",   # branchen workflow_dispatch triggas mot — inte avgörande för VAD som tas bort, bara var workflow-filen läses ifrån
+    bekrafta    = TRUE   # TRUE = fråga interaktivt innan triggning, FALSE = kör direkt (t.ex. i skript)
+) {
+  target <- match.arg(target)
+  
+  if (isTRUE(bekrafta) && interactive()) {
+    svar <- readline(prompt = paste0(
+      "Är du säker på att du vill avpublicera '", rapport_repo,
+      "' från ", target, "-servern? Skriv repo-namnet för att bekräfta: "
+    ))
+    if (svar != rapport_repo) {
+      message("Avbrutet — bekräftelsen matchade inte repo-namnet.")
+      return(invisible(FALSE))
+    }
+  }
+  
+  if (Sys.getenv("GITHUB_PAT") == "") {
+    keyring_poster <- keyring::key_list(service = "github_token")
+    if (nrow(keyring_poster) == 0) {
+      stop(
+        "Ingen GitHub-token hittades. Kör usethis::gh_token_help() eller ",
+        "spara token med gitcreds::gitcreds_set().",
+        call. = FALSE
+      )
+    }
+    gh_user <- keyring_poster$username[1]
+    Sys.setenv(GITHUB_PAT = keyring::key_get("github_token", gh_user))
+  }
+  
+  dispatch_url <- glue::glue(
+    "https://api.github.com/repos/{github_org}/{rapport_repo}/actions/workflows/avpublicera.yml/dispatches"
+  )
+  
+  gor_dispatch <- function(anvand_ref) {
+    httr::POST(
+      url = dispatch_url,
+      httr::add_headers(
+        Authorization = paste("token", Sys.getenv("GITHUB_PAT")),
+        Accept = "application/vnd.github+json"
+      ),
+      body = list(
+        ref = anvand_ref,
+        inputs = list(
+          target = target,
+          bekraftelse = rapport_repo
+        )
+      ),
+      encode = "json"
+    )
+  }
+  
+  resp <- gor_dispatch(ref)
+  
+  # Fallback: om ref inte hittades och det var "main"/"master", prova den andra
+  if (httr::status_code(resp) == 422 &&
+      grepl("No ref found", httr::content(resp, as = "text", encoding = "UTF-8"), fixed = TRUE) &&
+      ref %in% c("main", "master")) {
+    alternativ_ref <- if (ref == "main") "master" else "main"
+    message("Branchen '", ref, "' hittades inte — provar '", alternativ_ref, "' istället.")
+    ref <- alternativ_ref
+    resp <- gor_dispatch(ref)
+  }
+  
+  if (httr::status_code(resp) == 204) {
+    message(
+      "✅ Avpublicering triggad för '", rapport_repo, "' (", target, "-server).\n",
+      "Följ förloppet på: https://github.com/", github_org, "/", rapport_repo, "/actions"
+    )
+    invisible(TRUE)
+  } else {
+    stop(
+      "Kunde inte trigga avpublicera-workflown (status ", httr::status_code(resp), ").\n",
+      "Svar: ", httr::content(resp, as = "text", encoding = "UTF-8")
+    )
+  }
+}
+
+
+# ==============================================================================
+# Funktioner för att hantera landningssidans exkluderingslistor via SSH.
+# Kräver nyckelbaserad SSH-inloggning uppsatt
+# sedan tidigare (ingen lösenordsprompt vid ssh-anrop).
+# ==============================================================================
+
+.LANDNINGSSIDA_SERVRAR <- list(
+  publik = "shinyserver",
+  intern = "shinyserver_intern"
+)
+
+.landningssida_validera_target <- function(target) {
+  giltiga <- names(.LANDNINGSSIDA_SERVRAR)
+  if (length(target) != 1 || !target %in% giltiga) {
+    stop(
+      "Ogiltigt värde för target: '", paste(target, collapse = ", "), "'.\n",
+      "Giltiga värden är: ", paste(giltiga, collapse = " eller "), ".",
+      call. = FALSE
+    )
+  }
+  target
+}
+
+.landningssida_kontrollera_ssh <- function(target) {
+  destination <- .LANDNINGSSIDA_SERVRAR[[target]]
+  
+  test <- suppressWarnings(system2(
+    "ssh",
+    args = c("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, "exit"),
+    stdout = FALSE, stderr = FALSE
+  ))
+  
+  if (!identical(test, 0L)) {
+    stop(
+      "Kunde inte nå SSH-anslutningen '", destination, "'.\n",
+      "Dessa funktioner förutsätter en uppsatt, nyckelbaserad SSH-anslutning ",
+      "med det namnet i din SSH-konfiguration (~/.ssh/config) — se dokumentationen ",
+      "för Shiny-servrarna för instruktioner om hur du sätter upp den.\n",
+      "OBS: dessa funktioner är enbart relevanta för dig som administrerar och ",
+      "förvaltar Region Dalarnas Shiny-servrar.",
+      call. = FALSE
+    )
+  }
+  invisible(TRUE)
+}
+
+.landningssida_ssh <- function(target, kommando) {
+  target <- match.arg(target, c("publik", "intern"))
+  .landningssida_kontrollera_ssh(target)
+  destination <- .LANDNINGSSIDA_SERVRAR[[target]]
+  
+  resultat <- system2(
+    "ssh",
+    args = c(destination, shQuote(kommando)),
+    stdout = TRUE, stderr = TRUE
+  )
+  
+  status <- attr(resultat, "status")
+  if (!is.null(status) && status != 0) {
+    stop(
+      "SSH-kommandot misslyckades mot ", target, " (", destination, "):\n",
+      paste(resultat, collapse = "\n")
+    )
+  }
+  resultat
+}
+
+#' Lista alla appar/rapporter på en server, med exkluderingsstatus
+#'
+#' @param target "publik" eller "intern"
+#' @return data.frame med kolumnerna typ, namn, exkluderad
+landningssida_lista_allt <- function(target = c("publik", "intern")) {
+  target <- .landningssida_validera_target(target)
+  rader <- .landningssida_ssh(target, "sudo /usr/local/bin/landningssida_status.sh")
+  
+  if (length(rader) == 0) {
+    message("Inget hittades (varken appar eller rapporter) på ", target, "-servern.")
+    return(invisible(data.frame(typ = character(0), namn = character(0), exkluderad = character(0))))
+  }
+  
+  delar <- strsplit(rader, "\\|")
+  df <- data.frame(
+    typ        = vapply(delar, `[`, character(1), 1),
+    namn       = vapply(delar, `[`, character(1), 2),
+    exkluderad = vapply(delar, `[`, character(1), 3),
+    stringsAsFactors = FALSE
+  )
+  df <- df[order(df$typ, df$namn), ]
+  rownames(df) <- NULL
+  df
+}
+
+#' Lista bara det som står i exkluderingslistan (manuellt tillagda undantag)
+#'
+#' @param target "publik" eller "intern"
+#' @return character vector med mappnamn
+landningssida_lista_exkluderade <- function(target = c("publik", "intern")) {
+  target <- .landningssida_validera_target(target)
+  rader <- .landningssida_ssh(target, "sudo /usr/local/bin/hantera_exkludering.sh lista")
+  if (length(rader) == 0) {
+    message("Exkluderingslistan för ", target, " är tom.")
+    return(invisible(character(0)))
+  }
+  rader
+}
+
+#' Lägg till en eller flera appar/rapporter i exkluderingslistan
+#'
+#' @param target "publik" eller "intern"
+#' @param namn character vector med mappnamn som ska exkluderas
+landningssida_exkludera <- function(target = c("publik", "intern"), namn) {
+  target <- .landningssida_validera_target(target)
+  stopifnot(is.character(namn), length(namn) > 0)
+  kommando <- paste(
+    "sudo /usr/local/bin/hantera_exkludering.sh lagg_till",
+    paste(shQuote(namn), collapse = " ")
+  )
+  resultat <- .landningssida_ssh(target, kommando)
+  cat(paste(resultat, collapse = "\n"), "\n")
+  message("Kör om landningssidegenereringen på ", target, " (eller vänta på nästa deploy/cron) för att se ändringen live.")
+  invisible(resultat)
+}
+
+#' Ta bort en eller flera appar/rapporter från exkluderingslistan
+#'
+#' @param target "publik" eller "intern"
+#' @param namn character vector med mappnamn som inte längre ska exkluderas
+landningssida_inkludera <- function(target = c("publik", "intern"), namn) {
+  target <- .landningssida_validera_target(target)
+  stopifnot(is.character(namn), length(namn) > 0)
+  kommando <- paste(
+    "sudo /usr/local/bin/hantera_exkludering.sh ta_bort",
+    paste(shQuote(namn), collapse = " ")
+  )
+  resultat <- .landningssida_ssh(target, kommando)
+  cat(paste(resultat, collapse = "\n"), "\n")
+  message("Kör om landningssidegenereringen på ", target, " (eller vänta på nästa deploy/cron) för att se ändringen live.")
+  invisible(resultat)
 }
