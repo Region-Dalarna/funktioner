@@ -5905,6 +5905,10 @@ jobs:
       - ${{ github.ref == 'refs/heads/publicera-intern' && 'shiny-deploy-intern' || 'shiny-deploy-publik' }}
 
     steps:
+      - name: Fix permissions från tidigare renv-installation
+        shell: bash
+        run: chmod -R u+w \"$GITHUB_WORKSPACE\" 2>/dev/null || true
+        
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -7929,7 +7933,9 @@ landningssida_exkludera <- function(target = c("publik", "intern"), namn) {
   )
   resultat <- .landningssida_ssh(target, kommando)
   cat(paste(resultat, collapse = "\n"), "\n")
-  message("Kör om landningssidegenereringen på ", target, " (eller vänta på nästa deploy/cron) för att se ändringen live.")
+  
+  .landningssida_ssh(target, "sudo /usr/local/bin/generera_landningssida.sh")
+  message("Landningssidan på ", target, " är regenererad — ändringen är live.")
   invisible(resultat)
 }
 
@@ -7946,6 +7952,142 @@ landningssida_inkludera <- function(target = c("publik", "intern"), namn) {
   )
   resultat <- .landningssida_ssh(target, kommando)
   cat(paste(resultat, collapse = "\n"), "\n")
-  message("Kör om landningssidegenereringen på ", target, " (eller vänta på nästa deploy/cron) för att se ändringen live.")
+  
+  .landningssida_ssh(target, "sudo /usr/local/bin/generera_landningssida.sh")
+  message("Landningssidan på ", target, " är regenererad — ändringen är live.")
   invisible(resultat)
+}
+
+
+# ==============================================================================
+# Funktioner för att hantera landningssidans ikonkopplingar via SSH.
+# Återanvänder .LANDNINGSSIDA_SERVRAR, .landningssida_validera_target och
+# .landningssida_ssh som redan finns definierade där.
+# ==============================================================================
+
+# Kurerad lista över relevanta ikoner ur Tabler-biblioteket (https://tabler.io/icons).
+# Fullständig bläddring: valfri giltig "ti-xxx"-klass funkar även om den inte
+# står med här — detta är bara en praktisk startpunkt, inte en begränsning.
+.LANDNINGSSIDA_IKONER_KURERADE <- c(
+  "ti-map"          = "Karta / geografi",
+  "ti-users"        = "Befolkning / grupper",
+  "ti-school"       = "Utbildning / skola",
+  "ti-shield"       = "Brott / säkerhet",
+  "ti-briefcase"    = "Näringsliv / arbete",
+  "ti-building"     = "Organisation / myndighet",
+  "ti-chart-bar"    = "Statistik / analys (stapeldiagram)",
+  "ti-chart-line"   = "Statistik / analys (linjediagram)",
+  "ti-chart-pie"    = "Statistik / analys (cirkeldiagram)",
+  "ti-virus"        = "Epidemiologi / hälsa",
+  "ti-heart"        = "Hälsa / vård",
+  "ti-home"         = "Bostad / hushåll",
+  "ti-car"          = "Transport / trafik",
+  "ti-bus"          = "Kollektivtrafik",
+  "ti-leaf"         = "Miljö / hållbarhet",
+  "ti-coin"         = "Ekonomi",
+  "ti-file-text"    = "Rapport / dokument (standard för rapporter)",
+  "ti-book"         = "Utredning / kunskap",
+  "ti-calendar"     = "Tidsserie / prognos",
+  "ti-database"     = "Data / register",
+  "ti-globe"        = "Internationellt / omvärld",
+  "ti-tool"         = "Verktyg / admin",
+  "ti-settings"     = "Inställningar / konfiguration",
+  "ti-apps"         = "Övrigt (standard för appar)"
+)
+
+#' Lista aktuell ikon för alla appar/rapporter på en server
+#'
+#' @param target "publik" eller "intern"
+#' @return data.frame med kolumnerna typ, namn, ikon, kalla ("override" eller "standard")
+landningssida_ikoner_lista <- function(target = c("publik", "intern")) {
+  target <- .landningssida_validera_target(target)
+  rader <- .landningssida_ssh(target, "sudo /usr/local/bin/landningssida_ikoner_status.sh")
+  
+  if (length(rader) == 0) {
+    message("Inget hittades (varken appar eller rapporter) på ", target, "-servern.")
+    return(invisible(data.frame(typ = character(0), namn = character(0), ikon = character(0), kalla = character(0))))
+  }
+  
+  delar <- strsplit(rader, "\\|")
+  df <- data.frame(
+    typ  = vapply(delar, `[`, character(1), 1),
+    namn = vapply(delar, `[`, character(1), 2),
+    ikon = vapply(delar, `[`, character(1), 3),
+    kalla = vapply(delar, `[`, character(1), 4),
+    stringsAsFactors = FALSE
+  )
+  df <- df[order(df$typ, df$namn), ]
+  rownames(df) <- NULL
+  df
+}
+
+#' Koppla en specifik ikon till en app eller rapport
+#'
+#' @param target "publik" eller "intern"
+#' @param namn mappnamnet (samma namn som visas i landningssida_lista_allt())
+#' @param ikon en giltig Tabler-ikonklass, t.ex. "ti-map" (se landningssida_lista_tillgangliga_ikoner())
+landningssida_ikoner_koppla <- function(target = c("publik", "intern"), namn, ikon) {
+  target <- .landningssida_validera_target(target)
+  stopifnot(is.character(namn), length(namn) == 1, nzchar(namn))
+  stopifnot(is.character(ikon), length(ikon) == 1, nzchar(ikon))
+  
+  if (!grepl("^ti-", ikon)) {
+    stop("Ikonklassen måste börja med 'ti-' (t.ex. 'ti-map'). Fick: '", ikon, "'", call. = FALSE)
+  }
+  
+  kommando <- paste("sudo /usr/local/bin/hantera_ikon.sh koppla", shQuote(namn), shQuote(ikon))
+  resultat <- .landningssida_ssh(target, kommando)
+  cat(paste(resultat, collapse = "\n"), "\n")
+  
+  .landningssida_ssh(target, "sudo /usr/local/bin/generera_landningssida.sh")
+  message("Landningssidan på ", target, " är regenererad — ändringen är live.")
+  invisible(resultat)
+}
+
+#' Ta bort en manuell ikonkoppling (återgår till standardlogikens gissning)
+#'
+#' @param target "publik" eller "intern"
+#' @param namn mappnamnet vars koppling ska tas bort
+landningssida_ikoner_ta_bort_koppling <- function(target = c("publik", "intern"), namn) {
+  target <- .landningssida_validera_target(target)
+  stopifnot(is.character(namn), length(namn) > 0)
+  
+  kommando <- paste(
+    "sudo /usr/local/bin/hantera_ikon.sh ta_bort",
+    paste(shQuote(namn), collapse = " ")
+  )
+  # ta_bort i hantera_ikon.sh tar bara emot ETT namn i taget, loopa om fler angetts
+  resultat <- unlist(lapply(namn, function(n) {
+    .landningssida_ssh(target, paste("sudo /usr/local/bin/hantera_ikon.sh ta_bort", shQuote(n)))
+  }))
+  cat(paste(resultat, collapse = "\n"), "\n")
+  
+  .landningssida_ssh(target, "sudo /usr/local/bin/generera_landningssida.sh")
+  message("Landningssidan på ", target, " är regenererad — ändringen är live.")
+  invisible(resultat)
+}
+
+#' Öppna webbläsaren mot Tabler-ikonbiblioteket för att bläddra bland alla ikoner
+landningssida_ikoner_bladdra <- function() {
+  utils::browseURL("https://tabler.io/icons")
+  invisible(NULL)
+}
+
+#' Visa en kurerad lista med relevanta ikoner att välja bland
+#'
+#' Ingen SSH-anrop — helt lokal. Hela Tabler-biblioteket (>4500 ikoner) går
+#' att bläddra fritt på https://tabler.io/icons, och landningssida_koppla_ikon()
+#' accepterar VILKEN giltig "ti-xxx"-klass som helst, inte bara de listade här.
+landningssida_ikoner_lista_tillgangliga <- function() {
+  df <- data.frame(
+    ikon = names(.LANDNINGSSIDA_IKONER_KURERADE),
+    beskrivning = unname(.LANDNINGSSIDA_IKONER_KURERADE),
+    stringsAsFactors = FALSE
+  )
+  message(
+    "Kurerad lista (", nrow(df), " st) — full bläddring: https://tabler.io/icons\n",
+    "Vilken giltig 'ti-xxx'-klass som helst funkar i landningssida_koppla_ikon(), ",
+    "även sådana som inte står med nedan."
+  )
+  df
 }
