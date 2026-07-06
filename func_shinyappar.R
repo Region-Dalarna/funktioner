@@ -136,18 +136,34 @@ shiny_list_passwords <- function() {
 
 
 shiny_uppkoppling_skriv <- function(
-    databas = "geodata",
+    db_name = "geodata",
     db_host = "WFALMITVS526.ltdalarna.se",
     db_port = 5432,
     db_options = "-c search_path=public",
     db_user = "shiny_skriv"
 ) {
   
-  shiny_uppkoppling_db(service_name = "databas_adm", 
-                 db_name = databas,
-                 db_host = db_host,
-                 db_port = db_port,
-                 db_options = db_options)
+  tryCatch({
+    # Etablera anslutningen
+    con <- dbConnect(          
+      RPostgres::Postgres(),
+      bigint = "integer",  
+      user = db_user,
+      password = shiny_get_password(db_user),
+      host = db_host,
+      port = db_port,
+      dbname = db_name,
+      #timezon = "UTC",
+      options=db_options)
+    
+    
+    # Returnerar anslutningen om den lyckas
+    return(con)
+  }, error = function(e) {
+    # Skriver ut felmeddelandet och returnerar NULL
+    print(paste("Ett fel inträffade vid anslutning till databasen:", e$message))
+    return(NULL)
+  })
 }
 
 shiny_uppkoppling_las <- function(
