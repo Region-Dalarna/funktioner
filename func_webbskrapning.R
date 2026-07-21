@@ -1,3 +1,198 @@
+#' Hitta en installerad Chromium-baserad webbläsare (Edge eller Chrome)
+#'
+#' Letar igenom kända installationsplatser för Microsoft Edge och Google
+#' Chrome på Windows, och faller tillbaka på Windows-registret. Gör att
+#' lösningen fungerar utan konfiguration på fler maskiner - oavsett om
+#' webbläsaren ligger under "Program Files" eller "Program Files (x86)",
+#' och oavsett om det är Edge eller Chrome som finns.
+#'
+#' Ordning: miljövariabeln SKRAP_EDGE_PATH (om satt) har alltid företräde,
+#' därefter Edge före Chrome, 64-bit före 32-bit.
+#'
+#' @return Sökvägen till första funna webbläsaren, eller NULL om ingen hittas.
+hitta_webblasare <- function() {
+  # 1. Uttrycklig miljövariabel vinner alltid
+  fran_env <- Sys.getenv("SKRAP_EDGE_PATH", "")
+  if (nzchar(fran_env) && file.exists(fran_env)) {
+    return(fran_env)
+  }
+  
+  # 2. Kända sökvägar, Edge fore Chrome
+  pf    <- Sys.getenv("PROGRAMFILES", "C:/Program Files")
+  pf86  <- Sys.getenv("PROGRAMFILES(X86)", "C:/Program Files (x86)")
+  lokal <- Sys.getenv("LOCALAPPDATA", "")
+  
+  kandidater <- c(
+    file.path(pf86, "Microsoft/Edge/Application/msedge.exe"),
+    file.path(pf,   "Microsoft/Edge/Application/msedge.exe"),
+    file.path(pf,   "Google/Chrome/Application/chrome.exe"),
+    file.path(pf86, "Google/Chrome/Application/chrome.exe"),
+    if (nzchar(lokal)) file.path(lokal, "Google/Chrome/Application/chrome.exe")
+  )
+  kandidater <- gsub("\\\\", "/", kandidater)
+  
+  for (k in kandidater) {
+    if (file.exists(k)) return(k)
+  }
+  
+  # 3. Windows-registret som sista utväg (App Paths)
+  reg_sok <- function(exe) {
+    nyckel <- paste0(
+      "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\", exe
+    )
+    varde <- tryCatch(
+      utils::readRegistry(nyckel, hive = "HLM", maxdepth = 1)[["(Default)"]],
+      error = function(e) NULL
+    )
+    if (!is.null(varde) && file.exists(varde)) gsub("\\\\", "/", varde) else NULL
+  }
+  for (exe in c("msedge.exe", "chrome.exe")) {
+    traff <- reg_sok(exe)
+    if (!is.null(traff)) return(traff)
+  }
+  
+  NULL
+}
+
+#' Testa om miljön klarar av att köra en skrapsession
+#'
+#' Kör igenom förutsättningarna i tur och ordning och skriver ut ett
+#' begripligt besked om exakt var det eventuellt brister - tänkt att köras
+#' först av en ny användare, så att man ser om det är paketinstallation,
+#' webbläsarsökväg, AppLocker eller nätverk som stoppar, istället för att
+#' fastna i kryptiska felmeddelanden.
+#'
+#' Testerna, i ordning:
+#' 1. Att de nödvändiga R-paketen är installerade.
+#' 2. Att Edge hittas på förväntad (eller angiven) sökväg.
+#' 3. Att processx kan starta Edge med en debug-port (fångar AppLocker-
+#'    blockering av själva webbläsarstarten).
+#' 4. Att debug-porten svarar på 127.0.0.1 (fångar loopback-/brandvägg).
+#' 5. Att chromote kan ansluta hela vägen och skapa en session.
+#'
+#' @param browser_path Sökväg till msedge.exe. Default som i
+#'   starta_skrapsession() (miljövariabeln SKRAP_EDGE_PATH eller
+#'   standardsökvägen).
+#'
+#' @return Osynligt TRUE om alla tester gick igenom, annars FALSE. Skriver
+#'   löpande ut resultatet av varje steg.
+#'
+#' @examples
+#' \dontrun{
+#' testa_skrapmiljo()
+#' }
+testa_skrapmiljo <- function(browser_path = NULL) {
+  
+  ok_rad  <- function(txt) message("  [OK]    ", txt)
+  fel_rad <- function(txt) message("  [FEL]   ", txt)
+  info_rad <- function(txt) message("          ", txt)
+  
+  message("Testar forutsattningar for skrapsession ...\n")
+  
+  # --- 1. R-paket -----------------------------------------------------------
+  noodvandiga <- c("chromote", "selenider", "processx", "httr", "jsonlite", "httpuv")
+  saknade <- noodvandiga[!vapply(noodvandiga, requireNamespace, logical(1), quietly = TRUE)]
+  if (length(saknade)) {
+    fel_rad(paste0("Foljande R-paket saknas: ", paste(saknade, collapse = ", ")))
+    info_rad(paste0("Installera med: install.packages(c(",
+                    paste0('\"', saknade, '\"', collapse = ", "), "))"))
+    info_rad("Gar inte det: kontrollera atkomst till CRAN (proxy?) och att")
+    info_rad("kompilering tillats (Rtools). Avbryter har.")
+    return(invisible(FALSE))
+  }
+  ok_rad("Alla nodvandiga R-paket ar installerade.")
+  
+  # --- 2. Webblasare hittas -------------------------------------------------
+  if (is.null(browser_path)) {
+    browser_path <- hitta_webblasare()
+  }
+  if (is.null(browser_path) || !file.exists(browser_path)) {
+    fel_rad("Hittar ingen Chromium-baserad webblasare (Edge eller Chrome).")
+    info_rad("Ange ratt sokvag via SKRAP_EDGE_PATH i .Renviron, t.ex.:")
+    info_rad('  SKRAP_EDGE_PATH=C:/Program Files/Microsoft/Edge/Application/msedge.exe')
+    return(invisible(FALSE))
+  }
+  ok_rad(paste0("Webblasare hittad: ", browser_path))
+  
+  # --- 3. Starta Edge med debug-port (fangar AppLocker) --------------------
+  port <- httpuv::randomPort(min = 9222, max = 9999, host = "127.0.0.1")
+  profil_dir <- tempfile("edge-testprofil-")
+  dir.create(profil_dir, showWarnings = FALSE, recursive = TRUE)
+  
+  proc <- tryCatch(
+    processx::process$new(
+      command = browser_path,
+      args = c("--headless", paste0("--remote-debugging-port=", port),
+               paste0("--user-data-dir=", profil_dir),
+               "--no-first-run", "--no-default-browser-check"),
+      supervise = FALSE
+    ),
+    error = function(e) e
+  )
+  if (inherits(proc, "error")) {
+    fel_rad("Kunde inte starta Edge-processen.")
+    if (grepl("1260|grupprincip|blocked", conditionMessage(proc), ignore.case = TRUE)) {
+      info_rad("Felet tyder pa AppLocker/gruppolicy (felkod 1260) - starten av")
+      info_rad("webblasaren blockeras. Kontakta IT om vitlistning, eller testa")
+      info_rad("om en annan Edge-sokvag under Program Files ar tillaten.")
+    } else {
+      info_rad(paste0("Felmeddelande: ", conditionMessage(proc)))
+    }
+    unlink(profil_dir, recursive = TRUE, force = TRUE)
+    return(invisible(FALSE))
+  }
+  ok_rad("Edge-processen startade.")
+  
+  # Stad upp oavsett hur resten gar
+  on.exit({
+    if (proc$is_alive()) proc$kill()
+    unlink(profil_dir, recursive = TRUE, force = TRUE)
+  }, add = TRUE)
+  
+  # --- 4. Debug-porten svarar pa 127.0.0.1 (fangar loopback/brandvagg) -----
+  url <- sprintf("http://127.0.0.1:%d/json/version", port)
+  svarat <- FALSE
+  for (i in 1:20) {
+    if (!proc$is_alive()) {
+      fel_rad("Edge avslutades ovantat direkt efter start.")
+      info_rad("Kan tyda pa att en policy stanger webblasaren, eller att")
+      info_rad("debug-porten ar sparrad. Kontakta IT.")
+      return(invisible(FALSE))
+    }
+    svarat <- tryCatch({ httr::GET(url, httr::timeout(1)); TRUE },
+                       error = function(e) FALSE)
+    if (svarat) break
+    Sys.sleep(0.5)
+  }
+  if (!svarat) {
+    fel_rad(paste0("Debug-porten ", port, " svarade inte pa 127.0.0.1."))
+    info_rad("Edge kor, men gar inte att na via loopback. Kan bero pa en")
+    info_rad("brandvagg eller EDR-produkt som blockerar lokal trafik. Kontakta IT.")
+    return(invisible(FALSE))
+  }
+  ok_rad("Debug-porten svarar pa 127.0.0.1.")
+  
+  # --- 5. chromote ansluter hela vagen -------------------------------------
+  anslutning <- tryCatch({
+    b <- chromote::ChromeRemote$new(host = "127.0.0.1", port = port)
+    chrom <- chromote::Chromote$new(browser = b)
+    sess <- chrom$new_session()
+    sess$close()
+    chrom$close()
+    TRUE
+  }, error = function(e) e)
+  
+  if (inherits(anslutning, "error")) {
+    fel_rad("chromote kunde inte ansluta hela vagen.")
+    info_rad(paste0("Felmeddelande: ", conditionMessage(anslutning)))
+    return(invisible(FALSE))
+  }
+  ok_rad("chromote anslot och kunde skapa en session.")
+  
+  message("\nAlla tester gick igenom - miljon klarar av att kora en skrapsession.")
+  invisible(TRUE)
+}
+
 #' Starta en skrapsession (Edge + chromote + selenider)
 #'
 #' Startar Microsoft Edge headless med en fjärrfelsökningsport, ansluter
@@ -16,9 +211,10 @@
 #'   ledig port automatiskt (kräver paketet httpuv). Ange ett fast
 #'   portnummer bara om du har ett särskilt behov av det.
 #' @param headless Kör Edge utan synligt fönster. Default TRUE.
-#' @param browser_path Sökväg till msedge.exe. Default hämtas från
-#'   miljövariabeln SKRAP_EDGE_PATH om den är satt, annars standardsökvägen
-#'   för 64-bitars Edge.
+#' @param browser_path Sökväg till msedge.exe eller chrome.exe. Default
+#'   NULL, vilket söker upp Edge eller Chrome automatiskt via
+#'   hitta_webblasare() (kända sökvägar + Windows-registret).
+#'   Miljövariabeln SKRAP_EDGE_PATH har företräde om den är satt.
 #' @param profil_dir Mapp för Edges temporära användarprofil. Default en
 #'   unik temp-mapp per session (så flera sessioner kan köras parallellt).
 #' @param timeout Antal sekunder att vänta på att debug-porten svarar.
@@ -47,10 +243,7 @@
 #' }
 starta_skrapsession <- function(port = NULL,
                                 headless = TRUE,
-                                browser_path = Sys.getenv(
-                                  "SKRAP_EDGE_PATH",
-                                  "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
-                                ),
+                                browser_path = NULL,
                                 profil_dir = tempfile("edge-profil-"),
                                 timeout = 15,
                                 view = FALSE,
@@ -58,11 +251,16 @@ starta_skrapsession <- function(port = NULL,
                                 hojd = 1000,
                                 user_agent = NULL) {
   
-  if (!file.exists(browser_path)) {
+  # Leta upp Edge/Chrome automatiskt om ingen sokvag angetts uttryckligen
+  if (is.null(browser_path)) {
+    browser_path <- hitta_webblasare()
+  }
+  if (is.null(browser_path) || !file.exists(browser_path)) {
     stop(
-      "Hittar inte Edge pa: ", browser_path,
-      "\nAnge korrekt sokvag via argumentet browser_path, ",
-      "eller satt miljovariabeln SKRAP_EDGE_PATH."
+      "Hittar ingen Chromium-baserad webblasare (Edge eller Chrome).\n",
+      "Ange sokvagen via argumentet browser_path, eller satt miljovariabeln ",
+      "SKRAP_EDGE_PATH i .Renviron.\n",
+      "Kor testa_skrapmiljo() for en steg-for-steg-diagnos."
     )
   }
   
