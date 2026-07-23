@@ -448,3 +448,21 @@ landningssida_app_oversikt <- function(target = c("publik", "intern"), visa_bort
     ORDER BY a.typ, a.namn
   ", status_villkor), params = list(target))
 }
+
+landningssida_synka_app_lista_nu <- function(target = c("publik", "intern"), andrad_av = NA_character_) {
+  target <- .landningssida_validera_target(target)
+  
+  if (target == "intern") {
+    landningssida_synka_app_lista(target = "intern")
+    message("App-listan (intern) ar synkad.")
+  } else {
+    con <- shiny_uppkoppling_skriv(db_name = "sekretess", db_user = "shiny_skriv_sekretess")
+    on.exit(DBI::dbDisconnect(con), add = TRUE)
+    DBI::dbExecute(con, "
+      INSERT INTO adminshiny.kommando (server, typ, payload, skapad_av)
+      VALUES ('publik', 'synka_app_lista', '{}', $1)
+    ", params = list(andrad_av))
+    message("Synk av app-listan (publik) ar koad - klar inom nagra sekunder.")
+  }
+  invisible(TRUE)
+}
