@@ -186,8 +186,11 @@ landningssida_exkludera <- function(target = c("publik", "intern"), namn, andrad
   }
   
   if (target == "intern") {
-    system2("sudo", args = c("-u", "shiny", "/usr/local/bin/generera_landningssida.sh"),
-            stdout = TRUE, stderr = TRUE)
+    resultat <- system2("/usr/local/bin/generera_landningssida.sh", stdout = TRUE, stderr = TRUE)
+    status <- attr(resultat, "status")
+    if (!is.null(status) && status != 0) {
+      stop("generera_landningssida.sh misslyckades: ", paste(resultat, collapse = "\n"), call. = FALSE)
+    }
     message(length(namn), " app(ar) tillagda i exkluderingslistan (intern). Landningssidan ar regenererad.")
   } else {
     message(length(namn), " app(ar) tillagda i exkluderingslistan (publik). ",
@@ -214,8 +217,11 @@ landningssida_inkludera <- function(target = c("publik", "intern"), namn) {
   }
   
   if (target == "intern") {
-    system2("sudo", args = c("-u", "shiny", "/usr/local/bin/generera_landningssida.sh"),
-            stdout = TRUE, stderr = TRUE)
+    resultat <- system2("/usr/local/bin/generera_landningssida.sh", stdout = TRUE, stderr = TRUE)
+    status <- attr(resultat, "status")
+    if (!is.null(status) && status != 0) {
+      stop("generera_landningssida.sh misslyckades: ", paste(resultat, collapse = "\n"), call. = FALSE)
+    }
     message(borttagna, " app(ar) borttagna fran exkluderingslistan (intern). Landningssidan ar regenererad.")
   } else {
     message(borttagna, " app(ar) borttagna fran exkluderingslistan (publik). ",
@@ -286,8 +292,11 @@ landningssida_ikoner_koppla <- function(target = c("publik", "intern"), namn, ik
   ", params = list(target, namn, ikon, andrad_av))
   
   if (target == "intern") {
-    system2("sudo", args = c("-u", "shiny", "/usr/local/bin/generera_landningssida.sh"),
-            stdout = TRUE, stderr = TRUE)
+    resultat <- system2("/usr/local/bin/generera_landningssida.sh", stdout = TRUE, stderr = TRUE)
+    status <- attr(resultat, "status")
+    if (!is.null(status) && status != 0) {
+      stop("generera_landningssida.sh misslyckades: ", paste(resultat, collapse = "\n"), call. = FALSE)
+    }
     message("Ikon kopplad (intern): ", namn, " -> ", ikon, ". Landningssidan ar regenererad.")
   } else {
     message("Ikon kopplad (publik): ", namn, " -> ", ikon,
@@ -314,8 +323,11 @@ landningssida_ikoner_ta_bort_koppling <- function(target = c("publik", "intern")
   }
   
   if (target == "intern") {
-    system2("sudo", args = c("-u", "shiny", "/usr/local/bin/generera_landningssida.sh"),
-            stdout = TRUE, stderr = TRUE)
+    resultat <- system2("/usr/local/bin/generera_landningssida.sh", stdout = TRUE, stderr = TRUE)
+    status <- attr(resultat, "status")
+    if (!is.null(status) && status != 0) {
+      stop("generera_landningssida.sh misslyckades: ", paste(resultat, collapse = "\n"), call. = FALSE)
+    }
     message(borttagna, " ikonkoppling(ar) borttagna (intern). Landningssidan ar regenererad.")
   } else {
     message(borttagna, " ikonkoppling(ar) borttagna (publik). ",
