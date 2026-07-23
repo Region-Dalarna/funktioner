@@ -414,3 +414,37 @@ landningssida_synka_app_lista <- function(target = c("publik", "intern"),
           length(saknas), " markerade borttagna.")
   invisible(list(funna = nrow(funna), nya = tillagda, borttagna = length(saknas)))
 }
+
+#' Hamta en samlad oversikt over appar/rapporter for en server, med
+#' exkluderingsstatus och ikon som kolumner. Anvands av "Appar och
+#' rapporter"-fliken.
+#'
+#' @param target "publik" eller "intern"
+#' @param visa_borttagna om TRUE, inkludera aven status = 'borttagen'
+#'   (standard: FALSE, visa bara aktiva - enligt tidigare beslut)
+landningssida_app_oversikt <- function(target = c("publik", "intern"), visa_borttagna = FALSE) {
+  target <- .landningssida_validera_target(target)
+  
+  con <- shiny_uppkoppling_las(db_name = "sekretess", db_user = "shiny_las_sekretess")
+  if (is.null(con)) stop("Kunde inte ansluta till databasen.", call. = FALSE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  
+  status_villkor <- if (visa_borttagna) "" else "AND a.status = 'aktiv'"
+  
+  DBI::dbGetQuery(con, sprintf("
+    SELECT
+      a.namn,
+      a.typ,
+      a.status,
+      a.senast_sedd,
+      (e.namn IS NOT NULL) AS exkluderad,
+      i.ikon
+    FROM adminshiny.landningssida_app a
+    LEFT JOIN adminshiny.landningssida_exkludering e
+      ON e.server = a.server AND e.namn = a.namn
+    LEFT JOIN adminshiny.landningssida_ikon i
+      ON i.server = a.server AND i.namn = a.namn
+    WHERE a.server = $1 %s
+    ORDER BY a.typ, a.namn
+  ", status_villkor), params = list(target))
+}
