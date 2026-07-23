@@ -174,27 +174,24 @@ landningssida_lista_exkluderade <- function(target = c("publik", "intern")) {
 landningssida_exkludera <- function(target = c("publik", "intern"), namn, andrad_av = NA_character_) {
   target <- .landningssida_validera_target(target)
   .landningssida_validera_namn(namn)
-
-  if (target == "publik") {
-    con <- shiny_uppkoppling_skriv(db_name = "sekretess", db_user = "shiny_skriv_sekretess")
-    on.exit(DBI::dbDisconnect(con), add = TRUE)
-    for (n in namn) {
-      DBI::dbExecute(con, "
-        INSERT INTO adminshiny.landningssida_exkludering (server, namn, tillagd_av)
-        VALUES ('publik', $1, $2)
-        ON CONFLICT (server, namn) DO NOTHING
-      ", params = list(n, andrad_av))
-    }
+  
+  con <- shiny_uppkoppling_skriv(db_name = "sekretess", db_user = "shiny_skriv_sekretess")
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  for (n in namn) {
+    DBI::dbExecute(con, "
+      INSERT INTO adminshiny.landningssida_exkludering (server, namn, tillagd_av)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (server, namn) DO NOTHING
+    ", params = list(target, n, andrad_av))
+  }
+  
+  if (target == "intern") {
+    system2("sudo", args = c("-u", "shiny", "/usr/local/bin/generera_landningssida.sh"),
+            stdout = TRUE, stderr = TRUE)
+    message(length(namn), " app(ar) tillagda i exkluderingslistan (intern). Landningssidan ar regenererad.")
+  } else {
     message(length(namn), " app(ar) tillagda i exkluderingslistan (publik). ",
             "Andringen synkas automatiskt av adminportal-lyssnare-tjansten inom nagra sekunder.")
-  } else {
-    resultat <- .landningssida_lokalt_anrop(
-      "/usr/local/bin/hantera_exkludering.sh",
-      c("lagg_till", shQuote(namn))
-    )
-    cat(paste(resultat, collapse = "\n"), "\n")
-    .landningssida_lokalt_anrop("/usr/local/bin/generera_landningssida.sh")
-    message("Landningssidan (intern) ar regenererad - andringen ar live.")
   }
   invisible(TRUE)
 }
@@ -205,27 +202,24 @@ landningssida_exkludera <- function(target = c("publik", "intern"), namn, andrad
 landningssida_inkludera <- function(target = c("publik", "intern"), namn) {
   target <- .landningssida_validera_target(target)
   .landningssida_validera_namn(namn)
-
-  if (target == "publik") {
-    con <- shiny_uppkoppling_skriv(db_name = "sekretess", db_user = "shiny_skriv_sekretess")
-    on.exit(DBI::dbDisconnect(con), add = TRUE)
-    borttagna <- 0
-    for (n in namn) {
-      borttagna <- borttagna + DBI::dbExecute(con, "
-        DELETE FROM adminshiny.landningssida_exkludering
-        WHERE server = 'publik' AND namn = $1
-      ", params = list(n))
-    }
+  
+  con <- shiny_uppkoppling_skriv(db_name = "sekretess", db_user = "shiny_skriv_sekretess")
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  borttagna <- 0
+  for (n in namn) {
+    borttagna <- borttagna + DBI::dbExecute(con, "
+      DELETE FROM adminshiny.landningssida_exkludering
+      WHERE server = $1 AND namn = $2
+    ", params = list(target, n))
+  }
+  
+  if (target == "intern") {
+    system2("sudo", args = c("-u", "shiny", "/usr/local/bin/generera_landningssida.sh"),
+            stdout = TRUE, stderr = TRUE)
+    message(borttagna, " app(ar) borttagna fran exkluderingslistan (intern). Landningssidan ar regenererad.")
+  } else {
     message(borttagna, " app(ar) borttagna fran exkluderingslistan (publik). ",
             "Andringen synkas automatiskt inom nagra sekunder.")
-  } else {
-    resultat <- .landningssida_lokalt_anrop(
-      "/usr/local/bin/hantera_exkludering.sh",
-      c("ta_bort", shQuote(namn))
-    )
-    cat(paste(resultat, collapse = "\n"), "\n")
-    .landningssida_lokalt_anrop("/usr/local/bin/generera_landningssida.sh")
-    message("Landningssidan (intern) ar regenererad - andringen ar live.")
   }
   invisible(TRUE)
 }
@@ -282,25 +276,22 @@ landningssida_ikoner_koppla <- function(target = c("publik", "intern"), namn, ik
   if (!.landningssida_ikon_giltig(ikon)) {
     stop("Okand ikonklass: '", ikon, "'. Kontrollera stavningen pa https://tabler.io/icons.", call. = FALSE)
   }
-
-  if (target == "publik") {
-    con <- shiny_uppkoppling_skriv(db_name = "sekretess", db_user = "shiny_skriv_sekretess")
-    on.exit(DBI::dbDisconnect(con), add = TRUE)
-    DBI::dbExecute(con, "
-      INSERT INTO adminshiny.landningssida_ikon (server, namn, ikon, satt_av)
-      VALUES ('publik', $1, $2, $3)
-      ON CONFLICT (server, namn) DO UPDATE SET ikon = EXCLUDED.ikon, satt_tid = now()
-    ", params = list(namn, ikon, andrad_av))
+  
+  con <- shiny_uppkoppling_skriv(db_name = "sekretess", db_user = "shiny_skriv_sekretess")
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  DBI::dbExecute(con, "
+    INSERT INTO adminshiny.landningssida_ikon (server, namn, ikon, satt_av)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT (server, namn) DO UPDATE SET ikon = EXCLUDED.ikon, satt_tid = now()
+  ", params = list(target, namn, ikon, andrad_av))
+  
+  if (target == "intern") {
+    system2("sudo", args = c("-u", "shiny", "/usr/local/bin/generera_landningssida.sh"),
+            stdout = TRUE, stderr = TRUE)
+    message("Ikon kopplad (intern): ", namn, " -> ", ikon, ". Landningssidan ar regenererad.")
+  } else {
     message("Ikon kopplad (publik): ", namn, " -> ", ikon,
             ". Andringen synkas automatiskt inom nagra sekunder.")
-  } else {
-    resultat <- .landningssida_lokalt_anrop(
-      "/usr/local/bin/hantera_ikon.sh",
-      c("koppla", shQuote(namn), shQuote(ikon))
-    )
-    cat(paste(resultat, collapse = "\n"), "\n")
-    .landningssida_lokalt_anrop("/usr/local/bin/generera_landningssida.sh")
-    message("Landningssidan (intern) ar regenererad - andringen ar live.")
   }
   invisible(TRUE)
 }
@@ -311,29 +302,24 @@ landningssida_ikoner_koppla <- function(target = c("publik", "intern"), namn, ik
 landningssida_ikoner_ta_bort_koppling <- function(target = c("publik", "intern"), namn) {
   target <- .landningssida_validera_target(target)
   .landningssida_validera_namn(namn)
-
-  if (target == "publik") {
-    con <- shiny_uppkoppling_skriv(db_name = "sekretess", db_user = "shiny_skriv_sekretess")
-    on.exit(DBI::dbDisconnect(con), add = TRUE)
-    borttagna <- 0
-    for (n in namn) {
-      borttagna <- borttagna + DBI::dbExecute(con, "
-        DELETE FROM adminshiny.landningssida_ikon
-        WHERE server = 'publik' AND namn = $1
-      ", params = list(n))
-    }
+  
+  con <- shiny_uppkoppling_skriv(db_name = "sekretess", db_user = "shiny_skriv_sekretess")
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  borttagna <- 0
+  for (n in namn) {
+    borttagna <- borttagna + DBI::dbExecute(con, "
+      DELETE FROM adminshiny.landningssida_ikon
+      WHERE server = $1 AND namn = $2
+    ", params = list(target, n))
+  }
+  
+  if (target == "intern") {
+    system2("sudo", args = c("-u", "shiny", "/usr/local/bin/generera_landningssida.sh"),
+            stdout = TRUE, stderr = TRUE)
+    message(borttagna, " ikonkoppling(ar) borttagna (intern). Landningssidan ar regenererad.")
+  } else {
     message(borttagna, " ikonkoppling(ar) borttagna (publik). ",
             "Andringen synkas automatiskt inom nagra sekunder.")
-  } else {
-    for (n in namn) {
-      resultat <- .landningssida_lokalt_anrop(
-        "/usr/local/bin/hantera_ikon.sh",
-        c("ta_bort", shQuote(n))
-      )
-      cat(paste(resultat, collapse = "\n"), "\n")
-    }
-    .landningssida_lokalt_anrop("/usr/local/bin/generera_landningssida.sh")
-    message("Landningssidan (intern) ar regenererad - andringen ar live.")
   }
   invisible(TRUE)
 }
