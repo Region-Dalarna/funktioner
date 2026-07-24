@@ -55,7 +55,11 @@ kor_cron_jobb <- function(jobb_id) {
     
     malmapp <- file.path("/srv/shiny-server", jobb$app, "www", "nedladdning")
     if (!dir.exists(malmapp)) {
-      dir.create(malmapp, recursive = TRUE)
+      skapad <- dir.create(malmapp, recursive = TRUE)
+      if (!skapad || !dir.exists(malmapp)) {
+        stop("Kunde inte skapa katalogen '", malmapp, "' - saknar appen '",
+             jobb$app, "' skrivrattighet, eller finns den inte?", call. = FALSE)
+      }
       logga("Skapade katalog:", malmapp)
     }
     
