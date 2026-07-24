@@ -6853,7 +6853,8 @@ shinyapp_publicera <- function(
   
   # --- 5. Merge default-branchen in ---
   cat("Merge:ar ", default_branch, " in i ", publicera_branch, "...\n", sep = "")
-  kor_git("merge", paste0("origin/", default_branch), "--no-edit")
+  kor_git("merge", paste0("origin/", default_branch), "--no-edit",
+          "-X", "ignore-space-change")
   
   # --- 5b. No-op-skydd: om merge inte gav någon ny commit, gör en tom commit ---
   # Annars blir push:en en no-op och GitHub Actions triggas inte.
