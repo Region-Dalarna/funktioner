@@ -549,3 +549,136 @@ landningssida_synka_nedladdning <- function(target = c("publik", "intern"),
           borttagna, " borttagna.")
   invisible(list(funna = nrow(funna), borttagna = borttagna))
 }
+
+# ==============================================================================
+# Nedladdning: lasa och radera filer/mappar i www/nedladdning/.
+# ==============================================================================
+
+.landningssida_nedladdning_validera_filnamn <- function(filnamn) {
+  if (!grepl("^[a-zA-Z0-9_.-]+$", filnamn) || grepl("\\.\\.", filnamn) || startsWith(filnamn, ".")) {
+    stop("Ogiltigt filnamn: '", filnamn, "'", call. = FALSE)
+  }
+}
+
+#' Aggregerad oversikt (en rad per app) - antal filer, senaste andring, total storlek
+landningssida_nedladdning_lista <- function(target = c("publik", "intern")) {
+  target <- .landningssida_validera_target(target)
+  con <- shiny_uppkoppling_las(db_name = "sekretess", db_user = "shiny_las_sekretess")
+  if (is.null(con)) stop("Kunde inte ansluta till databasen.", call. = FALSE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  DBI::dbGetQuery(con, "
+    SELECT app,
+           count(*) AS antal_filer,
+           max(senast_andrad) AS senaste_andring,
+           sum(storlek_bytes) AS total_storlek
+    FROM adminshiny.landningssida_nedladdning
+    WHERE server = $1
+    GROUP BY app
+    ORDER BY app
+  ", params = list(target))
+}
+
+#' Detaljlista (en rad per fil) for en specifik app
+landningssida_nedladdning_lista_filer <- function(target = c("publik", "intern"), app) {
+  target <- .landningssida_validera_target(target)
+  .landningssida_validera_namn(app)
+  con <- shiny_uppkoppling_las(db_name = "sekretess", db_user = "shiny_las_sekretess")
+  if (is.null(con)) stop("Kunde inte ansluta till databasen.", call. = FALSE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  DBI::dbGetQuery(con, "
+    SELECT filnamn, storlek_bytes, senast_andrad
+    FROM adminshiny.landningssida_nedladdning
+    WHERE server = $1 AND app = $2
+    ORDER BY filnamn
+  ", params = list(target, app))
+}
+
+#' Kollar om appen har nagot AKTIVT cron-jobb - anvands for varningstext
+#' innan radering, sa en admin inte blir forvirrad av att en raderad fil
+#' "kommer tillbaka" av sig sjalv vid nasta schemalagda korning.
+landningssida_nedladdning_har_aktivt_cronjobb <- function(target = c("publik", "intern"), app) {
+  target <- .landningssida_validera_target(target)
+  .landningssida_validera_namn(app)
+  con <- shiny_uppkoppling_las(db_name = "sekretess", db_user = "shiny_las_sekretess")
+  if (is.null(con)) return(FALSE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  resultat <- DBI::dbGetQuery(con, "
+    SELECT namn FROM adminshiny.cron_jobb
+    WHERE server = $1 AND app = $2 AND aktiv = TRUE
+  ", params = list(target, app))
+  resultat$namn
+}
+
+# ---- Delad raderingslogik: kors lokalt, antingen direkt (intern) eller ----
+# ---- via lyssnarens kommando-hanterare (publik) --------------------------
+
+.landningssida_nedladdning_utfor_ta_bort_fil <- function(app, filnamn, shiny_rot = "/srv/shiny-server") {
+  .landningssida_validera_namn(app)
+  .landningssida_nedladdning_validera_filnamn(filnamn)
+  
+  mapp <- file.path(shiny_rot, app, "www", "nedladdning")
+  fil  <- file.path(mapp, filnamn)
+  
+  if (!file.exists(fil)) stop("Filen finns inte: ", fil, call. = FALSE)
+  if (!file.remove(fil)) stop("Kunde inte ta bort filen: ", fil, call. = FALSE)
+  
+  mapp_tom <- length(list.files(mapp)) == 0
+  if (mapp_tom) unlink(mapp, recursive = TRUE)
+  
+  invisible(mapp_tom)
+}
+
+.landningssida_nedladdning_utfor_ta_bort_mapp <- function(app, shiny_rot = "/srv/shiny-server") {
+  .landningssida_validera_namn(app)
+  mapp <- file.path(shiny_rot, app, "www", "nedladdning")
+  if (dir.exists(mapp)) unlink(mapp, recursive = TRUE)
+  invisible(TRUE)
+}
+
+#' Ta bort en enskild nedladdningsfil (+ mappen om den blir tom)
+landningssida_nedladdning_ta_bort_fil <- function(target = c("publik", "intern"), app, filnamn, andrad_av = NA_character_) {
+  target <- .landningssida_validera_target(target)
+  .landningssida_validera_namn(app)
+  .landningssida_nedladdning_validera_filnamn(filnamn)
+  
+  con <- shiny_uppkoppling_skriv(db_name = "sekretess", db_user = "shiny_skriv_sekretess")
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  
+  if (target == "intern") {
+    mapp_tom <- .landningssida_nedladdning_utfor_ta_bort_fil(app, filnamn)
+    DBI::dbExecute(con, "
+      DELETE FROM adminshiny.landningssida_nedladdning WHERE server = $1 AND app = $2 AND filnamn = $3
+    ", params = list(target, app, filnamn))
+    message("Filen borttagen (intern)", if (mapp_tom) " - mappen var tom och togs ocksa bort." else ".")
+  } else {
+    DBI::dbExecute(con, "
+      INSERT INTO adminshiny.kommando (server, typ, payload, skapad_av)
+      VALUES ('publik', 'ta_bort_nedladdningsfil', $1, $2)
+    ", params = list(jsonlite::toJSON(list(app = app, filnamn = filnamn), auto_unbox = TRUE), andrad_av))
+    message("Borttagning koad (publik) - klar inom nagra sekunder.")
+  }
+  invisible(TRUE)
+}
+
+#' Ta bort HELA nedladdningsmappen for en app (alla filer + mappen)
+landningssida_nedladdning_ta_bort_mapp <- function(target = c("publik", "intern"), app, andrad_av = NA_character_) {
+  target <- .landningssida_validera_target(target)
+  .landningssida_validera_namn(app)
+  
+  con <- shiny_uppkoppling_skriv(db_name = "sekretess", db_user = "shiny_skriv_sekretess")
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  
+  if (target == "intern") {
+    .landningssida_nedladdning_utfor_ta_bort_mapp(app)
+    DBI::dbExecute(con, "DELETE FROM adminshiny.landningssida_nedladdning WHERE server = $1 AND app = $2",
+                   params = list(target, app))
+    message("Nedladdningsmappen borttagen (intern).")
+  } else {
+    DBI::dbExecute(con, "
+      INSERT INTO adminshiny.kommando (server, typ, payload, skapad_av)
+      VALUES ('publik', 'ta_bort_nedladdningsmapp', $1, $2)
+    ", params = list(jsonlite::toJSON(list(app = app), auto_unbox = TRUE), andrad_av))
+    message("Borttagning koad (publik) - klar inom nagra sekunder.")
+  }
+  invisible(TRUE)
+}
