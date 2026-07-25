@@ -51,7 +51,11 @@ kor_cron_jobb <- function(jobb_id) {
               DBI::dbQuoteIdentifier(con_data, jobb$kalla_tabell))
     }
     
-    data <- DBI::dbGetQuery(con_data, sql)
+    data <- if (jobb$format == "gpkg") {
+      sf::st_read(con_data, query = sql, quiet = TRUE)
+    } else {
+      DBI::dbGetQuery(con_data, sql)
+    }
     
     malmapp <- file.path("/srv/shiny-server", jobb$app, "www", "nedladdning")
     if (!dir.exists(malmapp)) {
@@ -85,6 +89,12 @@ kor_cron_jobb <- function(jobb_id) {
         if (file.exists(p)) file.remove(p)
         utils::zip(zipfile = p, files = tmp_csv, flags = "-j")
         file.remove(tmp_csv)
+        p
+      },
+      "gpkg" = {
+        p <- file.path(malmapp, paste0(bas, ".gpkg"))
+        if (file.exists(p)) file.remove(p)
+        sf::st_write(data, dsn = p, layer = bas, driver = "GPKG", delete_dsn = TRUE, quiet = TRUE)
         p
       },
       stop("Okant format: ", jobb$format, call. = FALSE)
