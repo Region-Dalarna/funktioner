@@ -466,3 +466,86 @@ landningssida_synka_app_lista_nu <- function(target = c("publik", "intern"), and
   }
   invisible(TRUE)
 }
+
+#' Skannar www/nedladdning/-mappar for alla aktiva appar pa DENNA server och
+#' synkar mot adminshiny.landningssida_nedladdning. Kors lokalt (aldrig over
+#' natverk) - vid nattligt cron-skyddsnat, samt via "Synka nu"-lanken i UI:t.
+#'
+#' Till skillnad fran landningssida_app anvander vi verklig radering
+#' (DELETE) har, inte en status-kolumn - nedladdningsfiler har ingen
+#' motsvarande "bevara installningar om den kommer tillbaka"-logik som
+#' appar/rapporter har (ingen exkludering/ikon kopplad till en enskild fil).
+landningssida_synka_nedladdning <- function(target = c("publik", "intern"),
+                                            shiny_rot = "/srv/shiny-server") {
+  target <- .landningssida_validera_target(target)
+  
+  con <- shiny_uppkoppling_skriv(db_name = "sekretess", db_user = "shiny_skriv_sekretess")
+  if (is.null(con)) stop("Kunde inte ansluta till databasen for nedladdnings-synk.", call. = FALSE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  
+  aktiva_appar <- DBI::dbGetQuery(con, "
+    SELECT namn FROM adminshiny.landningssida_app
+    WHERE server = $1 AND typ = 'app' AND status = 'aktiv'
+  ", params = list(target))$namn
+  
+  hittade <- list()
+  for (app in aktiva_appar) {
+    nedladdning_mapp <- file.path(shiny_rot, app, "www", "nedladdning")
+    if (!dir.exists(nedladdning_mapp)) next
+    
+    filer <- list.files(nedladdning_mapp, full.names = FALSE, no.. = TRUE)
+    filer <- filer[!file.info(file.path(nedladdning_mapp, filer))$isdir]
+    if (length(filer) == 0) next
+    
+    info <- file.info(file.path(nedladdning_mapp, filer))
+    hittade[[length(hittade) + 1]] <- data.frame(
+      app = app,
+      filnamn = filer,
+      storlek_bytes = info$size,
+      senast_andrad = info$mtime,
+      stringsAsFactors = FALSE
+    )
+  }
+  
+  funna <- if (length(hittade) > 0) do.call(rbind, hittade) else
+    data.frame(app = character(0), filnamn = character(0),
+               storlek_bytes = numeric(0), senast_andrad = as.POSIXct(character(0)))
+  
+  # ---- Lagg till/uppdatera funna filer ----------------------------------------
+  for (i in seq_len(nrow(funna))) {
+    DBI::dbExecute(con, "
+      INSERT INTO adminshiny.landningssida_nedladdning
+        (server, app, filnamn, storlek_bytes, senast_andrad, uppdaterad_tid)
+      VALUES ($1, $2, $3, $4, $5, now())
+      ON CONFLICT (server, app, filnamn) DO UPDATE
+        SET storlek_bytes = EXCLUDED.storlek_bytes,
+            senast_andrad = EXCLUDED.senast_andrad,
+            uppdaterad_tid = now()
+    ", params = list(target, funna$app[i], funna$filnamn[i],
+                     funna$storlek_bytes[i], funna$senast_andrad[i]))
+  }
+  
+  # ---- Ta bort rader for filer som inte langre finns --------------------------
+  befintliga <- DBI::dbGetQuery(con, "
+    SELECT app, filnamn FROM adminshiny.landningssida_nedladdning WHERE server = $1
+  ", params = list(target))
+  
+  borttagna <- 0
+  if (nrow(befintliga) > 0) {
+    befintliga_nyckel <- paste(befintliga$app, befintliga$filnamn, sep = "\u0001")
+    funna_nyckel <- if (nrow(funna) > 0) paste(funna$app, funna$filnamn, sep = "\u0001") else character(0)
+    saknas <- which(!befintliga_nyckel %in% funna_nyckel)
+    
+    for (i in saknas) {
+      DBI::dbExecute(con, "
+        DELETE FROM adminshiny.landningssida_nedladdning
+        WHERE server = $1 AND app = $2 AND filnamn = $3
+      ", params = list(target, befintliga$app[i], befintliga$filnamn[i]))
+      borttagna <- borttagna + 1
+    }
+  }
+  
+  message("Nedladdning-synk (", target, "): ", nrow(funna), " fil(er) funna, ",
+          borttagna, " borttagna.")
+  invisible(list(funna = nrow(funna), borttagna = borttagna))
+}
