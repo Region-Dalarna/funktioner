@@ -558,3 +558,40 @@ hamta_telemetri_heatmap_alla <- function() {
   agg$timme <- as.integer(as.character(agg$timme))
   agg
 }
+
+#' Hamtar de senaste N rahandelserna for en app, med tolkad/lasbar
+#' beskrivning istallet for rå JSON.
+hamta_telemetri_handelser <- function(app_namn, target = c("publik", "intern"), antal = 200) {
+  target <- match.arg(target)
+  full_namn <- paste0(app_namn, "_", target)
+  
+  con <- shiny_uppkoppling_las(db_name = "sekretess", db_user = "shiny_las_sekretess")
+  if (is.null(con)) stop("Kunde inte ansluta till databasen.", call. = FALSE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  
+  rader <- DBI::dbGetQuery(con, "
+    SELECT time, session, type, details
+    FROM shiny_telemetry.event_log
+    WHERE app_name = $1
+    ORDER BY time DESC
+    LIMIT $2
+  ", params = list(full_namn, antal))
+  
+  if (nrow(rader) == 0) return(rader)
+  
+  rader$beskrivning <- vapply(seq_len(nrow(rader)), function(i) {
+    typ <- rader$type[i]
+    parsed <- tryCatch(jsonlite::fromJSON(rader$details[i]), error = function(e) NULL)
+    if (is.null(parsed)) return(rader$details[i])
+    
+    switch(typ,
+           "navigation" = paste("Flik:", parsed$value[1]),
+           "input"      = paste("Andrade:", parsed$id[1]),
+           "login"      = "Ny session (anonym)",
+           "browser"    = paste("Webblasare:", parsed$value[1]),
+           rader$details[i]
+    )
+  }, character(1))
+  
+  rader[, c("time", "session", "type", "beskrivning")]
+}
