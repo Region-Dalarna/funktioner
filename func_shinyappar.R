@@ -421,12 +421,19 @@ hamta_telemetri_data <- function(app_namn, target = c("publik", "intern"), fran 
     ORDER BY time
   "), params = params)
   
+  tom_tabell <- function(kol_namn) {
+    df <- data.frame(matrix(ncol = 2, nrow = 0))
+    names(df) <- kol_namn
+    df
+  }
+  
   if (nrow(rader) == 0) {
     return(list(
-      antal_sessioner = 0, antal_unika_anvandare = 0,
-      flikbesok = data.frame(flik = character(0), antal = integer(0)),
-      per_veckodag = data.frame(veckodag = character(0), antal = integer(0)),
-      per_timme = data.frame(timme = integer(0), antal = integer(0))
+      antal_sessioner       = 0,
+      antal_unika_anvandare = 0,
+      flikbesok             = tom_tabell(c("flik", "antal")),
+      per_veckodag          = tom_tabell(c("veckodag", "antal")),
+      per_timme             = tom_tabell(c("timme", "antal"))
     ))
   }
   
@@ -435,33 +442,42 @@ hamta_telemetri_data <- function(app_namn, target = c("publik", "intern"), fran 
   
   # ---- Unika anvandare (via login-eventens anon_user_-id) ----
   login_rader <- rader[rader$type == "login", ]
-  anvandar_id <- vapply(login_rader$details, function(d) {
-    parsed <- jsonlite::fromJSON(d)
-    if (!is.null(parsed$username)) parsed$username[1] else NA_character_
-  }, character(1))
+  anvandar_id <- if (nrow(login_rader) > 0) {
+    vapply(login_rader$details, function(d) {
+      parsed <- jsonlite::fromJSON(d)
+      if (!is.null(parsed$username)) parsed$username[1] else NA_character_
+    }, character(1))
+  } else character(0)
   antal_unika_anvandare <- length(unique(anvandar_id[!is.na(anvandar_id)]))
   
   # ---- Flikbesok (navigation-events) ----
   nav_rader <- rader[rader$type == "navigation", ]
-  flikar <- vapply(nav_rader$details, function(d) {
-    parsed <- jsonlite::fromJSON(d)
-    if (!is.null(parsed$value) && length(parsed$value) > 0) parsed$value[1] else NA_character_
-  }, character(1))
-  flikbesok <- as.data.frame(table(flik = flikar[!is.na(flikar)]), stringsAsFactors = FALSE)
-  names(flikbesok) <- c("flik", "antal")
-  flikbesok <- flikbesok[order(-flikbesok$antal), ]
+  flikar_valid <- character(0)
+  if (nrow(nav_rader) > 0) {
+    flikar <- vapply(nav_rader$details, function(d) {
+      parsed <- jsonlite::fromJSON(d)
+      if (!is.null(parsed$value) && length(parsed$value) > 0) parsed$value[1] else NA_character_
+    }, character(1))
+    flikar_valid <- flikar[!is.na(flikar)]
+  }
+  if (length(flikar_valid) == 0) {
+    flikbesok <- tom_tabell(c("flik", "antal"))
+  } else {
+    tab <- table(flikar_valid)
+    flikbesok <- data.frame(flik = names(tab), antal = as.integer(tab), stringsAsFactors = FALSE)
+    flikbesok <- flikbesok[order(-flikbesok$antal), ]
+  }
   
   # ---- Per veckodag / timme (baserat pa unika sessionsstarter) ----
   sessionsstart <- aggregate(time ~ session, data = rader, FUN = min)
   sessionsstart$veckodag <- weekdays(sessionsstart$time)
   sessionsstart$timme <- as.integer(format(sessionsstart$time, "%H"))
   
-  per_veckodag <- as.data.frame(table(veckodag = sessionsstart$veckodag), stringsAsFactors = FALSE)
-  names(per_veckodag) <- c("veckodag", "antal")
+  tab_v <- table(sessionsstart$veckodag)
+  per_veckodag <- data.frame(veckodag = names(tab_v), antal = as.integer(tab_v), stringsAsFactors = FALSE)
   
-  per_timme <- as.data.frame(table(timme = sessionsstart$timme), stringsAsFactors = FALSE)
-  names(per_timme) <- c("timme", "antal")
-  per_timme$timme <- as.integer(per_timme$timme)
+  tab_t <- table(sessionsstart$timme)
+  per_timme <- data.frame(timme = as.integer(names(tab_t)), antal = as.integer(tab_t), stringsAsFactors = FALSE)
   
   list(
     antal_sessioner       = antal_sessioner,
