@@ -331,3 +331,61 @@ df_till_sf <- function(df, geom_col = "geometry", crs = 3006) {
   st_crs(df_sf) <- crs
   return(df_sf)
 }
+
+# ==============================================================================
+# Telemetri (shiny.telemetry) - delad helper for alla appar.
+#
+# Skapar ett Telemetry-objekt kopplat mot shiny_telemetry-schemat i
+# sekretess-databasen. app_namn behover BARA vara appens eget namn - servern
+# ("_intern"/"_publik") laggs till automatiskt baserat pa hostname, sa att
+# samma app-namn pa bada servrarna aldrig blandas ihop i statistiken.
+#
+# Vid databasfel: varnar och returnerar NULL istallet for att krascha appen -
+# en tillfallig DB-storning ska aldrig hindra en app fran att starta.
+# ==============================================================================
+
+skapa_telemetry <- function(app_namn) {
+  if (!requireNamespace("shiny.telemetry", quietly = TRUE)) {
+    warning("Paketet shiny.telemetry ar inte installerat - statistik loggas inte.")
+    return(NULL)
+  }
+  
+  vardnamn <- Sys.info()[["nodename"]]
+  server_suffix <- if (grepl("^RP0003", vardnamn)) {
+    "_intern"
+  } else if (grepl("^wfalmitvs978", vardnamn)) {
+    "_publik"
+  } else {
+    warning("Okant vardnamn '", vardnamn, "' - kan inte avgora server. ",
+            "Anvander app-namnet utan server-suffix.")
+    ""
+  }
+  
+  losenord <- tryCatch(shiny_get_password("shiny_skriv_telemetry"),
+                       error = function(e) NA_character_)
+  if (is.na(losenord)) {
+    warning("Kunde inte hamta losenord for shiny_skriv_telemetry - statistik loggas inte.")
+    return(NULL)
+  }
+  
+  data_storage <- tryCatch({
+    shiny.telemetry::DataStoragePostgreSQL$new(
+      host       = "WFALMITVS526.ltdalarna.se",
+      port       = 5432,
+      dbname     = "sekretess",
+      user       = "shiny_skriv_telemetry",
+      password   = losenord,
+      schema     = "shiny_telemetry"
+    )
+  }, error = function(e) {
+    warning("Kunde inte ansluta telemetri-databasen: ", conditionMessage(e))
+    NULL
+  })
+  
+  if (is.null(data_storage)) return(NULL)
+  
+  shiny.telemetry::Telemetry$new(
+    app_name     = paste0(app_namn, server_suffix),
+    data_storage = data_storage
+  )
+}
