@@ -433,7 +433,8 @@ hamta_telemetri_data <- function(app_namn, target = c("publik", "intern"), fran 
       antal_unika_anvandare = 0,
       flikbesok             = tom_tabell(c("flik", "antal")),
       per_veckodag          = tom_tabell(c("veckodag", "antal")),
-      per_timme             = tom_tabell(c("timme", "antal"))
+      per_timme             = tom_tabell(c("timme", "antal")),
+      per_veckodag_timme    = tom_tabell(c("veckodag", "timme", "antal"))
     ))
   }
   
@@ -479,11 +480,81 @@ hamta_telemetri_data <- function(app_namn, target = c("publik", "intern"), fran 
   tab_t <- table(sessionsstart$timme)
   per_timme <- data.frame(timme = as.integer(names(tab_t)), antal = as.integer(tab_t), stringsAsFactors = FALSE)
   
+  # ---- Kombinerad veckodag x timme (for per-app-heatmap) ----
+  tab_vt <- as.data.frame(table(veckodag = sessionsstart$veckodag, timme = sessionsstart$timme))
+  names(tab_vt) <- c("veckodag", "timme", "antal")
+  tab_vt$timme <- as.integer(as.character(tab_vt$timme))
+  per_veckodag_timme <- tab_vt[tab_vt$antal > 0, ]
+  
   list(
     antal_sessioner       = antal_sessioner,
     antal_unika_anvandare = antal_unika_anvandare,
     flikbesok             = flikbesok,
     per_veckodag          = per_veckodag,
-    per_timme             = per_timme
+    per_timme             = per_timme,
+    per_veckodag_timme    = per_veckodag_timme
   )
+}
+
+#' Listar alla app+server-kombinationer som nagonsin loggat telemetri,
+#' med grundlaggande mattal. Anvands for oversiktstabellen i adminportal.
+hamta_telemetri_appar <- function() {
+  con <- shiny_uppkoppling_las(db_name = "sekretess", db_user = "shiny_las_sekretess")
+  if (is.null(con)) stop("Kunde inte ansluta till databasen.", call. = FALSE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  
+  df <- DBI::dbGetQuery(con, "
+    SELECT app_name,
+           count(DISTINCT session) AS antal_sessioner,
+           min(time) AS forsta_aktivitet,
+           max(time) AS senaste_aktivitet
+    FROM shiny_telemetry.event_log
+    GROUP BY app_name
+    ORDER BY app_name
+  ")
+  
+  if (nrow(df) == 0) return(df)
+  
+  # app_namn slutar alltid pa _intern eller _publik (satt av skapa_telemetry())
+  df$server <- ifelse(grepl("_intern$", df$app_name), "intern",
+                      ifelse(grepl("_publik$", df$app_name), "publik", NA_character_))
+  df$app <- sub("_(intern|publik)$", "", df$app_name)
+  
+  # Unika anvandare per app maste raknas separat (kraver JSON-parsning av login-events)
+  unika <- vapply(df$app_name, function(namn) {
+    login_rader <- DBI::dbGetQuery(con, "
+      SELECT details FROM shiny_telemetry.event_log
+      WHERE app_name = $1 AND type = 'login'
+    ", params = list(namn))
+    if (nrow(login_rader) == 0) return(0L)
+    id <- vapply(login_rader$details, function(d) {
+      p <- jsonlite::fromJSON(d)
+      if (!is.null(p$username)) p$username[1] else NA_character_
+    }, character(1))
+    length(unique(id[!is.na(id)]))
+  }, integer(1))
+  df$antal_unika_anvandare <- unika
+  
+  df[, c("app", "server", "antal_sessioner", "antal_unika_anvandare",
+         "forsta_aktivitet", "senaste_aktivitet")]
+}
+
+#' Aggregerar sessionsstarter per veckodag/timme over ALLA appar - for
+#' den samlade heatmapen pa Statistik-flikens forstasida.
+hamta_telemetri_heatmap_alla <- function() {
+  con <- shiny_uppkoppling_las(db_name = "sekretess", db_user = "shiny_las_sekretess")
+  if (is.null(con)) stop("Kunde inte ansluta till databasen.", call. = FALSE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  
+  rader <- DBI::dbGetQuery(con, "SELECT time, session FROM shiny_telemetry.event_log")
+  if (nrow(rader) == 0) return(data.frame(veckodag = character(0), timme = integer(0), antal = integer(0)))
+  
+  sessionsstart <- aggregate(time ~ session, data = rader, FUN = min)
+  sessionsstart$veckodag <- weekdays(sessionsstart$time)
+  sessionsstart$timme <- as.integer(format(sessionsstart$time, "%H"))
+  
+  agg <- as.data.frame(table(veckodag = sessionsstart$veckodag, timme = sessionsstart$timme))
+  names(agg) <- c("veckodag", "timme", "antal")
+  agg$timme <- as.integer(as.character(agg$timme))
+  agg
 }
