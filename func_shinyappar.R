@@ -389,3 +389,85 @@ skapa_telemetry <- function(app_namn) {
     data_storage = data_storage
   )
 }
+
+#' Hamtar aggregerad telemetristatistik for en app.
+#'
+#' @param app_namn appens namn UTAN server-suffix (t.ex. "brott")
+#' @param target "publik" eller "intern" - matchar server-suffixet skapa_telemetry() lagger till
+#' @param fran, till Date, avgransar perioden (NULL = ingen gransning)
+hamta_telemetri_data <- function(app_namn, target = c("publik", "intern"), fran = NULL, till = NULL) {
+  target <- match.arg(target)
+  full_namn <- paste0(app_namn, "_", target)
+  
+  con <- shiny_uppkoppling_las(db_name = "sekretess", db_user = "shiny_las_sekretess")
+  if (is.null(con)) stop("Kunde inte ansluta till databasen.", call. = FALSE)
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+  
+  villkor <- "app_name = $1"
+  params <- list(full_namn)
+  if (!is.null(fran)) {
+    villkor <- paste(villkor, "AND time >= $2")
+    params <- c(params, list(fran))
+  }
+  if (!is.null(till)) {
+    villkor <- paste(villkor, paste0("AND time <= $", length(params) + 1))
+    params <- c(params, list(till))
+  }
+  
+  rader <- DBI::dbGetQuery(con, paste0("
+    SELECT time, session, type, details
+    FROM shiny_telemetry.event_log
+    WHERE ", villkor, "
+    ORDER BY time
+  "), params = params)
+  
+  if (nrow(rader) == 0) {
+    return(list(
+      antal_sessioner = 0, antal_unika_anvandare = 0,
+      flikbesok = data.frame(flik = character(0), antal = integer(0)),
+      per_veckodag = data.frame(veckodag = character(0), antal = integer(0)),
+      per_timme = data.frame(timme = integer(0), antal = integer(0))
+    ))
+  }
+  
+  # ---- Antal sessioner ----
+  antal_sessioner <- length(unique(rader$session))
+  
+  # ---- Unika anvandare (via login-eventens anon_user_-id) ----
+  login_rader <- rader[rader$type == "login", ]
+  anvandar_id <- vapply(login_rader$details, function(d) {
+    parsed <- jsonlite::fromJSON(d)
+    if (!is.null(parsed$username)) parsed$username[1] else NA_character_
+  }, character(1))
+  antal_unika_anvandare <- length(unique(anvandar_id[!is.na(anvandar_id)]))
+  
+  # ---- Flikbesok (navigation-events) ----
+  nav_rader <- rader[rader$type == "navigation", ]
+  flikar <- vapply(nav_rader$details, function(d) {
+    parsed <- jsonlite::fromJSON(d)
+    if (!is.null(parsed$value) && length(parsed$value) > 0) parsed$value[1] else NA_character_
+  }, character(1))
+  flikbesok <- as.data.frame(table(flik = flikar[!is.na(flikar)]), stringsAsFactors = FALSE)
+  names(flikbesok) <- c("flik", "antal")
+  flikbesok <- flikbesok[order(-flikbesok$antal), ]
+  
+  # ---- Per veckodag / timme (baserat pa unika sessionsstarter) ----
+  sessionsstart <- aggregate(time ~ session, data = rader, FUN = min)
+  sessionsstart$veckodag <- weekdays(sessionsstart$time)
+  sessionsstart$timme <- as.integer(format(sessionsstart$time, "%H"))
+  
+  per_veckodag <- as.data.frame(table(veckodag = sessionsstart$veckodag), stringsAsFactors = FALSE)
+  names(per_veckodag) <- c("veckodag", "antal")
+  
+  per_timme <- as.data.frame(table(timme = sessionsstart$timme), stringsAsFactors = FALSE)
+  names(per_timme) <- c("timme", "antal")
+  per_timme$timme <- as.integer(per_timme$timme)
+  
+  list(
+    antal_sessioner       = antal_sessioner,
+    antal_unika_anvandare = antal_unika_anvandare,
+    flikbesok             = flikbesok,
+    per_veckodag          = per_veckodag,
+    per_timme             = per_timme
+  )
+}
