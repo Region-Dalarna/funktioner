@@ -370,12 +370,12 @@ skapa_telemetry <- function(app_namn) {
   
   data_storage <- tryCatch({
     shiny.telemetry::DataStoragePostgreSQL$new(
-      host       = "WFALMITVS526.ltdalarna.se",
-      port       = 5432,
-      dbname     = "sekretess",
-      user       = "shiny_skriv_telemetry",
-      password   = losenord,
-      schema     = "shiny_telemetry"
+      username = "shiny_skriv_telemetry",
+      password = losenord,
+      hostname = "WFALMITVS526.ltdalarna.se",
+      port     = 5432,
+      dbname   = "sekretess",
+      driver   = "RPostgres"
     )
   }, error = function(e) {
     warning("Kunde inte ansluta telemetri-databasen: ", conditionMessage(e))
