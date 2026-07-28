@@ -344,6 +344,8 @@ df_till_sf <- function(df, geom_col = "geometry", crs = 3006) {
 # en tillfallig DB-storning ska aldrig hindra en app fran att starta.
 # ==============================================================================
 
+
+# första gången en app startas på en server, skapas ett Telemetry-objekt
 skapa_telemetry <- function(app_namn) {
   if (!requireNamespace("shiny.telemetry", quietly = TRUE)) {
     warning("Paketet shiny.telemetry ar inte installerat - statistik loggas inte.")
@@ -389,6 +391,43 @@ skapa_telemetry <- function(app_namn) {
     data_storage = data_storage
   )
 }
+
+
+#' Wrapper for use_telemetry() med NULL-skydd, sa ui.R slipper if-satsen.
+telemetri_ui <- function(telemetry) {
+  if (is.null(telemetry)) return(NULL)
+  shiny.telemetry::use_telemetry()
+}
+
+#' Startar telemetri-loggning for en session pa ett standardiserat satt.
+#' Hamtar exkluderingsmonster fran databasen (med hardkodad fallback om
+#' den inte gar att na), sa alla appar kan uppdateras centralt utan
+#' kodandring/redeploy.
+telemetri_server <- function(telemetry, navigation_id, forsta_flik = NULL) {
+  if (is.null(telemetry)) return(invisible(NULL))
+  
+  regex <- tryCatch({
+    con <- shiny_uppkoppling_las(db_name = "sekretess", db_user = "shiny_las_sekretess")
+    on.exit(DBI::dbDisconnect(con), add = TRUE)
+    r <- DBI::dbGetQuery(con, "
+      SELECT varde FROM shiny_telemetry.installningar WHERE nyckel = 'exkludera_inputs_regex'
+    ")
+    if (nrow(r) > 0) r$varde[1] else NA_character_
+  }, error = function(e) NA_character_)
+  
+  if (is.na(regex)) {
+    regex <- "(_hovered$|_zoom$|_center$|_bounds$|_mouseover$|_mouseout$|_selected$|_set$)"
+  }
+  
+  telemetry$start_session(track_inputs = FALSE, navigation_input_id = navigation_id)
+  telemetry$log_all_inputs(excluded_inputs_regex = regex, excluded_inputs = navigation_id)
+  
+  if (!is.null(forsta_flik)) {
+    telemetry$log_navigation_manual(navigation_id, forsta_flik)
+  }
+  invisible(NULL)
+}
+
 
 #' Hamtar aggregerad telemetristatistik for en app.
 #'

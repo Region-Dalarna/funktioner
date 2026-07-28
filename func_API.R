@@ -5567,6 +5567,7 @@ shinyapp_skapa_med_github_repo <- function(
     githubmapp_lokalt  = "c:/gh/",          # Sökväg till mapp där du har alla github-repon, t.ex. "C:/github_repos"
     behorighet_team    = "samhallsanalys",  # GitHub-team som får push-behörighet, NULL om inget team
     target             = "publik",          # Default-server i _publicering_till_server.yml: "publik" eller "intern"
+    anvandningsstatistik_samla_in = TRUE,    # TRUE = installera shiny.telemetry och lagg in boilerplate for anvandningsstatistik
     test_skapa_ej_repo = FALSE,             # TRUE = hoppa över git-init OCH GitHub-repo (bara lokala filer/mappar)
     oppna_github_sida = TRUE,               # vi öppnar github-sidan när repot är skapat
     github_oppna_fordrojning = 2            # vi fördröjer öppningen av GitHub-sidan med någon sekund för att ge GitHub tid att skapa repot innan vi försöker öppna det (annars kan det bli 404)
@@ -5709,6 +5710,19 @@ shinyapp_skapa_med_github_repo <- function(
   
   # ==== Skapa global.R (i roten) ==============================================
   
+  telemetri_block <- if (isTRUE(anvandningsstatistik_samla_in)) {
+    glue::glue(
+      '
+source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_shinyappar.R", encoding = "utf-8", echo = FALSE)
+
+telemetry <- skapa_telemetry("<<github_repo>>")
+',
+      .open = "<<", .close = ">>"
+    )
+  } else {
+    ""
+  }
+  
   global_R <- glue::glue(
     '## Globala inställningar för Shinyappen: <<github_repo>>
 
@@ -5722,7 +5736,7 @@ library(dplyr)
 library(tidyr)
 library(readr)
 library(ggplot2)
-
+<<telemetri_block>>
 # Allmänna options - TRUE = visa inte R-felmeddelanden i appen, FALSE = visa felmeddelanden från R på webben
 options(shiny.sanitize.errors = FALSE)
 ',
@@ -5732,6 +5746,13 @@ options(shiny.sanitize.errors = FALSE)
   writeLines(global_R, file.path(sokvag_proj, "global.R"))
   
   # ==== Skapa ui.R (i roten) ==================================================
+  
+  telemetri_ui_rad <- if (isTRUE(anvandningsstatistik_samla_in)) {
+    ",\n      telemetri_ui(telemetry)"
+  } else {
+    ""
+  }
+  
   ui_R <- glue::glue("
 source('global.R')
 
@@ -5740,7 +5761,7 @@ shinyUI(
     tags$head(
       tags$link(rel = 'icon', type = 'image/x-icon', href = 'favicon.ico'),
       tags$link(rel = 'stylesheet', type = 'text/css', href = 'regiondalarna_ruf.css'),
-      tags$link(rel = 'stylesheet', type = 'text/css', href = 'app.css')
+      tags$link(rel = 'stylesheet', type = 'text/css', href = 'app.css')<<telemetri_ui_rad>>
     ),
 
     # ---- Header (matchar .rd-header i regiondalarna_ruf.css) --------------
@@ -5758,6 +5779,7 @@ shinyUI(
 
     # ---- Innehåll ---------------------------------------------------------
     tabsetPanel(
+      id = 'flikval',
       tabPanel('Tab 1',
         h3('Hej från <<github_repo>>'),
         verbatimTextOutput('example_text')
@@ -5784,15 +5806,21 @@ writeLines(ui_R, file.path(sokvag_proj, "ui.R"))
 
 # ==== Skapa server.R (i roten) ==============================================
 
-server_R <-
-  "shinyServer(function(input, output, session) {
-
-  output$example_text <- renderText({
-    'Byt ut detta mot din egen serverlogik.'
+  telemetri_server_rad <- if (isTRUE(anvandningsstatistik_samla_in)) {
+    "\n  telemetri_server(telemetry, navigation_id = 'flikval', forsta_flik = 'Tab 1')\n"
+  } else ""
+  
+  server_R <- glue::glue(
+    "shinyServer(function(input, output, session) {
+  <<telemetri_server_rad>>
+    output$example_text <- renderText({{
+      'Byt ut detta mot din egen serverlogik.'
+    }})
+  
   })
-
-})
-"
+  ",
+    .open = "<<", .close = ">>"
+  )
 
 writeLines(server_R, file.path(sokvag_proj, "server.R"))
 
@@ -5846,6 +5874,8 @@ writeLines(readme_content, file.path(sokvag_proj, "README.md"))
 
 # ==== Skapa _dependencies.R (root) ==========================================
 
+telemetri_dep_rad <- if (isTRUE(anvandningsstatistik_samla_in)) "library(shiny.telemetry)\n" else ""
+
 dependencies_R <- glue::glue(
   "# _dependencies.R – läses av renv::dependencies(), körs aldrig
 # Lägg till alla paket appen använder, även de som laddas via source().
@@ -5853,8 +5883,9 @@ library(DBI)
 library(RPostgres)
 library(sf)
 library(dbplyr)
-# ... lägg till fler paket vid behov
-"
+<<telemetri_dep_rad>># ... lägg till fler paket vid behov
+",
+  .open = "<<", .close = ">>"
 )
 
 writeLines(dependencies_R, file.path(sokvag_proj, "_dependencies.R"))
@@ -5954,7 +5985,11 @@ jobs:
 
       - name: Regenerera landningssida
         run: |
-          sudo /usr/local/bin/generera_landningssida.sh || echo \"Varning: kunde inte regenerera landningssidan (ej kritiskt fel)\"
+          sudo -u shiny /usr/local/bin/generera_landningssida.sh || echo \"Varning: kunde inte regenerera landningssidan (ej kritiskt fel)\"
+
+      - name: Synka app-lista mot databasen
+        run: |
+          sudo -u shiny /usr/local/bin/synka_app_lista.sh || echo \"Varning: kunde inte synka app-listan (ej kritiskt fel)\"
 "
 
 writeLines(deploy_yml, file.path(workflows_dir, "deploy.yml"))
@@ -6023,7 +6058,11 @@ jobs:
 
       - name: Regenerera landningssida
         run: |
-          sudo /usr/local/bin/generera_landningssida.sh || echo \"Varning: kunde inte regenerera landningssidan (ej kritiskt fel)\"
+          sudo -u shiny /usr/local/bin/generera_landningssida.sh || echo \"Varning: kunde inte regenerera landningssidan (ej kritiskt fel)\"
+
+      - name: Synka app-lista mot databasen
+        run: |
+          sudo -u shiny /usr/local/bin/synka_app_lista.sh || echo \"Varning: kunde inte synka app-listan (ej kritiskt fel)\"
 "
 
 writeLines(avpublicera_yml, file.path(workflows_dir, "avpublicera.yml"))
@@ -6032,18 +6071,9 @@ writeLines(avpublicera_yml, file.path(workflows_dir, "avpublicera.yml"))
 # ==== Initiera renv och installera grundpaket ===============================
 
 paket_app <- c(
-  "shiny",
-  "shinyjs",
-  "shinyWidgets",
-  "DT",
-  "ggiraph",
-  "dplyr",
-  "tidyr",
-  "readr",
-  "ggplot2",
-  "DBI",
-  "RPostgres",
-  "sf"
+  "shiny", "shinyjs", "shinyWidgets", "DT", "ggiraph", "dplyr", "tidyr",
+  "readr", "ggplot2", "DBI", "RPostgres", "sf",
+  if (isTRUE(anvandningsstatistik_samla_in)) "shiny.telemetry"
 )
 
 if (!requireNamespace("renv", quietly = TRUE)) {
