@@ -509,8 +509,14 @@ hamta_telemetri_data <- function(app_namn, target = c("publik", "intern"), fran 
   }
   
   # ---- Per veckodag / timme (baserat pa unika sessionsstarter) ----
+  # OBS: anvander INTE weekdays() har - den ar locale-beroende och gav fel
+  # (engelska) dagnamn pa servern, vilket gjorde att mergen mot de svenska
+  # dagnamnen i mod_statistik.R aldrig traffade och heatmapen visade 0 overallt.
+  # strftime(..., "%u") ar locale-oberoende (1 = mandag ... 7 = sondag, ISO 8601).
+  veckodag_namn <- c("måndag", "tisdag", "onsdag", "torsdag", "fredag", "lördag", "söndag")
+  
   sessionsstart <- aggregate(time ~ session, data = rader, FUN = min)
-  sessionsstart$veckodag <- weekdays(sessionsstart$time)
+  sessionsstart$veckodag <- veckodag_namn[as.integer(strftime(sessionsstart$time, "%u"))]
   sessionsstart$timme <- as.integer(format(sessionsstart$time, "%H"))
   
   tab_v <- table(sessionsstart$veckodag)
@@ -588,8 +594,12 @@ hamta_telemetri_heatmap_alla <- function() {
   rader <- DBI::dbGetQuery(con, "SELECT time, session FROM shiny_telemetry.event_log")
   if (nrow(rader) == 0) return(data.frame(veckodag = character(0), timme = integer(0), antal = integer(0)))
   
+  # Se kommentar i hamta_telemetri_data() - weekdays() ersatt med
+  # locale-oberoende strftime(..., "%u").
+  veckodag_namn <- c("måndag", "tisdag", "onsdag", "torsdag", "fredag", "lördag", "söndag")
+  
   sessionsstart <- aggregate(time ~ session, data = rader, FUN = min)
-  sessionsstart$veckodag <- weekdays(sessionsstart$time)
+  sessionsstart$veckodag <- veckodag_namn[as.integer(strftime(sessionsstart$time, "%u"))]
   sessionsstart$timme <- as.integer(format(sessionsstart$time, "%H"))
   
   agg <- as.data.frame(table(veckodag = sessionsstart$veckodag, timme = sessionsstart$timme))
