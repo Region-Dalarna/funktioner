@@ -7603,6 +7603,7 @@ shinyapp_flytta <- function(
 webbrapport_publicera <- function(
     rapport_repo,
     target              = c("publik", "intern"),
+    deploy_namn         = NULL,   # om HTML-fil/mapp-namn ska skilja sig fran repo-namnet, OBS! Vi ska gå ifrån detta så använd inte om vi inte absolut måste
     from_branch         = "main",
     remote              = "origin",
     sokvag_lokalt_repo  = "c:/gh",
@@ -7611,6 +7612,7 @@ webbrapport_publicera <- function(
     tolerans_sekunder   = 60,   # marginal innan "html äldre än källa" varnas
     commit_meddelande   = NULL
 ) {
+  
   target <- match.arg(target)
   to_branch <- paste0("publicera-", target)
   
@@ -7623,12 +7625,30 @@ webbrapport_publicera <- function(
     winslash = "/", mustWork = TRUE
   )
   
-  html_fil  <- file.path(repo_dir, paste0(rapport_repo, ".html"))
+  # Namnet som faktiskt ska anvandas for HTML-fil OCH mapp pa servern.
+  # Om deploy_namn inte anges, anvands rapport_repo precis som forut -
+  # helt bakatkompatibelt for repon dar namnen redan stammer.
+  effektivt_namn <- if (!is.null(deploy_namn)) deploy_namn else rapport_repo
+  
+  html_fil  <- file.path(repo_dir, paste0(effektivt_namn, ".html"))
   if (!file.exists(html_fil)) {
     stop(
       "Hittar inte förväntad HTML-fil: ", html_fil,
-      "\nFilen måste heta samma som repot (", rapport_repo, ".html)."
+      "\nFilen måste heta '", effektivt_namn, ".html'",
+      if (!is.null(deploy_namn)) " (enligt deploy_namn)" else " (samma som repot)", "."
     )
+  }
+  
+  # --- Skriv/uppdatera .rapport_deploy_namn om deploy_namn skiljer sig fran repot ---
+  # Servern lasser denna fil for att veta vilket namn den ska publicera under,
+  # istallet for att alltid anta att det ar samma som GitHub-repots namn.
+  namn_fil <- file.path(repo_dir, ".rapport_deploy_namn")
+  if (!is.null(deploy_namn)) {
+    befintligt <- if (file.exists(namn_fil)) trimws(readLines(namn_fil, warn = FALSE)) else NA_character_
+    if (is.na(befintligt) || befintligt != deploy_namn) {
+      writeLines(deploy_namn, namn_fil)
+      message("Skrev '.rapport_deploy_namn' = '", deploy_namn, "' (workaround tills repo/HTML-namn stammer).")
+    }
   }
   
   # --- Färskhetskontroll: varna (inte stoppa) om html är äldre än källfilen ---
