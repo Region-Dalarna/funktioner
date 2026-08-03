@@ -1,9 +1,8 @@
 # funktioner för att hantera api-anrop via px_web samt möjligen i framtiden även 
 # andra paket 
-
+ 
 if (!require("pacman")) install.packages("pacman")
-p_load(xml2,
-       git2r,
+p_load(git2r,
        gert,
        gh,
        pxweb,
@@ -17,7 +16,7 @@ p_load(xml2,
        usethis,
        glue,
        tidyverse)
-
+ 
 # ================================================= pxweb-funktioner ========================================================
 
 hamtaregtab <- function(){
@@ -437,7 +436,7 @@ svenska_tecken_byt_ut <- function(textstrang){
   # funktion för att ta bort prickar över svenska tecken
   suppress_specific_warning(
     if (!require("stringi")) install.packages("stringi")
-    ,"built under R version")
+  ,"built under R version")
   retur_strang <- stri_trans_general(textstrang, "Latin-ASCII")
   return(retur_strang)
 }
@@ -547,491 +546,491 @@ tatortskoder_bearbeta <- function(api_url, tatortskoder, var_namn = "region") {
 
 # ================================================= kolada-funktioner ========================================================
 
-#' 
-#' 
-#' # Globala inställningar för rate limiting
-#' .kolada_env <- new.env()
-#' .kolada_env$senaste_anrop <- 0
-#' .kolada_env$min_intervall <- 0.2  # 5 requests/sekund
-#' 
-#' # ============================================
-#' # INTERNA HJÄLPFUNKTIONER
-#' # ============================================
-#' 
-#' #' Intern: Rate limiting
-#' #' @keywords internal
-#' intern_kolada_throttle <- function() {
-#'   nuvarande_tid <- as.numeric(Sys.time())
-#'   forlöpt_tid <- nuvarande_tid - .kolada_env$senaste_anrop
-#'   
-#'   if (forlöpt_tid < .kolada_env$min_intervall) {
-#'     vantetid <- .kolada_env$min_intervall - forlöpt_tid
-#'     Sys.sleep(vantetid)
-#'   }
-#'   
-#'   .kolada_env$senaste_anrop <- as.numeric(Sys.time())
-#' }
-#' 
-#' #' Intern: Gör ett enskilt API-anrop
-#' #' @keywords internal
-#' intern_kolada_request <- function(endpoint, params = NULL, bas_url = "https://api.kolada.se/v3/") {
-#'   intern_kolada_throttle()
-#'   
-#'   url <- paste0(bas_url, endpoint)
-#'   response <- GET(url, query = params, timeout(30))
-#'   
-#'   # Hantera rate limiting från API:et
-#'   if (status_code(response) == 429) {
-#'     retry_after <- as.numeric(headers(response)$`retry-after` %||% 60)
-#'     warning(sprintf("API rate limit nådd. Väntar %d sekunder...", retry_after))
-#'     Sys.sleep(retry_after)
-#'     return(intern_kolada_request(endpoint, params, bas_url))
-#'   }
-#'   
-#'   # Hantera fel
-#'   if (status_code(response) != 200) {
-#'     stop(sprintf("API-fel %d: %s", status_code(response), content(response, "text")))
-#'   }
-#'   
-#'   content(response, "text", encoding = "UTF-8") %>%
-#'     jsonlite::fromJSON(simplifyVector = FALSE)
-#' }
-#' 
-#' #' Intern: Hantera paginering
-#' #' @keywords internal
-#' intern_kolada_paginera <- function(endpoint, params = NULL, visa_progress = FALSE) {
-#'   params <- params %||% list()
-#'   params$page <- 1
-#'   params$per_page <- 5000  # Max som API:et tillåter
-#'   
-#'   alla_objekt <- list()
-#'   totalt_antal <- NULL
-#'   
-#'   if (visa_progress) message(sprintf("Hämtar %s...", endpoint))
-#'   
-#'   repeat {
-#'     resultat <- intern_kolada_request(endpoint, params)
-#'     
-#'     objekt <- resultat$values %||% list()
-#'     alla_objekt <- c(alla_objekt, objekt)
-#'     
-#'     # Visa progress om vi vet totalt antal
-#'     if (is.null(totalt_antal) && !is.null(resultat$count)) {
-#'       totalt_antal <- resultat$count
-#'       if (visa_progress) message(sprintf("Totalt antal: %d", totalt_antal))
-#'     }
-#'     
-#'     if (visa_progress && !is.null(totalt_antal)) {
-#'       message(sprintf("Progress: %d/%d", length(alla_objekt), totalt_antal))
-#'     }
-#'     
-#'     # Kolla om det finns fler sidor
-#'     if (is.null(resultat$next_url) || resultat$next_url == "") break
-#'     
-#'     params$page <- params$page + 1
-#'   }
-#'   
-#'   if (visa_progress) message(sprintf("Hämtade %d objekt totalt", length(alla_objekt)))
-#'   
-#'   alla_objekt
-#' }
-#' 
-#' #' Intern: Dela upp i batches och kombinera resultat
-#' #' @keywords internal
-#' intern_kolada_batcha <- function(endpoint, params, batch_params, 
-#'                                  max_batch_storlek = 25, visa_progress = TRUE) {
-#'   
-#'   # Extrahera parametrar som behöver batching
-#'   batch_param_varden <- list()
-#'   for (param in batch_params) {
-#'     if (!is.null(params[[param]])) {
-#'       batch_param_varden[[param]] <- params[[param]]
-#'       params[[param]] <- NULL
-#'     }
-#'   }
-#'   
-#'   # Om inga parametrar behöver batching, gör vanlig paginerad request
-#'   if (length(batch_param_varden) == 0) {
-#'     return(intern_kolada_paginera(endpoint, params, visa_progress))
-#'   }
-#'   
-#'   # Skapa batches för varje parameter
-#'   param_batches <- list()
-#'   for (param_namn in names(batch_param_varden)) {
-#'     varden <- batch_param_varden[[param_namn]]
-#'     # Dela upp i chunks
-#'     antal_batches <- ceiling(length(varden) / max_batch_storlek)
-#'     batches <- split(varden, ceiling(seq_along(varden) / max_batch_storlek))
-#'     param_batches[[param_namn]] <- batches
-#'   }
-#'   
-#'   # Skapa alla kombinationer av batches (för multipla batchade parametrar)
-#'   param_namn <- names(param_batches)
-#'   batch_index_lista <- lapply(param_batches, function(x) seq_along(x))
-#'   batch_kombinationer <- expand.grid(batch_index_lista, stringsAsFactors = FALSE)
-#'   
-#'   alla_objekt <- list()
-#'   totalt_batches <- nrow(batch_kombinationer)
-#'   
-#'   if (visa_progress) {
-#'     message(sprintf("Bearbetar %d batch(ar) för %s...", totalt_batches, endpoint))
-#'   }
-#'   
-#'   for (i in seq_len(totalt_batches)) {
-#'     # Skapa params för denna batch
-#'     batch_params_aktuell <- params
-#'     
-#'     # Lägg till batch-värden för varje parameter
-#'     for (j in seq_along(param_namn)) {
-#'       param_namn_aktuell <- param_namn[j]
-#'       batch_idx <- batch_kombinationer[i, j]
-#'       batch_params_aktuell[[param_namn_aktuell]] <- param_batches[[param_namn_aktuell]][[batch_idx]]
-#'     }
-#'     
-#'     tryCatch({
-#'       # Gör paginerad request för denna batch
-#'       batch_objekt <- intern_kolada_paginera(endpoint, batch_params_aktuell, visa_progress = FALSE)
-#'       alla_objekt <- c(alla_objekt, batch_objekt)
-#'       
-#'       if (visa_progress && (i %% 5 == 0 || i == totalt_batches)) {
-#'         message(sprintf("  Slutförde batch %d/%d", i, totalt_batches))
-#'       }
-#'     }, error = function(e) {
-#'       warning(sprintf("Fel i batch %d: %s", i, e$message))
-#'     })
-#'   }
-#'   
-#'   if (visa_progress) {
-#'     message(sprintf("Totalt antal objekt från alla batches: %d", length(alla_objekt)))
-#'   }
-#'   
-#'   alla_objekt
-#' }
-#' 
-#' # ============================================
-#' # ANVÄNDARFUNKTIONER (PUBLIKA API:ET)
-#' # ============================================
-#' 
-#' #' Hämta rådata från Kolada API med automatisk batching
-#' #'
-#' #' @param kpi KPI-ID eller vektor av KPI-ID:n
-#' #' @param kommun Kommun-ID eller vektor av kommun-ID:n
-#' #' @param ar År eller vektor av år
-#' #' @param ou Organisationsenhet-ID eller vektor av OU-ID:n
-#' #' @param uppdaterad_sedan Filtrera data uppdaterad sedan detta datum (format: YYYY-MM-DD)
-#' #' @param max_batch_storlek Maximalt antal ID:n per batch (standard: 25)
-#' #' @param visa_progress Visa progress-meddelanden
-#' #'
-#' #' @return Lista med rådata från API:et
-#' #'
-#' #' @examples
-#' #' # Hämta data för alla kommuner (ange inte kommun-parameter)
-#' #' data <- kolada_hamta_radata(kpi = "N00945", ar = 2023)
-#' #'
-#' #' # Hämta data för specifika kommuner (automatisk batching om >25)
-#' #' kommuner <- c("0180", "1480", "1280") # 290 kommuner
-#' #' data <- kolada_hamta_radata(
-#' #'   kpi = "N00945",
-#' #'   kommun = kommuner,
-#' #'   ar = c(2023, 2022, 2021)
-#' #' )
-#' #' @export
-#' kolada_hamta_radata <- function(kpi = NULL,
-#'                                 kommun = NULL,
-#'                                 ar = NULL,
-#'                                 ou = NULL,
-#'                                 uppdaterad_sedan = NULL,
-#'                                 max_batch_storlek = 25,
-#'                                 visa_progress = TRUE) {
-#'   
-#'   # Bestäm endpoint
-#'   if (!is.null(ou)) {
-#'     endpoint <- "oudata/"
-#'     params <- list()
-#'     params$ou_id <- if (!is.list(ou)) as.list(ou) else ou
-#'   } else {
-#'     endpoint <- "data/"
-#'     params <- list()
-#'   }
-#'   
-#'   # Lägg till parametrar
-#'   if (!is.null(kpi)) {
-#'     params$kpi_id <- if (!is.list(kpi)) as.list(kpi) else kpi
-#'   }
-#'   
-#'   if (!is.null(kommun)) {
-#'     params$municipality_id <- if (!is.list(kommun)) as.list(kommun) else kommun
-#'   }
-#'   
-#'   if (!is.null(ar)) {
-#'     params$year <- if (!is.list(ar)) as.list(ar) else ar
-#'   }
-#'   
-#'   if (!is.null(uppdaterad_sedan)) {
-#'     params$from_date <- uppdaterad_sedan
-#'   }
-#'   
-#'   # Bestäm vilka parametrar som behöver batching
-#'   batch_params <- character(0)
-#'   
-#'   if (!is.null(params$kpi_id) && length(params$kpi_id) > max_batch_storlek) {
-#'     batch_params <- c(batch_params, "kpi_id")
-#'   }
-#'   
-#'   if (!is.null(params$municipality_id) && length(params$municipality_id) > max_batch_storlek) {
-#'     batch_params <- c(batch_params, "municipality_id")
-#'   }
-#'   
-#'   if (!is.null(params$ou_id) && length(params$ou_id) > max_batch_storlek) {
-#'     batch_params <- c(batch_params, "ou_id")
-#'   }
-#'   
-#'   if (!is.null(params$year) && length(params$year) > max_batch_storlek) {
-#'     batch_params <- c(batch_params, "year")
-#'   }
-#'   
-#'   # Hämta data med batching om nödvändigt
-#'   if (length(batch_params) > 0) {
-#'     data <- intern_kolada_batcha(endpoint, params, batch_params, max_batch_storlek, visa_progress)
-#'   } else {
-#'     data <- intern_kolada_paginera(endpoint, params, visa_progress)
-#'   }
-#'   
-#'   data
-#' }
-#' 
-#' #' Hämta data från Kolada API som en tidy data frame
-#' #'
-#' #' @inheritParams kolada_hamta_radata
-#' #'
-#' #' @return Tidy data frame med kolumner: kpi, kommun, ou, period, varde, kon, status, antal
-#' #'
-#' #' @examples
-#' #' # Hämta data för alla kommuner
-#' #' df <- kolada_hamta_df(kpi = "N00945", ar = 2023)
-#' #'
-#' #' # Hämta data för många kommuner (automatisk batching)
-#' #' alla_kommuner <- kolada_hamta_kommuner()
-#' #' df <- kolada_hamta_df(
-#' #'   kpi = "N00945",
-#' #'   kommun = alla_kommuner$id,
-#' #'   ar = c(2023, 2022)
-#' #' )
-#' #' @export
-#' kolada_hamta_df <- function(kpi = NULL,
-#'                             kommun = NULL,
-#'                             ar = NULL,
-#'                             ou = NULL,
-#'                             inkluderа_alla_geografier = FALSE,
-#'                             uppdaterad_sedan = NULL,
-#'                             max_batch_storlek = 25,
-#'                             visa_progress = TRUE) {
-#'   
-#'   # API:et kräver minst två av tre parametrar: kpi_id, municipality_id, year
-#'   # Om varken kommun eller år anges, hämta alla giltiga år från API:et
-#'   if (is.null(kommun) && is.null(ar) && !is.null(kpi)) {
-#'     ar <- kolada_hamta_giltiga_varden("data", "year", kpi_id = kpi)
-#'     if (length(ar) == 0) {
-#'       warning("Inga giltiga år hittades för angiven KPI. Försöker utan år...")
-#'       ar <- NULL
-#'     }
-#'   }
-#'   
-#'   # Hämta rådata med automatisk batching
-#'   data <- kolada_hamta_radata(
-#'     kpi = kpi,
-#'     kommun = kommun,
-#'     ar = ar,
-#'     ou = ou,
-#'     uppdaterad_sedan = uppdaterad_sedan,
-#'     max_batch_storlek = max_batch_storlek,
-#'     visa_progress = visa_progress
-#'   )
-#'   
-#'   if (length(data) == 0) {
-#'     return(data.frame())
-#'   }
-#'   
-#'   # Flatten nested structure till tidy data frame
-#'   df <- map_dfr(data, function(objekt) {
-#'     varden <- objekt$values
-#'     if (is.null(varden) || length(varden) == 0) return(NULL)
-#'     
-#'     map_dfr(varden, function(val) {
-#'       tibble(
-#'         kpi = objekt$kpi %||% NA_character_,
-#'         kommun = objekt$municipality %||% NA_character_,
-#'         ou = objekt$ou %||% NA_character_,
-#'         period = objekt$period %||% NA_character_,
-#'         varde = val$value %||% NA_real_,
-#'         kon = val$gender %||% NA_character_,
-#'         status = val$status %||% NA_character_,
-#'         antal = val$count %||% NA_integer_
-#'       )
-#'     })
-#'   })
-#'   
-#'   df
-#' }
-#' 
-#' #' Hämta alla kommuner och regioner från Kolada
-#' #'
-#' #' @param sokning Valfri sökterm för att filtrera på namn
-#' #' @param typ Filtrera på typ ('K' för kommun, 'L' för landsting/region)
-#' #'
-#' #' @return Data frame med kommun/region-information
-#' #'
-#' #' @examples
-#' #' # Hämta alla kommuner och regioner
-#' #' alla <- kolada_hamta_kommuner()
-#' #'
-#' #' # Hämta endast kommuner
-#' #' kommuner <- kolada_hamta_kommuner(typ = "K")
-#' #'
-#' #' # Hämta endast regioner/landsting
-#' #' regioner <- kolada_hamta_kommuner(typ = "L")
-#' #'
-#' #' # Sök efter specifik kommun
-#' #' stockholm <- kolada_hamta_kommuner(sokning = "Stockholm")
-#' #' @export
-#' kolada_hamta_kommuner <- function(sokning = NULL, typ = NULL) {
-#'   params <- list()
-#'   
-#'   if (!is.null(sokning)) params$title <- sokning
-#'   if (!is.null(typ)) params$type <- typ
-#'   
-#'   kommuner <- intern_kolada_paginera("municipality", params, visa_progress = FALSE)
-#'   
-#'   bind_rows(kommuner)
-#' }
-#' 
-#' #' Sök efter KPI:er i Kolada
-#' #'
-#' #' @param sokning Sökterm för att filtrera KPI:er på titel
-#' #' @param publiceringsdatum Filtrera på publiceringsdatum (YYYY-MM-DD)
-#' #' @param verksamhetsomrade Filtrera på verksamhetsområde
-#' #'
-#' #' @return Data frame med KPI-information
-#' #'
-#' #' @examples
-#' #' # Sök efter KPI:er relaterade till skola
-#' #' skol_kpier <- kolada_kpi_sok("skola")
-#' #'
-#' #' # Sök efter KPI:er inom ett specifikt verksamhetsområde
-#' #' halsa_kpier <- kolada_kpi_sok(verksamhetsomrade = "Hälso- och sjukvård")
-#' #' @export
-#' kolada_kpi_sok <- function(sokning = NULL, 
-#'                            publiceringsdatum = NULL,
-#'                            verksamhetsomrade = NULL) {
-#'   params <- list()
-#'   
-#'   if (!is.null(sokning)) params$title <- sokning
-#'   
-#'   kpier <- intern_kolada_paginera("kpi", params, visa_progress = FALSE)
-#'   
-#'   # Filtrera på publiceringsdatum om angivet
-#'   if (!is.null(publiceringsdatum)) {
-#'     kpier <- Filter(function(k) !is.null(k$publication_date) && k$publication_date == publiceringsdatum, kpier)
-#'   }
-#'   
-#'   # Filtrera på verksamhetsområde om angivet
-#'   if (!is.null(verksamhetsomrade)) {
-#'     kpier <- Filter(function(k) !is.null(k$operating_area) && k$operating_area == verksamhetsomrade, kpier)
-#'   }
-#'   
-#'   bind_rows(kpier)
-#' }
-#' 
-#' #' Hämta specifik KPI baserat på ID
-#' #'
-#' #' @param kpi_id KPI-ID att hämta
-#' #'
-#' #' @return Lista med KPI-information
-#' #'
-#' #' @examples
-#' #' # Hämta en specifik KPI
-#' #' kpi <- kolada_kpi_hamta("N00945")
-#' #' print(kpi$title)
-#' #' @export
-#' kolada_kpi_hamta <- function(kpi_id) {
-#'   resultat <- intern_kolada_request(paste0("kpi/", kpi_id))
-#'   kpier <- resultat$values %||% list()
-#'   
-#'   if (length(kpier) == 0) {
-#'     stop(sprintf("KPI med ID %s hittades inte", kpi_id))
-#'   }
-#'   
-#'   kpier[[1]]
-#' }
-#' 
-#' #' Hämta organisationsenheter från Kolada
-#' #'
-#' #' @param sokning Valfri sökterm för att filtrera på namn
-#' #' @param kommun Filtrera på kommun-ID
-#' #' @param ou_typ Filtrera på organisationsenhet-typ prefix (t.ex. 'V11' för förskolor)
-#' #'
-#' #' @return Data frame med organisationsenhet-information
-#' #'
-#' #' @examples
-#' #' # Hämta alla organisationsenheter
-#' #' alla_ou <- kolada_hamta_ou()
-#' #'
-#' #' # Hämta organisationsenheter för en specifik kommun
-#' #' ou_stockholm <- kolada_hamta_ou(kommun = "0180")
-#' #'
-#' #' # Hämta endast förskolor (V11)
-#' #' forskolor <- kolada_hamta_ou(ou_typ = "V11")
-#' #' @export
-#' kolada_hamta_ou <- function(sokning = NULL, kommun = NULL, ou_typ = NULL) {
-#'   params <- list()
-#'   
-#'   if (!is.null(sokning)) params$title <- sokning
-#'   if (!is.null(kommun)) params$municipality <- kommun
-#'   
-#'   enheter <- intern_kolada_paginera("ou", params, visa_progress = FALSE)
-#'   
-#'   # Filtrera på OU-typ om angivet
-#'   if (!is.null(ou_typ)) {
-#'     enheter <- Filter(function(u) !is.null(u$id) && startsWith(u$id, ou_typ), enheter)
-#'   }
-#'   
-#'   bind_rows(enheter)
-#' }
-#' 
-#' #' Ställ in anpassad rate limiting
-#' #'
-#' #' @param max_anrop_per_sekund Maximalt antal anrop per sekund (standard: 5)
-#' #'
-#' #' @examples
-#' #' # Standard är 5 anrop/sekund
-#' #' # Minska om du får problem:
-#' #' kolada_satt_rate_limit(max_anrop_per_sekund = 2.0)
-#' #' @export
-#' kolada_satt_rate_limit <- function(max_anrop_per_sekund = 5.0) {
-#'   .kolada_env$min_intervall <- 1.0 / max_anrop_per_sekund
-#'   message(sprintf("Rate limit satt till %.1f anrop/sekund (%.3f sekunder mellan anrop)", 
-#'                   max_anrop_per_sekund, .kolada_env$min_intervall))
-#' }
-#' 
-#' 
 
 
+# Globala inställningar för rate limiting
+.kolada_env <- new.env()
+.kolada_env$senaste_anrop <- 0
+.kolada_env$min_intervall <- 0.2  # 5 requests/sekund
 
+# ============================================
+# INTERNA HJÄLPFUNKTIONER
+# ============================================
 
-
-hamta_kolada_giltiga_ar <- function(kpi_id, vald_region = "2080"){
+#' Intern: Rate limiting
+#' @keywords internal
+intern_kolada_throttle <- function() {
+  nuvarande_tid <- as.numeric(Sys.time())
+  forlöpt_tid <- nuvarande_tid - .kolada_env$senaste_anrop
   
-  vald_region <- vald_region %>% str_pad(4, pad = "0")
+  if (forlöpt_tid < .kolada_env$min_intervall) {
+    vantetid <- .kolada_env$min_intervall - forlöpt_tid
+    Sys.sleep(vantetid)
+  }
   
-  hamtade_varden <- get_values(
-    kpi = kpi_id,
-    municipality = vald_region,
-    period = 1900:2060
+  .kolada_env$senaste_anrop <- as.numeric(Sys.time())
+}
+
+#' Intern: Gör ett enskilt API-anrop
+#' @keywords internal
+intern_kolada_request <- function(endpoint, params = NULL, bas_url = "https://api.kolada.se/v3/") {
+  intern_kolada_throttle()
+  
+  url <- paste0(bas_url, endpoint)
+  response <- GET(url, query = params, timeout(30))
+  
+  # Hantera rate limiting från API:et
+  if (status_code(response) == 429) {
+    retry_after <- as.numeric(headers(response)$`retry-after` %||% 60)
+    warning(sprintf("API rate limit nådd. Väntar %d sekunder...", retry_after))
+    Sys.sleep(retry_after)
+    return(intern_kolada_request(endpoint, params, bas_url))
+  }
+  
+  # Hantera fel
+  if (status_code(response) != 200) {
+    stop(sprintf("API-fel %d: %s", status_code(response), content(response, "text")))
+  }
+  
+  content(response, "text", encoding = "UTF-8") %>%
+    jsonlite::fromJSON(simplifyVector = FALSE)
+}
+
+#' Intern: Hantera paginering
+#' @keywords internal
+intern_kolada_paginera <- function(endpoint, params = NULL, visa_progress = FALSE) {
+  params <- params %||% list()
+  params$page <- 1
+  params$per_page <- 5000  # Max som API:et tillåter
+  
+  alla_objekt <- list()
+  totalt_antal <- NULL
+  
+  if (visa_progress) message(sprintf("Hämtar %s...", endpoint))
+  
+  repeat {
+    resultat <- intern_kolada_request(endpoint, params)
+    
+    objekt <- resultat$values %||% list()
+    alla_objekt <- c(alla_objekt, objekt)
+    
+    # Visa progress om vi vet totalt antal
+    if (is.null(totalt_antal) && !is.null(resultat$count)) {
+      totalt_antal <- resultat$count
+      if (visa_progress) message(sprintf("Totalt antal: %d", totalt_antal))
+    }
+    
+    if (visa_progress && !is.null(totalt_antal)) {
+      message(sprintf("Progress: %d/%d", length(alla_objekt), totalt_antal))
+    }
+    
+    # Kolla om det finns fler sidor
+    if (is.null(resultat$next_url) || resultat$next_url == "") break
+    
+    params$page <- params$page + 1
+  }
+  
+  if (visa_progress) message(sprintf("Hämtade %d objekt totalt", length(alla_objekt)))
+  
+  alla_objekt
+}
+
+#' Intern: Dela upp i batches och kombinera resultat
+#' @keywords internal
+intern_kolada_batcha <- function(endpoint, params, batch_params, 
+                                 max_batch_storlek = 25, visa_progress = TRUE) {
+  
+  # Extrahera parametrar som behöver batching
+  batch_param_varden <- list()
+  for (param in batch_params) {
+    if (!is.null(params[[param]])) {
+      batch_param_varden[[param]] <- params[[param]]
+      params[[param]] <- NULL
+    }
+  }
+  
+  # Om inga parametrar behöver batching, gör vanlig paginerad request
+  if (length(batch_param_varden) == 0) {
+    return(intern_kolada_paginera(endpoint, params, visa_progress))
+  }
+  
+  # Skapa batches för varje parameter
+  param_batches <- list()
+  for (param_namn in names(batch_param_varden)) {
+    varden <- batch_param_varden[[param_namn]]
+    # Dela upp i chunks
+    antal_batches <- ceiling(length(varden) / max_batch_storlek)
+    batches <- split(varden, ceiling(seq_along(varden) / max_batch_storlek))
+    param_batches[[param_namn]] <- batches
+  }
+  
+  # Skapa alla kombinationer av batches (för multipla batchade parametrar)
+  param_namn <- names(param_batches)
+  batch_index_lista <- lapply(param_batches, function(x) seq_along(x))
+  batch_kombinationer <- expand.grid(batch_index_lista, stringsAsFactors = FALSE)
+  
+  alla_objekt <- list()
+  totalt_batches <- nrow(batch_kombinationer)
+  
+  if (visa_progress) {
+    message(sprintf("Bearbetar %d batch(ar) för %s...", totalt_batches, endpoint))
+  }
+  
+  for (i in seq_len(totalt_batches)) {
+    # Skapa params för denna batch
+    batch_params_aktuell <- params
+    
+    # Lägg till batch-värden för varje parameter
+    for (j in seq_along(param_namn)) {
+      param_namn_aktuell <- param_namn[j]
+      batch_idx <- batch_kombinationer[i, j]
+      batch_params_aktuell[[param_namn_aktuell]] <- param_batches[[param_namn_aktuell]][[batch_idx]]
+    }
+    
+    tryCatch({
+      # Gör paginerad request för denna batch
+      batch_objekt <- intern_kolada_paginera(endpoint, batch_params_aktuell, visa_progress = FALSE)
+      alla_objekt <- c(alla_objekt, batch_objekt)
+      
+      if (visa_progress && (i %% 5 == 0 || i == totalt_batches)) {
+        message(sprintf("  Slutförde batch %d/%d", i, totalt_batches))
+      }
+    }, error = function(e) {
+      warning(sprintf("Fel i batch %d: %s", i, e$message))
+    })
+  }
+  
+  if (visa_progress) {
+    message(sprintf("Totalt antal objekt från alla batches: %d", length(alla_objekt)))
+  }
+  
+  alla_objekt
+}
+
+# ============================================
+# ANVÄNDARFUNKTIONER (PUBLIKA API:ET)
+# ============================================
+
+#' Hämta rådata från Kolada API med automatisk batching
+#'
+#' @param kpi KPI-ID eller vektor av KPI-ID:n
+#' @param kommun Kommun-ID eller vektor av kommun-ID:n
+#' @param ar År eller vektor av år
+#' @param ou Organisationsenhet-ID eller vektor av OU-ID:n
+#' @param uppdaterad_sedan Filtrera data uppdaterad sedan detta datum (format: YYYY-MM-DD)
+#' @param max_batch_storlek Maximalt antal ID:n per batch (standard: 25)
+#' @param visa_progress Visa progress-meddelanden
+#'
+#' @return Lista med rådata från API:et
+#'
+#' @examples
+#' # Hämta data för alla kommuner (ange inte kommun-parameter)
+#' data <- kolada_hamta_radata(kpi = "N00945", ar = 2023)
+#'
+#' # Hämta data för specifika kommuner (automatisk batching om >25)
+#' kommuner <- c("0180", "1480", "1280") # 290 kommuner
+#' data <- kolada_hamta_radata(
+#'   kpi = "N00945",
+#'   kommun = kommuner,
+#'   ar = c(2023, 2022, 2021)
+#' )
+#' @export
+kolada_hamta_radata <- function(kpi = NULL,
+                                kommun = NULL,
+                                ar = NULL,
+                                ou = NULL,
+                                uppdaterad_sedan = NULL,
+                                max_batch_storlek = 25,
+                                visa_progress = TRUE) {
+  
+  # Bestäm endpoint
+  if (!is.null(ou)) {
+    endpoint <- "oudata/"
+    params <- list()
+    params$ou_id <- if (!is.list(ou)) as.list(ou) else ou
+  } else {
+    endpoint <- "data/"
+    params <- list()
+  }
+  
+  # Lägg till parametrar
+  if (!is.null(kpi)) {
+    params$kpi_id <- if (!is.list(kpi)) as.list(kpi) else kpi
+  }
+  
+  if (!is.null(kommun)) {
+    params$municipality_id <- if (!is.list(kommun)) as.list(kommun) else kommun
+  }
+  
+  if (!is.null(ar)) {
+    params$year <- if (!is.list(ar)) as.list(ar) else ar
+  }
+  
+  if (!is.null(uppdaterad_sedan)) {
+    params$from_date <- uppdaterad_sedan
+  }
+  
+  # Bestäm vilka parametrar som behöver batching
+  batch_params <- character(0)
+  
+  if (!is.null(params$kpi_id) && length(params$kpi_id) > max_batch_storlek) {
+    batch_params <- c(batch_params, "kpi_id")
+  }
+  
+  if (!is.null(params$municipality_id) && length(params$municipality_id) > max_batch_storlek) {
+    batch_params <- c(batch_params, "municipality_id")
+  }
+  
+  if (!is.null(params$ou_id) && length(params$ou_id) > max_batch_storlek) {
+    batch_params <- c(batch_params, "ou_id")
+  }
+  
+  if (!is.null(params$year) && length(params$year) > max_batch_storlek) {
+    batch_params <- c(batch_params, "year")
+  }
+  
+  # Hämta data med batching om nödvändigt
+  if (length(batch_params) > 0) {
+    data <- intern_kolada_batcha(endpoint, params, batch_params, max_batch_storlek, visa_progress)
+  } else {
+    data <- intern_kolada_paginera(endpoint, params, visa_progress)
+  }
+  
+  data
+}
+
+#' Hämta data från Kolada API som en tidy data frame
+#'
+#' @inheritParams kolada_hamta_radata
+#'
+#' @return Tidy data frame med kolumner: kpi, kommun, ou, period, varde, kon, status, antal
+#'
+#' @examples
+#' # Hämta data för alla kommuner
+#' df <- kolada_hamta_df(kpi = "N00945", ar = 2023)
+#'
+#' # Hämta data för många kommuner (automatisk batching)
+#' alla_kommuner <- kolada_hamta_kommuner()
+#' df <- kolada_hamta_df(
+#'   kpi = "N00945",
+#'   kommun = alla_kommuner$id,
+#'   ar = c(2023, 2022)
+#' )
+#' @export
+kolada_hamta_df <- function(kpi = NULL,
+                            kommun = NULL,
+                            ar = NULL,
+                            ou = NULL,
+                            inkluderа_alla_geografier = FALSE,
+                            uppdaterad_sedan = NULL,
+                            max_batch_storlek = 25,
+                            visa_progress = TRUE) {
+  
+  # API:et kräver minst två av tre parametrar: kpi_id, municipality_id, year
+  # Om varken kommun eller år anges, hämta alla giltiga år från API:et
+  if (is.null(kommun) && is.null(ar) && !is.null(kpi)) {
+    ar <- kolada_hamta_giltiga_varden("data", "year", kpi_id = kpi)
+    if (length(ar) == 0) {
+      warning("Inga giltiga år hittades för angiven KPI. Försöker utan år...")
+      ar <- NULL
+    }
+  }
+  
+  # Hämta rådata med automatisk batching
+  data <- kolada_hamta_radata(
+    kpi = kpi,
+    kommun = kommun,
+    ar = ar,
+    ou = ou,
+    uppdaterad_sedan = uppdaterad_sedan,
+    max_batch_storlek = max_batch_storlek,
+    visa_progress = visa_progress
   )
   
-  alla_ar <- hamtade_varden$year %>% as.character() %>% unique()
-  return(alla_ar)
+  if (length(data) == 0) {
+    return(data.frame())
+  }
+  
+  # Flatten nested structure till tidy data frame
+  df <- map_dfr(data, function(objekt) {
+    varden <- objekt$values
+    if (is.null(varden) || length(varden) == 0) return(NULL)
+    
+    map_dfr(varden, function(val) {
+      tibble(
+        kpi = objekt$kpi %||% NA_character_,
+        kommun = objekt$municipality %||% NA_character_,
+        ou = objekt$ou %||% NA_character_,
+        period = objekt$period %||% NA_character_,
+        varde = val$value %||% NA_real_,
+        kon = val$gender %||% NA_character_,
+        status = val$status %||% NA_character_,
+        antal = val$count %||% NA_integer_
+      )
+    })
+  })
+  
+  df
 }
+
+#' Hämta alla kommuner och regioner från Kolada
+#'
+#' @param sokning Valfri sökterm för att filtrera på namn
+#' @param typ Filtrera på typ ('K' för kommun, 'L' för landsting/region)
+#'
+#' @return Data frame med kommun/region-information
+#'
+#' @examples
+#' # Hämta alla kommuner och regioner
+#' alla <- kolada_hamta_kommuner()
+#'
+#' # Hämta endast kommuner
+#' kommuner <- kolada_hamta_kommuner(typ = "K")
+#'
+#' # Hämta endast regioner/landsting
+#' regioner <- kolada_hamta_kommuner(typ = "L")
+#'
+#' # Sök efter specifik kommun
+#' stockholm <- kolada_hamta_kommuner(sokning = "Stockholm")
+#' @export
+kolada_hamta_kommuner <- function(sokning = NULL, typ = NULL) {
+  params <- list()
+  
+  if (!is.null(sokning)) params$title <- sokning
+  if (!is.null(typ)) params$type <- typ
+  
+  kommuner <- intern_kolada_paginera("municipality", params, visa_progress = FALSE)
+  
+  bind_rows(kommuner)
+}
+
+#' Sök efter KPI:er i Kolada
+#'
+#' @param sokning Sökterm för att filtrera KPI:er på titel
+#' @param publiceringsdatum Filtrera på publiceringsdatum (YYYY-MM-DD)
+#' @param verksamhetsomrade Filtrera på verksamhetsområde
+#'
+#' @return Data frame med KPI-information
+#'
+#' @examples
+#' # Sök efter KPI:er relaterade till skola
+#' skol_kpier <- kolada_kpi_sok("skola")
+#'
+#' # Sök efter KPI:er inom ett specifikt verksamhetsområde
+#' halsa_kpier <- kolada_kpi_sok(verksamhetsomrade = "Hälso- och sjukvård")
+#' @export
+kolada_kpi_sok <- function(sokning = NULL, 
+                           publiceringsdatum = NULL,
+                           verksamhetsomrade = NULL) {
+  params <- list()
+  
+  if (!is.null(sokning)) params$title <- sokning
+  
+  kpier <- intern_kolada_paginera("kpi", params, visa_progress = FALSE)
+  
+  # Filtrera på publiceringsdatum om angivet
+  if (!is.null(publiceringsdatum)) {
+    kpier <- Filter(function(k) !is.null(k$publication_date) && k$publication_date == publiceringsdatum, kpier)
+  }
+  
+  # Filtrera på verksamhetsområde om angivet
+  if (!is.null(verksamhetsomrade)) {
+    kpier <- Filter(function(k) !is.null(k$operating_area) && k$operating_area == verksamhetsomrade, kpier)
+  }
+  
+  bind_rows(kpier)
+}
+
+#' Hämta specifik KPI baserat på ID
+#'
+#' @param kpi_id KPI-ID att hämta
+#'
+#' @return Lista med KPI-information
+#'
+#' @examples
+#' # Hämta en specifik KPI
+#' kpi <- kolada_kpi_hamta("N00945")
+#' print(kpi$title)
+#' @export
+kolada_kpi_hamta <- function(kpi_id) {
+  resultat <- intern_kolada_request(paste0("kpi/", kpi_id))
+  kpier <- resultat$values %||% list()
+  
+  if (length(kpier) == 0) {
+    stop(sprintf("KPI med ID %s hittades inte", kpi_id))
+  }
+  
+  kpier[[1]]
+}
+
+#' Hämta organisationsenheter från Kolada
+#'
+#' @param sokning Valfri sökterm för att filtrera på namn
+#' @param kommun Filtrera på kommun-ID
+#' @param ou_typ Filtrera på organisationsenhet-typ prefix (t.ex. 'V11' för förskolor)
+#'
+#' @return Data frame med organisationsenhet-information
+#'
+#' @examples
+#' # Hämta alla organisationsenheter
+#' alla_ou <- kolada_hamta_ou()
+#'
+#' # Hämta organisationsenheter för en specifik kommun
+#' ou_stockholm <- kolada_hamta_ou(kommun = "0180")
+#'
+#' # Hämta endast förskolor (V11)
+#' forskolor <- kolada_hamta_ou(ou_typ = "V11")
+#' @export
+kolada_hamta_ou <- function(sokning = NULL, kommun = NULL, ou_typ = NULL) {
+  params <- list()
+  
+  if (!is.null(sokning)) params$title <- sokning
+  if (!is.null(kommun)) params$municipality <- kommun
+  
+  enheter <- intern_kolada_paginera("ou", params, visa_progress = FALSE)
+  
+  # Filtrera på OU-typ om angivet
+  if (!is.null(ou_typ)) {
+    enheter <- Filter(function(u) !is.null(u$id) && startsWith(u$id, ou_typ), enheter)
+  }
+  
+  bind_rows(enheter)
+}
+
+#' Ställ in anpassad rate limiting
+#'
+#' @param max_anrop_per_sekund Maximalt antal anrop per sekund (standard: 5)
+#'
+#' @examples
+#' # Standard är 5 anrop/sekund
+#' # Minska om du får problem:
+#' kolada_satt_rate_limit(max_anrop_per_sekund = 2.0)
+#' @export
+kolada_satt_rate_limit <- function(max_anrop_per_sekund = 5.0) {
+  .kolada_env$min_intervall <- 1.0 / max_anrop_per_sekund
+  message(sprintf("Rate limit satt till %.1f anrop/sekund (%.3f sekunder mellan anrop)", 
+                  max_anrop_per_sekund, .kolada_env$min_intervall))
+}
+
+
+
+
+
+
+
+# hamta_kolada_giltiga_ar <- function(kpi_id, vald_region = "2080"){
+# 
+#   vald_region <- vald_region %>% str_pad(4, pad = "0")
+# 
+#   hamtade_varden <- get_values(
+#     kpi = kpi_id,
+#     municipality = vald_region,
+#     period = 1900:2060
+#   )
+# 
+#   alla_ar <- hamtade_varden$year %>% as.character() %>% unique()
+#   return(alla_ar)
+# }
 
 # hamta_kolada_giltiga_ar <- function(kpi_id, vald_region = "2080") {
 #   # Bygg API URL för v3
@@ -1221,87 +1220,67 @@ hamta_kolada_giltiga_ar <- function(kpi_id, vald_region = "2080"){
 
 # Användning:
 # kpi_grupper <- hamta_kolada_kpigrupper_v3()
-
-
-hamta_kolada_df <- function(kpi_id, 
-                            valda_kommuner, 
-                            valda_ar = NA, 
-                            konsuppdelat = TRUE, 
-                            konsuppdelat_total_ta_bort = FALSE,
-                            dop_om_kolumner = TRUE
-){
-  
-  kolnamn_vektor <- c(ar = "year", regionkod = "municipality_id", region = "municipality",
-                      #regiontyp = "municipality_type",
-                      kon = "gender", variabelkod = "kpi",
-                      variabel = "fraga", varde = "value")
-  
-  valda_kommuner <- valda_kommuner %>% str_pad(4, pad = "0")
-  
-  alla_ar <- hamta_kolada_giltiga_ar(kpi_id, valda_kommuner[1])
-  senaste_ar <- max(alla_ar)
-  start_ar <- min(alla_ar)
-  
-  #alla_giltiga_ar <- if(valda_ar == "9999") senaste_ar else valda_ar[valda_ar %in% alla_ar]
-  hamta_ar <- if (all(is.na(valda_ar))) {
-    alla_ar
-  } else if (all(valda_ar == "9999", na.rm = TRUE)) {
-    senaste_ar
-  } else {
-    valda_ar[valda_ar %in% alla_ar]
-  }
-  
-  # alla_giltiga_ar <- if(all(valda_ar == "9999", na.rm = TRUE)) senaste_ar else valda_ar[valda_ar %in% alla_ar]
-  # 
-  # hamta_ar <- if (is.na(valda_ar[1])) alla_ar else alla_giltiga_ar
-  
-  #### Dra hem variablerna från Kolada
-  hamtade_varden <- get_values(
-    kpi = kpi_id,
-    municipality = valda_kommuner,
-    period = hamta_ar
-  )
-  
-  # hämta frågenamnen från Kolada
-  kpi_df <- get_kpi(kpi_id) %>% select(id, title)
-  
-  # Koppla på frågenamn som kolumnnamn samt beräkna om värde är över rikets
-  retur_df <- hamtade_varden %>%
-    left_join(kpi_df, by = c("kpi" = "id")) %>%
-    rename(fraga = title)
-  
-  if ("gender" %in% names(retur_df)) {
-    if (konsuppdelat & nrow(retur_df[retur_df$gender %in% c("K", "M"),])>0) {       # om man valt könsuppdelat och det finns värden för kvinnor eller män
-      retur_df <- retur_df %>%
-        filter(gender != "T")
-      
-    } else {
-      if (konsuppdelat_total_ta_bort) retur_df <- retur_df %>% filter(gender == "T")
-    } # slut if-sats om könsuppdelat är valt och det finns kvinnor och män i datasetet
-    retur_df <- retur_df %>%
-      mutate(gender = case_when(gender == "T" ~ "Båda könen",
-                                gender == "K" ~ "Kvinnor",
-                                gender == "M" ~ "Män"))
-    
-    if (!konsuppdelat) {
-      finns_total_rader <- nrow(retur_df[retur_df$gender %in% c("Båda könen"),])>0
-      if (finns_total_rader) retur_df <- retur_df %>% filter(gender == "Båda könen")
-    }
-    
-  } # slut if-sats om kön finns med som variabel
-  
-  # gör om år till character
-  retur_df <- retur_df %>%
-    mutate(year = year %>% as.character())
-  
-  if (dop_om_kolumner) {
-    retur_df <- retur_df %>%
-      select(any_of(kolnamn_vektor)) %>%
-      mutate(regionkod = regionkod %>% as.numeric() %>% as.character() %>% str_replace("^0$", "00"),
-             region = region %>% str_remove("Region "))
-  }
-  return(retur_df)
-}
+# hamta_kolada_df <- function(kpi_id, valda_kommuner, valda_ar = NA, konsuppdelat = TRUE, dop_om_kolumner = TRUE){
+#   
+#   kolnamn_vektor <- c(ar = "year", regionkod = "municipality_id", region = "municipality",
+#                       #regiontyp = "municipality_type", 
+#                       kon = "gender", variabelkod = "kpi",  
+#                       variabel = "fraga", varde = "value") 
+#   
+#   valda_kommuner <- valda_kommuner %>% str_pad(4, pad = "0")
+#   
+#   alla_ar <- hamta_kolada_giltiga_ar(kpi_id, valda_kommuner[1])
+#   senaste_ar <- max(alla_ar)
+#   start_ar <- min(alla_ar)
+#   
+#   #alla_giltiga_ar <- if(valda_ar == "9999") senaste_ar else valda_ar[valda_ar %in% alla_ar]
+#   alla_giltiga_ar <- if(all(valda_ar == "9999")) senaste_ar else valda_ar[valda_ar %in% alla_ar]
+#   
+#   hamta_ar <- if (is.na(valda_ar[1])) alla_ar else alla_giltiga_ar
+#   
+#   #### Dra hem variablerna från Kolada
+#   hamtade_varden <- get_values(
+#     kpi = kpi_id,
+#     municipality = valda_kommuner,
+#     period = hamta_ar
+#   )
+#   
+#   # hämta frågenamnen från Kolada
+#   kpi_df <- get_kpi(kpi_id) %>% select(id, title)
+#   
+#   # Koppla på frågenamn som kolumnnamn samt beräkna om värde är över rikets
+#   retur_df <- hamtade_varden %>% 
+#     left_join(kpi_df, by = c("kpi" = "id")) %>% 
+#     rename(fraga = title) 
+#   
+#   if ("gender" %in% names(retur_df)) {
+#     if (konsuppdelat & nrow(retur_df[retur_df$gender %in% c("K", "M"),])>0) {       # om man valt könsuppdelat och det finns värden för kvinnor eller män
+#       retur_df <- retur_df %>% 
+#         filter(gender != "T")
+#       
+#     } else {
+#       retur_df <- retur_df %>% 
+#         filter(gender == "T")
+#     } # slut if-sats om könsuppdelat är valt och det finns kvinnor och män i datasetet
+#     retur_df <- retur_df %>% 
+#       mutate(gender = case_when(gender == "T" ~ "Båda könen",
+#                                 gender == "K" ~ "Kvinnor",
+#                                 gender == "M" ~ "Män"))
+#     
+#   } # slut if-sats om kön finns med som variabel
+#   
+#   # gör om år till character
+#   retur_df <- retur_df %>% 
+#     mutate(year = year %>% as.character())
+#   
+#   if (dop_om_kolumner) {
+#     retur_df <- retur_df %>% 
+#       select(any_of(kolnamn_vektor)) %>% 
+#       mutate(regionkod = regionkod %>% as.numeric() %>% as.character() %>% str_replace("^0$", "00"),
+#              region = region %>% str_remove("Region "))
+#   }
+#   return(retur_df)
+# }
 
 # =========================================== Skolvkerket-funktioner =========================================================
 
@@ -1396,315 +1375,6 @@ gymnprg_inr_koder_hamta_api_skolverket <- possibly(function(url = "https://api.s
   
   return(gy_df)
 }, otherwise = NULL)
-
-
-# ====================== Läser in all data från pivottabeller i excelfiler utan att behöva stöka med filter etc. ===================
-
-# ── Hjälpfunktion: läs en enskild cache ───────────────────
-intern_excel_xml_lasa_pivot_cache <- function(xlsx_fil, cache_nr = 1) {
-  
-  # Läser pivottabellcachen direkt från en xlsx-fil och returnerar en data.frame.
-  # Används av: excel_xml_las_fil()
-  
-  def_path <- paste0("xl/pivotCache/pivotCacheDefinition", cache_nr, ".xml")
-  rec_path <- paste0("xl/pivotCache/pivotCacheRecords", cache_nr, ".xml")
-  
-  tmp <- tempfile()
-  dir.create(tmp)
-  unzip(xlsx_fil, files = c(def_path, rec_path), exdir = tmp)
-  
-  # 1. cacheDefinition: kolumnnamn + sharedItems (oförändrad)
-  message("  Läser cacheDefinition...")
-  def_doc <- read_xml(file.path(tmp, def_path))
-  ns      <- xml_ns(def_doc)
-  
-  fields    <- xml_find_all(def_doc, ".//d1:cacheField", ns)
-  col_namn  <- xml_attr(fields, "name")
-  antal_kol <- length(col_namn)
-  
-  shared_items <- vector("list", antal_kol)
-  for (i in seq_along(fields)) {
-    items_el <- xml_find_first(fields[[i]], "d1:sharedItems", ns)
-    if (!is.na(items_el)) {
-      barn   <- xml_children(items_el)
-      tags   <- xml_name(barn)
-      varden <- ifelse(tags == "m", NA_character_, xml_attr(barn, "v"))
-      shared_items[[i]] <- varden
-    }
-  }
-  
-  # 2. cacheRecords: helt vektoriserad parsning
-  message("  Läser cacheRecords...")
-  raw <- readLines(file.path(tmp, rec_path), warn = FALSE, encoding = "UTF-8")
-  raw <- paste(raw, collapse = "")
-  
-  # Räkna antal rader från count-attributet i rotelementet (snabbare än att räkna </r>)
-  antal_rader <- as.integer(regmatches(raw, regexpr('(?<=count=")[0-9]+', raw, perl = TRUE)))
-  message(paste("  Antal rader:", antal_rader))
-  
-  # Extrahera alla celler i hela filen på en gång: tagg + värde + radavgränsare
-  # Vi lägger till </r> som en sentinel så vi vet var varje rad slutar
-  hits    <- gregexpr("<[xnbds] v=\"[^\"]*\"/>|</r>", raw, perl = TRUE)
-  träffar <- regmatches(raw, hits)[[1]]
-  
-  # Identifiera vilka träffar som är radavgränsare
-  är_radslut <- träffar == "</r>"
-  
-  # Tilldela radnummer till varje cell
-  rad_nr <- cumsum(är_radslut)
-  rad_nr <- rad_nr[!är_radslut] + 1L  # +1 för att rad_nr ökar EFTER </r>
-  
-  # Extrahera tagg och värde för alla celler
-  celler  <- träffar[!är_radslut]
-  taggar  <- substr(celler, 2, 2)          # tecknet efter "<"
-  varden  <- regmatches(celler, regexpr('(?<=v=")[^"]+', celler, perl = TRUE))
-  
-  # Räkna ut kolumnposition per cell (position inom sin rad)
-  kol_nr <- sequence(tabulate(rad_nr))
-  
-  # Förbered resultatvektorer
-  resultat <- vector("list", antal_kol)
-  names(resultat) <- col_namn
-  for (i in seq_along(col_namn)) resultat[[i]] <- character(antal_rader)
-  
-  # Hantera x-celler (index till sharedItems) och direktvärden separat
-  är_x <- taggar == "x"
-  
-  # Direktvärden (n, b, d, s) – helt vektoriserat
-  if (any(!är_x)) {
-    idx_direkt <- which(!är_x)
-    for (k in seq_along(col_namn)) {
-      mask <- idx_direkt[kol_nr[idx_direkt] == k]
-      if (length(mask) > 0)
-        resultat[[k]][rad_nr[mask]] <- varden[mask]
-    }
-  }
-  
-  # x-celler (sharedItems-uppslag) – vektoriserat per kolumn
-  if (any(är_x)) {
-    idx_x <- which(är_x)
-    for (k in seq_along(col_namn)) {
-      mask <- idx_x[kol_nr[idx_x] == k]
-      if (length(mask) > 0) {
-        idx <- as.integer(varden[mask]) + 1L
-        resultat[[k]][rad_nr[mask]] <- shared_items[[k]][idx]
-      }
-    }
-  }
-  
-  # 3. Bygg data.frame
-  df <- as.data.frame(resultat, stringsAsFactors = FALSE)
-  for (i in seq_along(col_namn)) {
-    if (is.null(shared_items[[i]])) {
-      df[[col_namn[i]]] <- as.numeric(df[[col_namn[i]]])
-    }
-  }
-  
-  unlink(tmp, recursive = TRUE)
-  df
-}
-
-
-
-excel_xml_las_fil <- function(xlsx_fil, flikar = NULL) {
-  
-  # Läser pivottabelldata från en eller flera flikar i en xlsx-fil och returnerar
-  # en namngiven lista med en data.frame per flik. Lägger automatiskt till
-  # _klartext-kolumner för kolade variabler om mappningar hittas.
-  # Använder: intern_excel_xml_lasa_pivot_cache(), intern_excel_xml_hamta_kodmappningar()
-  
-  # flikar: NULL = läs alla, annars en vektor med fliknamn (character)
-  #         eller positioner (integer/numeric), t.ex.:
-  #           excel_xml_las_fil(fil, flikar = "SNIAVD 2010-01-")
-  #           excel_xml_las_fil(fil, flikar = c(1, 3))
-  #           excel_xml_las_fil(fil, flikar = c("1996-01-", "Yrkesområde 201301-"))
-  
-  tmp <- tempfile()
-  dir.create(tmp)
-  
-  rel_filer  <- c("xl/workbook.xml", "xl/_rels/workbook.xml.rels")
-  alla_filer <- unzip(xlsx_fil, list = TRUE)$Name
-  sheet_rels <- alla_filer[grepl("xl/worksheets/_rels/sheet.*\\.rels", alla_filer)]
-  pivot_rels <- alla_filer[grepl("xl/pivotTables/_rels/pivotTable.*\\.rels", alla_filer)]
-  
-  unzip(xlsx_fil, files = c(rel_filer, sheet_rels, pivot_rels), exdir = tmp)
-  
-  # Läs kodmappningar en gång för hela filen
-  kodmappningar <- intern_excel_xml_hamta_kodmappningar(xlsx_fil)
-  
-  # Läs bladnamn från workbook.xml
-  wb_doc    <- read_xml(file.path(tmp, "xl/workbook.xml"))
-  ns_wb     <- xml_ns(wb_doc)
-  sheets    <- xml_find_all(wb_doc, ".//d1:sheet", ns_wb)
-  blad_namn <- xml_attr(sheets, "name")
-  blad_rid  <- xml_attr(sheets, "id")
-  
-  # Validera och översätt flikar-argumentet till en indexvektor
-  if (is.null(flikar)) {
-    urval <- seq_along(blad_namn)
-  } else if (is.numeric(flikar)) {
-    ogiltiga <- flikar[flikar < 1 | flikar > length(blad_namn)]
-    if (length(ogiltiga) > 0)
-      stop("Ogiltiga positioner: ", paste(ogiltiga, collapse = ", "),
-           ". Filen har ", length(blad_namn), " flikar.")
-    urval <- as.integer(flikar)
-  } else if (is.character(flikar)) {
-    ogiltiga <- flikar[!flikar %in% blad_namn]
-    if (length(ogiltiga) > 0)
-      stop("Fliknamn hittades inte: ", paste(ogiltiga, collapse = ", "),
-           ".\nTillgängliga flikar: ", paste(blad_namn, collapse = ", "))
-    urval <- match(flikar, blad_namn)
-  } else {
-    stop("flikar måste vara NULL, en character-vektor eller en numeric-vektor.")
-  }
-  
-  message(paste0("Läser ", length(urval), " av ", length(blad_namn), " flikar."))
-  
-  # Bygg karta: rId → målfil
-  wb_rels_doc     <- read_xml(file.path(tmp, "xl/_rels/workbook.xml.rels"))
-  ns_rels         <- xml_ns(wb_rels_doc)
-  rels            <- xml_find_all(wb_rels_doc, ".//d1:Relationship", ns_rels)
-  rid_till_target <- setNames(xml_attr(rels, "Target"), xml_attr(rels, "Id"))
-  
-  resultat_lista <- vector("list", length(urval))
-  names(resultat_lista) <- blad_namn[urval]
-  
-  for (j in seq_along(urval)) {
-    i    <- urval[j]
-    blad <- blad_namn[i]
-    rid  <- blad_rid[i]
-    sheet_target <- rid_till_target[rid]
-    sheet_nr     <- sub(".*sheet(\\d+)\\.xml", "\\1", sheet_target)
-    
-    message(paste0("Flik [", j, "/", length(urval), "]: '", blad, "'"))
-    
-    sheet_rels_path <- file.path(
-      tmp, "xl", "worksheets", "_rels", paste0("sheet", sheet_nr, ".xml.rels")
-    )
-    if (!file.exists(sheet_rels_path)) {
-      message("  Ingen relations-fil, hoppar över.")
-      next
-    }
-    
-    sheet_rels_doc <- read_xml(sheet_rels_path)
-    ns_sr          <- xml_ns(sheet_rels_doc)
-    sr_rels        <- xml_find_all(sheet_rels_doc, ".//d1:Relationship", ns_sr)
-    sr_types       <- xml_attr(sr_rels, "Type")
-    sr_targets     <- xml_attr(sr_rels, "Target")
-    
-    pivot_idx <- which(grepl("pivotTable", sr_types))
-    if (length(pivot_idx) == 0) {
-      message("  Ingen pivottabell på detta blad, hoppar över.")
-      next
-    }
-    
-    pivot_target <- sr_targets[pivot_idx[1]]
-    pivot_nr     <- sub(".*pivotTable(\\d+)\\.xml", "\\1", pivot_target)
-    
-    pt_rels_path <- file.path(
-      tmp, "xl", "pivotTables", "_rels", paste0("pivotTable", pivot_nr, ".xml.rels")
-    )
-    pt_rels_doc  <- read_xml(pt_rels_path)
-    ns_pt        <- xml_ns(pt_rels_doc)
-    pt_rels      <- xml_find_all(pt_rels_doc, ".//d1:Relationship", ns_pt)
-    cache_target <- xml_attr(pt_rels, "Target")[1]
-    cache_nr     <- as.integer(sub(".*pivotCacheDefinition(\\d+)\\.xml", "\\1", cache_target))
-    
-    message(paste0("  → pivotCacheDefinition", cache_nr, ".xml"))
-    
-    df <- intern_excel_xml_lasa_pivot_cache(xlsx_fil, cache_nr)
-    
-    # Lägg till _klartext-kolumner direkt efter respektive kodkolumn
-    matchande <- intersect(names(df), names(kodmappningar))
-    for (kol in matchande) {
-      pos    <- which(names(df) == kol)
-      klartext <- kodmappningar[[kol]][df[[kol]]]
-      df     <- data.frame(
-        df[seq_len(pos)],
-        klartext,
-        if (pos < ncol(df)) df[seq(pos + 1, ncol(df))] else NULL,
-        stringsAsFactors = FALSE,
-        check.names = FALSE
-      )
-      names(df)[pos + 1] <- paste0(kol, "_klartext")
-      message(paste0("  Lade till kolumn '", kol, "_klartext'"))
-    }
-    resultat_lista[[blad]] <- df
-    message(paste0("  Klar! (", nrow(df), " rader, ", ncol(df), " kolumner)"))
-  }
-  
-  unlink(tmp, recursive = TRUE)
-  message("\nKlart!")
-  resultat_lista
-}
-
-
-intern_excel_xml_hamta_kodmappningar <- function(xlsx_fil) {
-  
-  # Letar efter kod-till-klartext-mappningar i en xlsx-fil genom att jämföra
-  # sharedStrings med sharedItems i pivotcacherna. Returnerar en namngiven lista
-  # med en namngiven vektor per matchande kolumn (t.ex. list(SNI2007_AVD = c(A = "Jordbruk...", ...)))
-  # Används av: excel_xml_las_fil()
-  
-  tmp <- tempfile()
-  dir.create(tmp)
-  
-  # Packa upp sharedStrings och alla cacheDefinitions
-  alla_filer  <- unzip(xlsx_fil, list = TRUE)$Name
-  cache_defs  <- alla_filer[grepl("pivotCache/pivotCacheDefinition", alla_filer)]
-  unzip(xlsx_fil, files = c("xl/sharedStrings.xml", cache_defs), exdir = tmp)
-  
-  # Läs sharedStrings och extrahera möjliga "kod → beskrivning"-mappningar
-  ss_doc   <- read_xml(file.path(tmp, "xl/sharedStrings.xml"))
-  ns_ss    <- xml_ns(ss_doc)
-  si_noder <- xml_find_all(ss_doc, ".//d1:si", ns_ss)
-  strängar <- sapply(si_noder, function(si) {
-    paste(xml_text(xml_find_all(si, ".//d1:t", ns_ss)), collapse = "")
-  })
-  
-  # Behåll strängar som matchar "X beskrivning" (en stor bokstav + mellanslag + text)
-  träffar <- strängar[grepl("^[A-ZÅÄÖ] {1,2}\\S", strängar)]
-  koder   <- substr(träffar, 1, 1)
-  beskr   <- trimws(substr(träffar, 2, nchar(träffar)))
-  möjliga_mappningar <- setNames(beskr, koder)
-  
-  # För varje cacheDefinition: kolla vilka kolumner vars sharedItems
-  # överlappar starkt med koderna i möjliga_mappningar
-  resultat <- list()
-  
-  for (cache_fil in cache_defs) {
-    cache_doc <- read_xml(file.path(tmp, cache_fil))
-    ns_c      <- xml_ns(cache_doc)
-    fields    <- xml_find_all(cache_doc, ".//d1:cacheField", ns_c)
-    
-    for (field in fields) {
-      kolnamn  <- xml_attr(field, "name")
-      items_el <- xml_find_first(field, "d1:sharedItems", ns_c)
-      if (is.na(items_el)) next
-      
-      barn   <- xml_children(items_el)
-      varden <- xml_attr(barn[xml_name(barn) == "s"], "v")
-      varden <- varden[!is.na(varden)]
-      if (length(varden) == 0) next
-      
-      # Hur stor andel av kolumnens värden finns i möjliga_mappningar?
-      overlap <- varden[varden %in% names(möjliga_mappningar)]
-      andel   <- length(overlap) / length(varden)
-      
-      if (andel > 0.3) {
-        mappning <- möjliga_mappningar[varden[varden %in% names(möjliga_mappningar)]]
-        resultat[[kolnamn]] <- mappning
-        message(sprintf("Hittade mappning: kolumn '%s' (%d/%d koder matchade)",
-                        kolnamn, length(overlap), length(varden)))
-      }
-    }
-  }
-  
-  unlink(tmp, recursive = TRUE)
-  invisible(resultat)  # Returnera den namngivna vektorn tyst
-}
-
-
 
 # =========================================== Bra generella funktioner =========================================================
 
@@ -1831,7 +1501,7 @@ ar_alla_lan_i_sverige <- function(reg_koder, tillat_rikskod = TRUE, returnera_te
   
 }
 
-skapa_aldersgrupper <- function(alder, aldergrupp_vekt, konv_fran_txt = TRUE, returnera_faktorvariabel = TRUE) {
+skapa_aldersgrupper <- function(alder, aldergrupp_vekt, konv_fran_txt = TRUE) {
   
   # funktion för att enkelt skapa åldersgrupper från ålder som kan användas i en mutate-funktion:
   # mutate(aldersgrupp = skapa_aldersgrupper(alder_var, c(19, 35, 50, 65, 80)))
@@ -1840,7 +1510,7 @@ skapa_aldersgrupper <- function(alder, aldergrupp_vekt, konv_fran_txt = TRUE, re
   # så c(19, 35, 50, 65, 80) ovan blir till åldersgrupperna 0-18 år, 19-34 år, 35-49 år, 50-64 år, 65-79 år samt 80+ år
   
   if (konv_fran_txt && is.character(alder)) alder <- readr::parse_number(alder)
-  
+
   # Bestäm faktisk min/max i datat
   min_alder <- suppressWarnings(min(alder, na.rm = TRUE))
   max_alder <- suppressWarnings(max(alder, na.rm = TRUE))
@@ -1848,7 +1518,7 @@ skapa_aldersgrupper <- function(alder, aldergrupp_vekt, konv_fran_txt = TRUE, re
   # Kontrollera och hantera öppna åldersgrupper
   if (!is.infinite(aldergrupp_vekt[[1]])) aldergrupp_vekt <- c(-Inf, aldergrupp_vekt)
   if (!is.infinite(tail(aldergrupp_vekt, n = 1))) aldergrupp_vekt <- c(aldergrupp_vekt, Inf)
-  
+
   # Anpassa till faktisk data
   aldergrupp_vekt[1] <- min(aldergrupp_vekt[1], min_alder)
   aldergrupp_vekt[length(aldergrupp_vekt)] <- max(aldergrupp_vekt[length(aldergrupp_vekt)], max_alder + 1)
@@ -1871,11 +1541,9 @@ skapa_aldersgrupper <- function(alder, aldergrupp_vekt, konv_fran_txt = TRUE, re
       labels[i] <- str_c(lower, "-", upper, " år")
     }
   }
-  
+
   # Dela in åldrarna i grupper
-  retur_vekt <- cut(alder, breaks = aldergrupp_vekt, labels = labels, right = FALSE, include.lowest = TRUE)
-  if (!returnera_faktorvariabel) retur_vekt <- as.character(retur_vekt) 
-  return(retur_vekt)
+  cut(alder, breaks = aldergrupp_vekt, labels = labels, right = FALSE, include.lowest = TRUE)
 }
 
 # returnera rätt sökväg till vår utskriftsmapp där vi sparar diagram- och kartfiler som inte har någon särskild
@@ -1904,7 +1572,7 @@ manader_bearbeta_scbtabeller <- function(skickad_df, kolumn_manad = "månad", ko
            år_månad = paste0(år, " - ", månad),
            månad_år = paste0(månad, " ", år),
            mån_år = paste0(str_to_lower(str_sub(månad, 1, 3)), " ", år)
-    ) 
+           ) 
   
   manad_sort <- retur_df %>% group_by(månad_nr) %>% summarise(antal = n(), månad_sort = max(månad)) %>% select(månad_sort) %>% dplyr::pull()
   
@@ -1951,40 +1619,7 @@ korrigera_kolnamn_supercross <- function(skickad_fil, teckenkodstabell = "latin1
   }
 }
 
-filhamtning_med_url_och_sokord <- function(
-    url_webbsida = "https://arbetsformedlingen.se/statistik/sok-statistik/tidigare-statistik",
-    sokord = c("web-platser", ".xlsx"),
-    bas_url = "https://arbetsformedlingen.se"
-) {
-  # Man skickar med en länk och sökord så returnerar funktionen en sökväg till filen som laddats
-  # ned till en temporär fil. Filen tas bort när man stänger R igen men kan läsas in med andra
-  # funktioner, som readxl::read_xlsx() eller funktionerna ovan för att extrahera data direkt ur pivottabeller
-  
-  # Funktionen letar bland url-länkar på webbsidan (url_webbsida) och väljer den url (om det finns flera) som
-  # innehåller alla sökord i vektorn. Finns flera så lämnas ett felmeddelande istället och man måste skicka med fler sökord
-  
-  # Använder: webbsida_af_extrahera_url_med_sokord()
-  
-  url_nedladdning <- webbsida_af_extrahera_url_med_sokord(url_webbsida, sokord, bas_url)
-  
-  
-  if (length(url_nedladdning) == 0) stop("Inga url:er matchar angivna sökord.")
-  
-  
-  td = tempdir()              # skapa temporär mapp
-  
-  ledigajobb_filer <- map(url_nedladdning, ~ {
-    fil <- tempfile(tmpdir=td, fileext = ".xlsx")
-    
-    httr::GET(.x, httr::write_disk(fil, overwrite = TRUE))
-  }) 
-  
-  if (all(map_int(ledigajobb_filer, "status_code") == "200")) return(map_chr(ledigajobb_filer, "content")) else stop("Något gick fel vid nedladdning av fil. Kontrollera att url:en är korrekt och att sökorden matchar rätt fil.")
-}
-
-
-webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel", "lan", "!bransch", ".xlsx"),
-                                                 bas_url = "https://arbetsformedlingen.se") {
+webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel", "lan", "!bransch", ".xlsx")) {
   
   # hämta webbsidan med tidigare statistik på Arbetsförmedlingen och spara som en vektor
   #webbsida <- suppressWarnings(readLines(skickad_url))
@@ -1996,7 +1631,7 @@ webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel
   # Få index för de element på webbsidan där alla sökord är med,
   # tabort-sökord, dvs. sökord som börjar med "!" tas inte med i funktionen
   sokord_filtered <- sokord %>% 
-    purrr::discard(~ str_starts(.x, "!"))
+    discard(~ str_starts(.x, "!"))
   
   sokord_index <- which(map_lgl(webbsida, function(text) {
     all(map_lgl(sokord_filtered, function(s) {
@@ -2038,7 +1673,7 @@ webbsida_af_extrahera_url_med_sokord <- function(skickad_url, sokord = c("varsel
       }))
     })
   
-  sokord_url <- paste0(bas_url, af_urler)
+  sokord_url <- paste0("https://arbetsformedlingen.se", af_urler)
   
   return(sokord_url)
 } 
@@ -2097,7 +1732,7 @@ funktion_upprepa_forsok_om_fel <- function(funktion,
                                            hoppa_over = FALSE,
                                            loggfil = NULL,         # sökväg + filnamn (.txt) om man vill spara felmeddelanden i en fil
                                            returnera_vid_fel = NULL            # valfritt vad som returneras vid fel, kan vara tex NULL, NA eller invisible()
-) {
+                                           ) {
   
   if (!hoppa_over) {
     funktionsnamn <- deparse(substitute(funktion)) %>%   # Hämta namnet på funktionen som skickades in
@@ -2162,27 +1797,9 @@ skriptrader_upprepa_om_fel <- function(expr,
                                        exportera_till_globalenv = TRUE,
                                        returnera_vid_fel = NULL,
                                        upprepa_vid_felmeddelande_som_innehaller = c("recv failure", "connection was reset", "curl_fetch_memory", "timeout")
-) {
-  
-  # kör funktionen "runt" en eller ett antal skriptrader för att testa igen om felmeddelandet innehåller de ord som listas i parametern
-  # upprepa_vid_felmeddelande_som_innehaller. Max antal försök anges med max_forsok och vila_sek anger sekunders vila mellan försöken.
-  #
-  # för att köra funktionen på en skriptrad: 
-  # dataset_df <- skriptrader_upprepa_om_fel(hamta_data())
-  #
-  # för att köra funktionen på flera skriptrader så läggs dessa mellan måsvingar (enligt nedan):
-  # dataset_df <- skriptrader_upprepa_om_fel({
-  #                   hamta_data()
-  #                   bearbeta_data()
-  #                   analysera_data()
-  #                 })
-  
-  expr_sub <- substitute(expr)  # fånga uttrycket INNAN det evalueras
-  is_fun_input <- is.symbol(expr_sub) && is.function(get(as.character(expr_sub), envir = parent.frame(), inherits = TRUE))
-  
-  #is_fun_input <- is.function(eval(expr_sub, parent.frame()))  # kolla typen säkert
-  # is_fun_input <- is.function(expr)
-  # if (!is_fun_input) expr <- substitute(expr)
+                                       ) {
+  is_fun_input <- is.function(expr)
+  if (!is_fun_input) expr <- substitute(expr)
   
   for (i in seq_len(max_forsok)) {
     env <- new.env(parent = parent.frame())
@@ -2190,9 +1807,9 @@ skriptrader_upprepa_om_fel <- function(expr,
     out <- tryCatch(
       {
         if (is_fun_input) {
-          eval(expr_sub, envir = parent.frame())()                                 # returnerar funktionsvärdet
+          expr()                                   # returnerar funktionsvärdet
         } else {
-          res <- eval(expr_sub, envir = env)           # kör kod-rader
+          res <- eval(expr, envir = env)           # kör kod-rader
           obj_namn <- ls(env, all.names = TRUE)
           if (length(obj_namn)) {
             obj_lista <- mget(obj_namn, envir = env)
@@ -2374,7 +1991,7 @@ avrundning_dynamisk <- function(x, gräns_stora = 10, gräns_medel = 1, dec_stor
 
 vektor_till_text <- function(skickad_vektor, 
                              till_urklipp = TRUE                          # om TRUE skrivs source-satserna till urklipp om skriv_source_konsol är TRUE
-){
+                             ){
   
   retur_text <- paste0('"', skickad_vektor, '"', collapse = ", ")
   cat(retur_text)
@@ -2443,11 +2060,11 @@ anv_hamta_namn_epost_fran_lista <- function(skickat_namn = NULL){
                         epost = anv_epostadress_hamta())
     
   } else {
-    
-    # om det finns uppgifter  
-    retur_lista <- if (tolower(skickat_namn) == "peter") { 
-      list(namn = "Peter Möller",
-           epost = "peter.moller@regiondalarna.se")
+  
+  # om det finns uppgifter  
+  retur_lista <- if (tolower(skickat_namn) == "peter") { 
+    list(namn = "Peter Möller",
+         epost = "peter.moller@regiondalarna.se")
     } else if (tolower(skickat_namn) == "mats") {
       list(namn = "Mats Andersson",
            epost = "mats.b.andersson@regiondalarna.se")
@@ -2458,7 +2075,7 @@ anv_hamta_namn_epost_fran_lista <- function(skickat_namn = NULL){
   }  # slut if-sats för att testa om skickat_namn är NULL
   
   return(retur_lista)
-  
+
 } # slut funktion
 
 
@@ -2537,94 +2154,23 @@ urklipp <- function(x, sep = "\n") {
   invisible(x)
 }
 
-
-source_utan_cache <- function(url, encoding = "UTF-8", echo = FALSE, pat = NULL) {
+source_utan_cache <- function(url, encoding = NA, echo = FALSE) {
+  # använd istället för source för att säkerställa att den inte source:ar in en cache istället
+  # bra när man precis har commit:at och push:at till
   
-  #' Source:a en R-fil från GitHub utan risk för gammal CDN-cache
-  #'
-  #' raw.githubusercontent.com ligger bakom Fastly, som kan servera en gammal
-  #' version i upp till några minuter efter en push. Varken `Cache-Control`-headern
-  #' eller en unik query-sträng bustar den cachen (testat — ger ändå `x-cache: HIT`).
-  #' Det enda pålitliga sättet att få färskt innehåll direkt är att gå via GitHubs
-  #' Contents-API med `Accept: raw`, som speglar senaste commit utan Fastly-cache.
-  #'
-  #' En PAT höjer API:ts rate-limit från 60 till 5000 anrop/timme (och krävs för
-  #' privata repon). Token läses i ordningen: argument -> GITHUB_PAT -> keyring.
-  #'
-  #' Contents-API:t med `Accept: raw` hanterar filer upp till 100 MB. Är filen
-  #' större faller funktionen automatiskt tillbaka på vanlig source() och skriver
-  #' ut ett meddelande (då kan dock CDN-cache ge en gammal version). I praktiken
-  #' slår gränsen aldrig i för vanliga R-funktionsfiler.
-  #'
-  #' @param url   Vanlig raw-URL, t.ex.
-  #'   "https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R"
-  #' @param encoding Teckenkodning som skickas till source() (default "UTF-8").
-  #' @param echo  Skickas till source() (default FALSE).
-  #' @param pat   Valfri GitHub-PAT. Lämna NULL för att läsa från miljö/keyring.
+  tmp <- tempfile()
   
-  if (!requireNamespace("httr", quietly = TRUE)) {
-    stop("Paketet 'httr' krävs.", call. = FALSE)
+  res <- GET(url, add_headers("Cache-Control" = "no-cache"))
+  stop_for_status(res)
+  writeBin(content(res, "raw"), tmp)
+  
+  if (!is.na(encoding)) {
+    source(tmp, encoding = encoding, echo = echo)  
+  } else {
+    source(tmp, echo = echo)
   }
   
-  # Plocka ut owner / repo / branch / path ur raw-URL:en.
-  m <- regmatches(
-    url,
-    regexec("raw\\.githubusercontent\\.com/([^/]+)/([^/]+)/([^/]+)/(.+)$", url)
-  )[[1]]
-  
-  # Inte en raw.githubusercontent-URL? Fall tillbaka på vanlig source().
-  if (length(m) != 5) {
-    return(invisible(source(url, encoding = encoding, echo = echo)))
-  }
-  
-  owner <- m[2]; repo <- m[3]; branch <- m[4]; path <- m[5]
-  
-  # PAT: argument > GITHUB_PAT > keyring (samma mönster som övriga funktioner).
-  if (is.null(pat) || !nzchar(pat)) pat <- Sys.getenv("GITHUB_PAT", "")
-  if (!nzchar(pat) && requireNamespace("keyring", quietly = TRUE)) {
-    kp <- tryCatch(keyring::key_list(service = "github_token"), error = function(e) NULL)
-    if (!is.null(kp) && nrow(kp) > 0) {
-      pat <- tryCatch(keyring::key_get("github_token", kp$username[1]),
-                      error = function(e) "")
-    }
-  }
-  
-  api_url <- sprintf(
-    "https://api.github.com/repos/%s/%s/contents/%s?ref=%s",
-    owner, repo, utils::URLencode(path, reserved = FALSE), branch
-  )
-  
-  hdrs <- c(
-    Accept = "application/vnd.github.raw",
-    "X-GitHub-Api-Version" = "2022-11-28"
-  )
-  if (nzchar(pat)) hdrs <- c(hdrs, Authorization = paste("token", pat))
-  
-  res <- httr::GET(api_url, httr::add_headers(.headers = hdrs))
-  
-  # Hantera 403: rate-limit (fel) eller för stor fil (fall tillbaka på source()).
-  if (httr::status_code(res) == 403) {
-    body <- httr::content(res, "text", encoding = "UTF-8")
-    if (grepl("rate limit", body, ignore.case = TRUE)) {
-      stop("GitHub API rate-limit nådd. Sätt GITHUB_PAT (eller spara token i ",
-           "keyring service = 'github_token') för 5000 anrop/timme istället ",
-           "för 60.", call. = FALSE)
-    }
-    if (grepl("too large|larger than", body, ignore.case = TRUE)) {
-      message("source_utan_cache(): '", basename(path), "' överskrider ",
-              "Contents-API:ts gräns (100 MB). Faller tillbaka på vanlig ",
-              "source(). OBS: vanlig source() kan leverera en CDN-cachad ",
-              "(eventuellt gammal) version strax efter en push.")
-      return(invisible(source(url, encoding = encoding, echo = echo)))
-    }
-  }
-  httr::stop_for_status(res)
-  
-  tmp <- tempfile(fileext = ".R")
-  on.exit(unlink(tmp), add = TRUE)
-  writeBin(httr::content(res, "raw"), tmp)
-  
-  invisible(source(tmp, encoding = encoding, echo = echo))
+  unlink(tmp)
 }
 
 source_funktioner <- function(skriptfil, funktioner) {
@@ -2680,10 +2226,10 @@ excelfil_spara_formaterad <- function(indata,
     
     # egen beräkning av autosize
     if (auto_kolumnbredd) {
-      kolumnbredd <- pmax(
-        map_dbl(.x, ~ max(nchar(as.character(.x)), na.rm = TRUE)),
-        nchar(names(.x))) + 2
-      
+     kolumnbredd <- pmax(
+       map_dbl(.x, ~ max(nchar(as.character(.x)), na.rm = TRUE)),
+       nchar(names(.x))) + 2
+     
       setColWidths(wb, sheet = .y, cols = 1:ncol(.x), widths = kolumnbredd)        # sätt kolumnbredd till autosize, dvs. så bred som texten i kolumnen är
     }
     
@@ -2696,64 +2242,6 @@ excelfil_spara_formaterad <- function(indata,
   
   # Spara workbooken
   saveWorkbook(wb, paste0(output_mapp, excelfil_namn), overwrite = skriv_over_fil)
-}
-
-
-spara_som_csv_i_zip <- function(df_list,
-                                output_mapp = NULL,
-                                zipfilnamn = NA,
-                                pre_namn_csv_fil_utan_namn = "df_",
-                                meddelande = TRUE
-) {
-  
-  # Om det är en dataframe och inte en lista så gör vi om den till en lista
-  if (is.data.frame(df_list)) {
-    namn_df  <- deparse(substitute(df_list))
-    df_list  <- list(df_list)
-    names(df_list) <- namn_df
-  }
-  
-  if (is.null(output_mapp)) output_mapp <- utskriftsmapp()
-  
-  # Spara dataseten i varsin csv-fil
-  csvfil_lista <- imap(df_list, ~ {
-    filnamn_pre <- .y
-    
-    # Om det inte finns något namn döps den till "df_[siffra]"
-    if (str_detect(filnamn_pre, "^\\.[0-9]+")) filnamn_pre <- paste0(pre_namn_csv_fil_utan_namn, .y)
-    
-    csv_fil <- paste0(output_mapp, paste0(filnamn_pre, ".csv"))
-    #if (str_count(csv_fil, "df_")) csv_fil <- csv_fil %>% str_remove("df_")
-    write_csv(.x, csv_fil)
-    return(csv_fil)
-  }) %>% unlist()
-  
-  # Skapa ett zipfilnamn om det inte finns något redan
-  if (is.na(zipfilnamn)) zipfilnamn <- csvfil_lista %>% basename() %>% str_remove("[0-9]") %>% unique() %>% .[1] %>% str_replace(".csv", ".zip")
-  if (str_sub(zipfilnamn, nchar(zipfilnamn)-3) != ".zip") zipfilnamn <- paste0(zipfilnamn, ".zip")
-  
-  zip_full <- paste0(output_mapp, zipfilnamn)
-  if (file.exists(zip_full)) invisible(file.remove(zip_full))
-  zip(zip_full, csvfil_lista, flags = "-q", extras = '-j')
-  invisible(file.remove(csvfil_lista))
-  if (meddelande) print(paste0("Filen ", zipfilnamn, " har sparats i mappen ", output_mapp))
-}
-
-las_b64 <- function(sokvag_filnamn) {
-  if (!file.exists(sokvag_filnamn)) {
-    stop("Secret-filen finns inte: ", sokvag_filnamn, call. = FALSE)
-  }
-  
-  x <- readLines(sokvag_filnamn, warn = FALSE, encoding = "UTF-8")
-  x <- trimws(x)
-  x <- x[nzchar(x)]
-  
-  if (!length(x)) {
-    stop("Secret-filen är tom: ", sokvag_filnamn, call. = FALSE)
-  }
-  
-  raw <- jsonlite::base64_dec(x[[1]])
-  rawToChar(raw)
 }
 
 
@@ -2985,6 +2473,7 @@ hamta_excel_dataset_med_url <- function(url_excel,
   #GET(url_excel, write_disk(excel_fil, overwrite = TRUE))                                # ladda ner temporär fil
   curl_fetch_disk(url_excel, path = excel_fil)
   
+  
   flikar <- excel_sheets(excel_fil)                                                      # läs in flikar
   if (!is.na(hoppa_over_flikar)) flikar <- flikar[!flikar %in% hoppa_over_flikar]        # ta bort flikar som läses in om det finns värden i hoppa_over_flikar
   
@@ -3018,12 +2507,17 @@ oppnadata_hamta <- function(
   
   # kontrollera om alla nödvändiga funktioner redan är laddade
   funktioner_ar_laddade <- funktioner_nodvandiga[funktioner_nodvandiga %in% ls(envir = .GlobalEnv)]
-  funktioner_behover_laddas <- funktioner_nodvandiga[!funktioner_nodvandiga %in% ls(envir = .GlobalEnv)]       # kontrollera om alla nödvändiga funktioner redan är laddade
+  if (length(funktioner_ar_laddade) == 0){
+    funktioner_behover_laddas <- funktioner_nodvandiga
+  } else {
+    funktioner_behover_laddas <- funktioner_nodvandiga[!funktioner_ar_laddade %in% ls(envir = .GlobalEnv)]  
+  }
+  
   
   # om inte alla nödvändiga funktioner redan är laddade så laddas de in från rätt fil
   if (length(funktioner_behover_laddas) > 0) {
     source_funktioner("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_GIS.R",
-                      funktioner_behover_laddas)
+                    funktioner_behover_laddas)
   }
   
   retur_df <- postgres_hamta_oppnadata(
@@ -3078,7 +2572,7 @@ gh_dia <- function(f = NA) {
 
 gh_hamta_analytikernatverket <- function(f = NA) {
   github_lista_repo_filer_analytikernatverket(filter = f,
-                                              repo = "hamta_data")
+                          repo = "hamta_data")
 }
 
 gh_ppt <- function(f = NA) {
@@ -3158,7 +2652,7 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
   response <- httr::GET(url)
   
   # Bara använd token om vi får 401/403
-  
+
   if (token_finns & !rekursiv_korning) {
     response <- httr::GET(url, httr::add_headers(Authorization = paste("token", key_get("github_token", key_list(service = "github_token")$username))))
   } else {
@@ -3184,7 +2678,7 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
   # Gå igenom alla poster och hantera mappar och filer
   retur_df <- purrr::map_df(content, function(item) {
     if (item$type == "dir") {
-      
+
       # Skippa dolda mappar (som börjar med .)
       if (grepl("^\\.", item$name)) {
         #cat("Skippar dold mapp:", item$name, "\n")
@@ -3208,13 +2702,13 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
           path = paste0(path, item$name, "/")
         )
       }, error = function(e) {
-        cat("Varning: Kunde inte läsa mapp:", path, item$name, "/", "\n")
+        cat("Varning: Kunde inte läsa mapp:", new_path, "\n")
         cat("Felmeddelande:", e$message, "\n")
         return(tibble::tibble())  # Returnera tom tibble vid fel
       }) 
       
       return(result)
-      
+
     } else {
       
       ska_skapa_source <- if (rekursiv_korning) FALSE else icke_source_repo
@@ -3233,7 +2727,7 @@ github_lista_repo_filer <- function(repo = "hamta_data",                        
         )))
     }
   })
-  
+
   if (lista_ej_systemfiler) retur_df <- retur_df %>% filter(namn != "LICENSE", str_sub(namn, 1, 1) != ".")
   
   # Filtrera baserat på sökord om filter inte är NA
@@ -3300,8 +2794,8 @@ github_status_filer_lokalt_repo_analytikernatverket <- function(
 github_status_filer_lokalt_repo <- function(
     repo = "hamta_data",                          # repot vars filer vi ska lista
     sokvag_lokal_repo = "c:/gh/"
-) {
-  
+                                            ) {
+ 
   # En funktion för att lista status på filer i ett repository som finns hos en github-användare
   # Användaren "Region-Dalarna" är standardinställing och standardinställning för repo
   # är "hamta_data" så körs funktionen utan parametrar så status för lokala filer i repot
@@ -3334,7 +2828,7 @@ github_status_filer_lokalt_repo <- function(
     dessa_txt <- "Dessa är"
   }
   if (length(repo_status$unstaged) > 0) retur_meddelande <- paste0(retur_meddelande, 
-                                                                   glue("{length(repo_status$unstaged)} {fil_txt} i {lokal_sokvag_repo} har ändrats, och {tolower(dessa_txt)}:\n{paste0(repo_status$unstaged, collapse = '\n')}\n\n"))
+                                                                    glue("{length(repo_status$unstaged)} {fil_txt} i {lokal_sokvag_repo} har ändrats, och {tolower(dessa_txt)}:\n{paste0(repo_status$unstaged, collapse = '\n')}\n\n"))
   # stage:ade filer men ännu inte push:ade till github.com
   if (length(repo_status$staged) == 1){
     fil_txt <- "fil"
@@ -3348,10 +2842,10 @@ github_status_filer_lokalt_repo <- function(
     push_txt <- "push:ade"
   }
   if (length(repo_status$staged) > 0) retur_meddelande <- paste0(retur_meddelande, 
-                                                                 glue("{length(repo_status$staged)} {fil_txt} i {lokal_sokvag_repo} har ändrats och är {stage_txt} men ännu inte {push_txt} till github.com, och {tolower(dessa_txt)}:\n{paste0(repo_status$staged, collapse = '\n')}"))
+                                                                   glue("{length(repo_status$staged)} {fil_txt} i {lokal_sokvag_repo} har ändrats och är {stage_txt} men ännu inte {push_txt} till github.com, och {tolower(dessa_txt)}:\n{paste0(repo_status$staged, collapse = '\n')}"))
   if (length(retur_meddelande) == 0) retur_meddelande <- glue("Inga nya filer eller ändringar av befintliga filer har gjorts i {lokal_sokvag_repo}.")
   cat(retur_meddelande)
-  
+    
 } # slut funktion
 
 
@@ -3384,28 +2878,6 @@ github_commit_push <- function(
     fran_rmarkdown = FALSE,
     pull_forst = TRUE) {
   
-  # Testa om git fungerar med nuvarande HOME, annars prova USERPROFILE
-  git_test <- suppress_specific_warning(system2("git", args = "--version", stdout = TRUE, stderr = TRUE), warn_text = "status 128")
-  if (isTRUE(attr(git_test, "status") == 128)) {
-    old_home <- Sys.getenv("HOME")
-    Sys.setenv(HOME = Sys.getenv("USERPROFILE"))
-    on.exit(Sys.setenv(HOME = old_home), add = TRUE, after = FALSE)
-    
-    # Verifiera att det faktiskt fungerade
-    git_test2 <- system2("git", args = "--version", stdout = TRUE, stderr = TRUE)
-    if (isTRUE(attr(git_test2, "status") == 128)) {
-      stop("Kan inte nå git, varken med HOME eller USERPROFILE. Kontrollera nätverksuppkopplingen.")
-    }
-  }
-  
-  # Säkerställ att github_token finns i keyring innan vi kör vidare - används
-  # för både pull och push, och ger annars ett kryptiskt fel längre ner.
-  if (nrow(keyring::key_list(service = "github_token")) == 0) {
-    stop("Ingen nyckel hittades för service 'github_token' i keyring. ",
-         "Kör keyring::key_set('github_token', username = '<ditt-github-anvandarnamn>') ",
-         "och ange ett Personal Access Token med scope 'repo' (och 'workflow' om du pushar workflow-filer).")
-  }
-  
   lokal_sokvag_repo <- paste0(sokvag_lokal_repo, repo)
   
   # Skydd mot parallell körning (låser processen)
@@ -3416,28 +2888,31 @@ github_commit_push <- function(
   
   
   push_repo <- git2r::repository(lokal_sokvag_repo)
-  #repo_status <- git2r::status(push_repo)
-  repo_status <- system2("git", args = c("-C", lokal_sokvag_repo, "status", "--porcelain"), stdout = TRUE)
+  repo_status <- git2r::status(push_repo)
   
   # Kategorisera filer
-  untracked_files   <- sub("^.. ", "", repo_status[grepl("^\\?\\?", repo_status)])
-  unstaged_modified <- sub("^.. ", "", repo_status[grepl("^ M", repo_status)])
-  unstaged_deleted  <- sub("^.. ", "", repo_status[grepl("^ D", repo_status)])
-  staged_added      <- sub("^.. ", "", repo_status[grepl("^A", repo_status)])
-  staged_modified   <- sub("^.. ", "", repo_status[grepl("^M ", repo_status)])
-  staged_deleted    <- sub("^.. ", "", repo_status[grepl("^D ", repo_status)])
+  untracked_files <- repo_status$untracked
+  unstaged_modified <- repo_status$unstaged$modified
+  unstaged_deleted <- repo_status$unstaged$deleted
+  staged_added <- repo_status$staged$added
+  staged_modified <- repo_status$staged$modified
+  staged_deleted <- repo_status$staged$deleted
   
+  #if (length(untracked_files) + length(unstaged_modified) + length(unstaged_deleted) > 0) {
   if (any(lengths(list(untracked_files, unstaged_modified, unstaged_deleted,
                        staged_added, staged_modified, staged_deleted)) > 0)) {
     
     if (!fran_rmarkdown) {
-      # Filklassificering — baseras enbart på lokal git-status, inget
-      # fjärranrop mot GitHub API behövs (och skulle bara riskera
-      # rate-limiting + trassel med specialtecken i mappnamn för inget,
-      # eftersom filtreringen mot fjärrfillistan redan var avstängd).
-      filer_tillagda  <- unique(c(unlist(staged_added), unlist(untracked_files)))
-      filer_andrade   <- unique(c(unlist(staged_modified), unlist(unstaged_modified)))
-      filer_borttagna <- unique(c(unlist(staged_deleted),  unlist(unstaged_deleted)))
+      # Hämta remote repository-filnamn
+      github_fillista <- github_lista_repo_filer(owner = repo_org,
+                                                 repo = repo,
+                                                 url_vekt_enbart = FALSE,
+                                                 skriv_source_konsol = FALSE)$namn
+      
+      # Filklassificering
+      filer_tillagda  <- unique(c(staged_added, untracked_files))                 #[!untracked_files %in% github_fillista]))
+      filer_andrade   <- unique(c(staged_modified, unstaged_modified))
+      filer_borttagna <- unique(c(staged_deleted,  unstaged_deleted))
       
       # Sammanställningsmeddelanden
       konsolmeddelande <- paste0(
@@ -3465,28 +2940,43 @@ github_commit_push <- function(
       head_branch <- git2r::repository_head(push_repo)
       if (!is.null(git2r::branch_target(head_branch))) {
         git2r::pull(repo = push_repo,
-                    credentials = cred_user_pass(username = key_list(service = "github_token")$username,
-                                                 password = key_get("github_token", key_list(service = "github_token")$username)))
+                    credentials = cred_user_pass(username = key_list(service = "github")$username,
+                                                 password = key_get("github", key_list(service = "github")$username)))
       } else {
         message("⚠️ Ingen upstream-branch är satt – skippar git pull.")
       }
     }
     
+    # # Kolla om det ligger filer stage:ade sedan tidigare (oftast gör det inte det) - och i så fall skriver vi det i konsolen
+    # if (length(c(staged_added, staged_modified, staged_deleted)) > 0) {
+    #   cat("Filer som redan är staged för commit:\n")
+    #   if (length(staged_added) > 0) cat("Tillagda:\n", paste(staged_added, collapse = "\n"), "\n")
+    #   if (length(staged_modified) > 0) cat("Ändrade:\n", paste(staged_modified, collapse = "\n"), "\n")
+    #   if (length(staged_deleted) > 0) cat("Borttagna:\n", paste(staged_deleted, collapse = "\n"), "\n")
+    # }
+    
     # Lägg till och comitta alla ändrade filer
-    stderr_output <- system2("git", args = c("-C", lokal_sokvag_repo, "add", "."), 
-                             stdout = TRUE, stderr = TRUE)
-    
-    # Filtrera bort LF/CRLF-varningar
-    relevanta_fel <- stderr_output[!grepl("LF will be replaced by CRLF|CRLF will be replaced by LF", 
-                                          stderr_output)]
-    
-    if (length(relevanta_fel) > 0) warning(paste(relevanta_fel, collapse = "\n"))
+    if (exists("filer_tillagda")) {
+      git2r::add(push_repo, path = c(filer_tillagda, filer_andrade, filer_borttagna) %>% as.character())
+    } else {
+      git2r::add(push_repo, path = ".")
+    } 
     
     git2r::commit(push_repo, commit_txt)
     
     git2r::push(object = push_repo,
                 credentials = cred_user_pass( username = key_list(service = "github_token")$username,
                                               password = key_get("github_token", key_list(service = "github_token")$username)))
+    
+    # # Push med system-kommando (för att hantera token)
+    # system(paste0(
+    #   'git -C ', lokal_sokvag_repo, ' push https://', 
+    #   key_list(service = "github_token")$username, ':', 
+    #   key_get("github_token", key_list(service = "github_token")$username), 
+    #   '@github.com/', repo_org, '/', repo, '.git'
+    # )) 
+    #   
+    
     
     cat(paste0("Commit och push till ", repo, " på ", repo_org ,"s Github är klar.\n\n", konsolmeddelande))
     
@@ -3515,23 +3005,74 @@ github_pull_lokalt_repo_fran_github <- function(
     sokvag_lokal_repo = "c:/gh/",
     repo_org = "Region-Dalarna"
 ) {
-  
   if (all(repo == "*")) repo <- list.files(sokvag_lokal_repo)
   
   walk(repo, ~ {
     
     lokal_sokvag_repo <- paste0(sokvag_lokal_repo, .x)
-    
     push_repo <- git2r::repository(lokal_sokvag_repo)
-    #repo_status <- git2r::status(push_repo)
     
-    # Om repo-initialiseringen misslyckas, hoppa över med ett meddelande
     if (is.null(push_repo)) {
       cat("Kunde inte initiera repositoryt", .x, ". Hoppar över.\n")
       flush.console()
-      #return(NULL)
+      return(invisible(NULL))
     }
     
+    credentials <- cred_user_pass(
+      username = key_list(service = "github")$username,
+      password = key_get("github", key_list(service = "github")$username)
+    )
+    
+    # --- FÖRKONTROLL: lokala ändringar/otrackade filer som kan blockera pull ---
+    status <- git2r::status(push_repo)
+    untracked <- names(status$untracked)
+    unstaged  <- names(status$unstaged)
+    staged    <- names(status$staged)
+    
+    if (length(untracked) > 0 || length(unstaged) > 0 || length(staged) > 0) {
+      
+      cat("\n=====================================================\n")
+      cat("VARNING:", .x, "har lokala ändringar/otrackade filer!\n")
+      cat("En pull kan misslyckas TYST (utan felmeddelande) om\n")
+      cat("någon av dessa filer krockar med inkommande ändringar.\n")
+      cat("-----------------------------------------------------\n")
+      
+      if (length(untracked) > 0) {
+        cat("Otrackade filer (finns lokalt, inte i git):\n")
+        cat(paste0("  - ", untracked, collapse = "\n"), "\n")
+      }
+      if (length(unstaged) > 0) {
+        cat("Ändrade filer (ej stagade):\n")
+        cat(paste0("  - ", unstaged, collapse = "\n"), "\n")
+      }
+      if (length(staged) > 0) {
+        cat("Stagade filer (ej committade):\n")
+        cat(paste0("  - ", staged, collapse = "\n"), "\n")
+      }
+      
+      cat("-----------------------------------------------------\n")
+      cat("SÅ HÄR HANTERAR DU DET:\n")
+      cat("1) Otrackade filer som krockar med GitHub-versionen:\n")
+      cat("   - Radera eller döp om filen lokalt om du inte behöver\n")
+      cat("     den lokala versionen, t.ex.:\n")
+      cat("     file.remove(\"", lokal_sokvag_repo, "/<filnamn>\")\n", sep = "")
+      cat("   - Eller döp om för att spara den:\n")
+      cat("     file.rename(\"<fil>\", \"<fil>_lokal_backup.R\")\n")
+      cat("2) Ändrade/stagade filer du vill spara men inte committa än:\n")
+      cat("     git2r::stash(push_repo)      # före pull\n")
+      cat("     git2r::stash_pop(push_repo)  # efter pull\n")
+      cat("3) Eller committa dina ändringar innan du pullar:\n")
+      cat("     git2r::add(push_repo, '.')\n")
+      cat("     git2r::commit(push_repo, 'Mitt commit-meddelande')\n")
+      cat("=====================================================\n\n")
+      flush.console()
+      
+      cat(paste0(.x, ": Pull SKIPPAD pga lokala ändringar/otrackade filer.\n"))
+      flush.console()
+      return(invisible(NULL))
+    }
+    
+    # --- Om inga lokala hinder: kör pull som vanligt ---
     resultat <- tryCatch(
       {
         head_branch <- git2r::repository_head(push_repo)
@@ -3540,27 +3081,27 @@ github_pull_lokalt_repo_fran_github <- function(
           return("Ingen tracking-branch kopplad – skippar pull.")
         }
         
-        git2r::pull(
-          repo = push_repo,
-          credentials = cred_user_pass(
-            username = key_list(service = "github")$username,
-            password = key_get("github", key_list(service = "github")$username)
-          )
-        )
+        pull_res <- git2r::pull(repo = push_repo, credentials = credentials)
+        
+        # Extra koll: om resultatet ser "halvfärdigt" ut trots inga fel
+        if (isTRUE(pull_res$conflicts)) {
+          cat("  -> KONFLIKT vid merge för", .x, "! Lös konflikten manuellt.\n")
+        } else if (isFALSE(pull_res$up_to_date) && is.null(pull_res$sha) && is.null(pull_res$fast_forward)) {
+          cat("  -> OVÄNTAT RESULTAT för", .x, "- pull verkar ha avbrutits utan tydligt fel.\n")
+          cat("     Kontrollera 'git status' manuellt i mappen.\n")
+        }
+        
+        pull_res
       },
       error = function(e) {
         return(paste("Fel vid git pull:", e$message))
       }
     )
     
-    
-    # resultat <- git2r::pull( repo = push_repo,                 
-    #               credentials = cred_user_pass( username = key_list(service = "github")$username, 
-    #                                            password = key_get("github", key_list(service = "github")$username)))
     cat(paste0(.x, ": "))
     flush.console()
     if (is.character(resultat)) {
-      cat(resultat, "\n")  # Använd cat() för att skriva ut utan citationstecken och [1]
+      cat(resultat, "\n")
     } else {
       print(resultat)
     }
@@ -3568,11 +3109,12 @@ github_pull_lokalt_repo_fran_github <- function(
   }) # slut walk-funktion
 } # slut funktion
 
+
 github_lagg_till_repo_fran_github <- function(repo_namn,   # bara själva namnet, inte url:en, tex. "hamta_data" eller "kartor"
                                               repo_org = "Region-Dalarna",
                                               repo_lokalt_mapp = "c:/gh/",
                                               rprojekt_oppna = FALSE) {
-  
+
   # Skript för att lägga till ett repo från Github lokalt på en dator
   # Parametrar:
   # - repo_namn:        Namnet på det repository som ska hämtas (t.ex. "hamta_data").
@@ -3587,7 +3129,7 @@ github_lagg_till_repo_fran_github <- function(repo_namn,   # bara själva namnet
   
   if (!nzchar(repo_namn)) stop("❌ repo_namn måste anges.")
   if (!nzchar(repo_org)) stop("❌ repo_org måste anges.")
-  
+
   # Full sökväg lokalt
   lokal_sokvag <- paste0(repo_lokalt_mapp, repo_namn)
   
@@ -3675,14 +3217,14 @@ github_lagg_till_repo_fran_github_analytikernatverket <- function(
 # ================================================= skapa skript-funktioner ========================================================
 
 skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA, 
-                                          tabell_namn = NA, 
-                                          output_mapp = NA, 
-                                          var_med_koder = NA, 
-                                          default_region = "20",
-                                          oppna_nya_skriptfilen = TRUE,
-                                          skapa_temp_test_fil = TRUE,
-                                          skapa_diagram_i_testfil = TRUE
-) {
+                                              tabell_namn = NA, 
+                                              output_mapp = NA, 
+                                              var_med_koder = NA, 
+                                              default_region = "20",
+                                              oppna_nya_skriptfilen = TRUE,
+                                              skapa_temp_test_fil = TRUE,
+                                              skapa_diagram_i_testfil = TRUE
+                                              ) {
   source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_text.R", encoding = "utf-8", echo = FALSE)
   
   # funktion för att skapa ett skript för att hämta data från SCB:s pxweb-api
@@ -3697,15 +3239,15 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   #                 Gör så här: 1. Ta reda på vad koden är för din variabel genom att köra funktionen pxvarlist(<url till tabellen>)
   #                             2. Lägg in det som sträng eller vektor (om det är fler) för parametern var_med_koder, alltså tex. var_med_koder = "SNI2007" eller var_med_koder = c("SNI2007", "SSYK4") om det är fler variabler man vill ha med koder för
   
-  # säkerställ att det finns värden för dessa parametrar
-  if (all(is.na(skickad_url_pxweb))) stop("Parametrarna 'skickad_url_pxweb', 'tabell_namn' och 'output_mapp' måste vara med för att funktionen ska kunna köras.\n'skickad_url_pxweb' är url till den pxweb-tabell som man vill hämta data från.\n'tabell_namn' är ett namn som beskriver tabellen. Det bör vara så kort som möjligt och inte innehålla mellanslag. Det kan t.ex. vara 'rmi' för de regionala matchningsindikatorerna.\n'output_mapp' är en sökväg till den mapp som man vill spara det nya skriptet i.")  
-  if (is.na(tabell_namn)) stop("Parametrarna 'skickad_url_pxweb', 'tabell_namn' och 'output_mapp' måste vara med för att funktionen ska kunna köras.\n'skickad_url_pxweb' är url till den pxweb-tabell som man vill hämta data från.\n'tabell_namn' är ett namn som beskriver tabellen. Det bör vara så kort som möjligt och inte innehålla mellanslag. Det kan t.ex. vara 'rmi' för de regionala matchningsindikatorerna.\n'output_mapp' är en sökväg till den mapp som man vill spara det nya skriptet i.")  
-  if (is.na(output_mapp)) stop("Parametrarna 'skickad_url_pxweb', 'tabell_namn' och 'output_mapp' måste vara med för att funktionen ska kunna köras.\n'skickad_url_pxweb' är url till den pxweb-tabell som man vill hämta data från.\n'tabell_namn' är ett namn som beskriver tabellen. Det bör vara så kort som möjligt och inte innehålla mellanslag. Det kan t.ex. vara 'rmi' för de regionala matchningsindikatorerna.\n'output_mapp' är en sökväg till den mapp som man vill spara det nya skriptet i.")  
-  
   # kontrollera att output_mapp slutar med "/" eller "\", annars lägger vi till det
   if (!str_sub(output_mapp, nchar(output_mapp)) %in% c("/", "\\")) {
     output_mapp <- paste0(output_mapp, "/")
   }
+  
+  # säkerställ att det finns värden för dessa parametrar
+  if (all(is.na(skickad_url_pxweb))) stop("Parametrarna 'skickad_url_pxweb', 'tabell_namn' och 'output_mapp' måste vara med för att funktionen ska kunna köras.\n'skickad_url_pxweb' är url till den pxweb-tabell som man vill hämta data från.\n'tabell_namn' är ett namn som beskriver tabellen. Det bör vara så kort som möjligt och inte innehålla mellanslag. Det kan t.ex. vara 'rmi' för de regionala matchningsindikatorerna.\n'output_mapp' är en sökväg till den mapp som man vill spara det nya skriptet i.")  
+  if (is.na(tabell_namn)) stop("Parametrarna 'skickad_url_pxweb', 'tabell_namn' och 'output_mapp' måste vara med för att funktionen ska kunna köras.\n'skickad_url_pxweb' är url till den pxweb-tabell som man vill hämta data från.\n'tabell_namn' är ett namn som beskriver tabellen. Det bör vara så kort som möjligt och inte innehålla mellanslag. Det kan t.ex. vara 'rmi' för de regionala matchningsindikatorerna.\n'output_mapp' är en sökväg till den mapp som man vill spara det nya skriptet i.")  
+  if (is.na(output_mapp)) stop("Parametrarna 'skickad_url_pxweb', 'tabell_namn' och 'output_mapp' måste vara med för att funktionen ska kunna köras.\n'skickad_url_pxweb' är url till den pxweb-tabell som man vill hämta data från.\n'tabell_namn' är ett namn som beskriver tabellen. Det bör vara så kort som möjligt och inte innehålla mellanslag. Det kan t.ex. vara 'rmi' för de regionala matchningsindikatorerna.\n'output_mapp' är en sökväg till den mapp som man vill spara det nya skriptet i.")  
   
   # bearbeta url:en så att vi kan använda den i funktionen
   webb_url <- skickad_url_pxweb %>% paste0(., collapse = "\n  #\t\t\t\t\t\t\t\t\t\t\t\t")
@@ -3716,13 +3258,13 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
                         str_detect(skickad_url_pxweb, "fohm-app.folkhalsomyndigheten.se") ~ "Folkhälsomyndighetens",
                         str_detect(skickad_url_pxweb, "statistik.tillvaxtanalys.se") ~ "Tillväxtanalys",
                         str_detect(skickad_url_pxweb, "statistik.sjv.se") ~ "Jordbruksverkets") %>% 
-    unique()
+                        unique()
   
   org_kortnamn <- case_when(str_detect(skickad_url_pxweb, "https://www.statistikdatabasen.scb.se") ~ "scb",
-                            str_detect(skickad_url_pxweb, "https://api.scb.se") ~ "scb",
-                            str_detect(skickad_url_pxweb, "fohm-app.folkhalsomyndigheten.se") ~ "fohm",
-                            str_detect(skickad_url_pxweb, "statistik.tillvaxtanalys.se") ~ "tva",
-                            str_detect(skickad_url_pxweb, "statistik.sjv.se") ~ "sjv") %>%
+                        str_detect(skickad_url_pxweb, "https://api.scb.se") ~ "scb",
+                        str_detect(skickad_url_pxweb, "fohm-app.folkhalsomyndigheten.se") ~ "fohm",
+                        str_detect(skickad_url_pxweb, "statistik.tillvaxtanalys.se") ~ "tva",
+                        str_detect(skickad_url_pxweb, "statistik.sjv.se") ~ "sjv") %>%
     unique()
   
   region_special_org <- c("tva", "sjv")
@@ -3757,7 +3299,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   }
   # vi skapar en lista som heter px_meta som liknar en lista man får med en vanlig pxweb_get()-funktion
   px_meta <- list(title = px_meta_list[[1]]$title, variables = px_meta_enkel_list)
-  
+
   varlist_koder <- tabell_variabler$koder                                                # hämta vektor med variabelkoder
   
   varlist_giltiga_varden <- map(varlist_koder, ~ pxvardelist(px_meta, .x)$klartext) %>% set_names(tolower(varlist_koder) %>% unique())
@@ -3768,21 +3310,11 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   alder_ar_klartext <- FALSE
   
   # kolla om det finns åldrar i tabellen och hur många det är i så fall med eller utan å, dvs. alder eller ålder
-  alder_namn <- names(varlist_giltiga_varden)[
-    tolower(names(varlist_giltiga_varden)) %in% c("alder", "ålder")
-  ][1]
-  
-  har_alder <- !is.na(alder_namn)
-  
-  if (har_alder) {
-    alder_varden <- varlist_giltiga_varden[[alder_namn]]
-    alder_ar_klartext <- length(alder_varden) < 90
-    alder_txt <- if (alder_ar_klartext) "_klartext" else "_koder"
-  } else {
-    alder_ar_klartext <- FALSE
-    alder_txt <- ""
-  }
-  
+  if ("alder" %in% tolower(names(varlist_giltiga_varden)) | "ålder" %in% tolower(names(varlist_giltiga_varden))) {
+    alder_ar_klartext <- if (length(varlist_giltiga_varden$alder) < 90) TRUE else FALSE
+    alder_txt <- if(alder_ar_klartext) "_klartext" else "_koder"
+  } else alder_txt <- ""
+
   # Kombinera allt till en dataframe
   varlista_info <- tibble(kod = map_chr(px_meta$variables, ~ .x$code),
                           namn = map_chr(px_meta$variables, ~ .x$text),
@@ -3797,7 +3329,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     region_koder_bearbetad <- hamta_regionkod_med_knas_regionkod(px_meta, "*", regionvariabel_db, returnera_nyckeltabell = TRUE)$regionkod
   } else {
     if (length(regionvariabel_db) > 0) {
-      region_koder_bearbetad <- varlist_giltiga_varden_koder[[tolower(regionvariabel_db)]]
+    region_koder_bearbetad <- varlist_giltiga_varden_koder[[tolower(regionvariabel_db)]]
     }
   }
   
@@ -3805,63 +3337,63 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   # här skapar vi en lista med parametrar som ska skickas med till funktionen, den som är först i hämta data-funktionen
   funktion_parametrar <- pmap_chr(list(varlist_koder, varlist_giltiga_varden, varlist_giltiga_varden_koder), 
                                   function(var_koder, varden_klartext, varden_koder) {
-                                    
-                                    ar_elimination <- varlista_info$elimination[varlista_info$kod == var_koder]            # hämta information om aktuell variabel kan elimineras ur tabellen
-                                    elim_info_txt <- if(ar_elimination) " NA = tas inte med i uttaget, " else ""    # skapa text som används som förklaring vid parametrarna i funktionen
-                                    
-                                    # korrigera region-koder om det är en databas med löpnummer som regionkoder
-                                    if (org_kortnamn %in% region_special_org & any(c("region", "lan", "län", "kommun") %in% tolower(var_koder))){
-                                      varden_koder <- region_koder_bearbetad
-                                    }
-                                    
-                                    # hantering av ett stort antal koder, som kan bli för mycket att skriva
-                                    # ut i parameterlistan efter "Finns: "
-                                    antal_alla_koder <- length(varden_koder)
-                                    # om det finns fler värden än 50 st så tas de 2 första och de 2 sista ut för 
-                                    # varje unik längd på värdet
-                                    varden_koder <- tibble(varden_koder) %>%
-                                      mutate(textlangd = nchar(varden_koder)) %>%          # beräkna längden per element
-                                      group_by(textlangd) %>%
-                                      filter(
-                                        n() <= 50 | row_number() <= 2 | row_number() > n() - 2
-                                      ) %>%
-                                      ungroup() %>%
-                                      dplyr::pull(varden_koder)
-                                    
-                                    # om värdena fortfarande är fler än 50 så behåller vi bara de 25 första
-                                    if (length(varden_koder) > 50) varden_koder <- varden_koder[1:25]
-                                    
-                                    # om vi har tagit ner antalet värden så skickar vi med "t.ex. " innan
-                                    # koderna så att användaren förstår att det inte är alla koder
-                                    koder_urval_txt <- if (length(varden_koder) != antal_alla_koder) "t.ex. " else ""
-                                    
-                                    # hantering av ett för stort antal klartextvariabler på motsvarande sätt
-                                    # som koderna ovan, är det för många kortar vi ner antalet så det inte blir för många att lista efter "Finns: "
-                                    # hantering av ett stort antal koder, som kan bli för mycket att skriva
-                                    # ut i parameterlistan efter "Finns: "
-                                    antal_alla_klartext <- length(varden_klartext)
-                                    
-                                    # om värdena fortfarande är fler än 50 så behåller vi bara de 20 första och de 20 sista
-                                    if (length(varden_klartext) > 50) varden_klartext <- c(head(varden_klartext, 10), tail(varden_klartext, 10))
-                                    
-                                    # om vi har tagit ner antalet värden så skickar vi med "t.ex. " innan
-                                    # koderna så att användaren förstår att det inte är alla koder
-                                    klartext_urval_txt <- if (length(varden_klartext) != antal_alla_klartext) "t.ex. " else ""
-                                    
-                                    # skapa parameterlistan
-                                    retur_txt <- case_when(str_detect(tolower(var_koder), "fodel") ~ paste0(tolower(var_koder) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_klartext = "*",\t\t\t# ', elim_info_txt, ' Finns: ', klartext_urval_txt, paste0('"', varden_klartext, '"', collapse = ", ")),
-                                                           # gammal nedan, testar att alltid döpa variabeln till region_vekt
-                                                           #str_detect(tolower(var_koder), "region|lan|län") ~ paste0(tolower(var_koder) %>% byt_ut_svenska_tecken(), '_vekt = "', default_region, '",\t\t\t# Val av region. Finns: ', paste0('"', varden_koder, '"', collapse = ", ")),
-                                                           str_detect(tolower(var_koder), "region|lan|län|kommun") ~ paste0('region_vekt = "', default_region, '",\t\t\t   # Val av region. Finns: ', koder_urval_txt, paste0('"', varden_koder, '"', collapse = ", ")),
-                                                           # gammal nedan, testar att alltid döpa till tid_koder
-                                                           #tolower(var_koder) %in% c("tid") ~ paste0(tolower(var_koder) %>% byt_ut_svenska_tecken(), '_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', varden_klartext, '"', collapse = ", ")),
-                                                           tolower(var_koder) %in% c("tid") ~ paste0('tid_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', klartext_urval_txt, paste0('"', varden_klartext, '"', collapse = ", ")),
-                                                           tolower(var_koder) %in% c("år", "månader") & org_kortnamn == "fohm" ~ paste0('tid_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', klartext_urval_txt, paste0('"', varden_klartext, '"', collapse = ", ")),
-                                                           # Funktion för att ta lägsta och högsta värde i ålder är borttagen genom att jag satt length(varden_klartext) > 0, ska vara typ kanske 90. Större än 0 = alla så därför är den i praktiken avstängd. 
-                                                           tolower(var_koder) %in% c("alder", "ålder") ~ paste0(tolower(var_koder), alder_txt,' = "*",\t\t\t # ', elim_info_txt, ' Finns: ', if(alder_ar_klartext) klartext_urval_txt else koder_urval_txt, paste0('"', if(alder_ar_klartext) varden_klartext else varden_koder , '"', collapse = ", ")),                                                 # gammalt: if (length(varden_klartext) < 0) paste0(tolower(var_koder), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', varden_klartext, '"', collapse = ", ")) else paste0(tolower(var_koder), '_koder = "*",\t\t\t # Finns: ', min(varden_klartext), " - ", max(varden_klartext)),
-                                                           TRUE ~ paste0(tolower(var_koder) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', klartext_urval_txt, paste0('"', varden_klartext %>% unique(), '"', collapse = ", ")) %>% str_replace("contentscode", "cont")) 
-                                    
-                                  }) %>% 
+    
+    ar_elimination <- varlista_info$elimination[varlista_info$kod == var_koder]            # hämta information om aktuell variabel kan elimineras ur tabellen
+    elim_info_txt <- if(ar_elimination) " NA = tas inte med i uttaget, " else ""    # skapa text som används som förklaring vid parametrarna i funktionen
+    
+    # korrigera region-koder om det är en databas med löpnummer som regionkoder
+    if (org_kortnamn %in% region_special_org & any(c("region", "lan", "län", "kommun") %in% tolower(var_koder))){
+      varden_koder <- region_koder_bearbetad
+    }
+    
+    # hantering av ett stort antal koder, som kan bli för mycket att skriva
+    # ut i parameterlistan efter "Finns: "
+    antal_alla_koder <- length(varden_koder)
+    # om det finns fler värden än 50 st så tas de 2 första och de 2 sista ut för 
+    # varje unik längd på värdet
+    varden_koder <- tibble(varden_koder) %>%
+      mutate(textlangd = nchar(varden_koder)) %>%          # beräkna längden per element
+      group_by(textlangd) %>%
+      filter(
+        n() <= 50 | row_number() <= 2 | row_number() > n() - 2
+      ) %>%
+      ungroup() %>%
+      dplyr::pull(varden_koder)
+    
+    # om värdena fortfarande är fler än 50 så behåller vi bara de 25 första
+    if (length(varden_koder) > 50) varden_koder <- varden_koder[1:25]
+    
+    # om vi har tagit ner antalet värden så skickar vi med "t.ex. " innan
+    # koderna så att användaren förstår att det inte är alla koder
+    koder_urval_txt <- if (length(varden_koder) != antal_alla_koder) "t.ex. " else ""
+    
+    # hantering av ett för stort antal klartextvariabler på motsvarande sätt
+    # som koderna ovan, är det för många kortar vi ner antalet så det inte blir för många att lista efter "Finns: "
+    # hantering av ett stort antal koder, som kan bli för mycket att skriva
+    # ut i parameterlistan efter "Finns: "
+    antal_alla_klartext <- length(varden_klartext)
+
+    # om värdena fortfarande är fler än 50 så behåller vi bara de 20 första och de 20 sista
+    if (length(varden_klartext) > 50) varden_klartext <- c(head(varden_klartext, 10), tail(varden_klartext, 10))
+    
+    # om vi har tagit ner antalet värden så skickar vi med "t.ex. " innan
+    # koderna så att användaren förstår att det inte är alla koder
+    klartext_urval_txt <- if (length(varden_klartext) != antal_alla_klartext) "t.ex. " else ""
+    
+    # skapa parameterlistan
+    retur_txt <- case_when(str_detect(tolower(var_koder), "fodel") ~ paste0(tolower(var_koder) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_klartext = "*",\t\t\t# ', elim_info_txt, ' Finns: ', klartext_urval_txt, paste0('"', varden_klartext, '"', collapse = ", ")),
+                           # gammal nedan, testar att alltid döpa variabeln till region_vekt
+                           #str_detect(tolower(var_koder), "region|lan|län") ~ paste0(tolower(var_koder) %>% byt_ut_svenska_tecken(), '_vekt = "', default_region, '",\t\t\t# Val av region. Finns: ', paste0('"', varden_koder, '"', collapse = ", ")),
+                           str_detect(tolower(var_koder), "region|lan|län|kommun") ~ paste0('region_vekt = "', default_region, '",\t\t\t   # Val av region. Finns: ', koder_urval_txt, paste0('"', varden_koder, '"', collapse = ", ")),
+                           # gammal nedan, testar att alltid döpa till tid_koder
+                           #tolower(var_koder) %in% c("tid") ~ paste0(tolower(var_koder) %>% byt_ut_svenska_tecken(), '_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', paste0('"', varden_klartext, '"', collapse = ", ")),
+                           tolower(var_koder) %in% c("tid") ~ paste0('tid_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', klartext_urval_txt, paste0('"', varden_klartext, '"', collapse = ", ")),
+                           tolower(var_koder) %in% c("år", "månader") & org_kortnamn == "fohm" ~ paste0('tid_koder = "*",\t\t\t # "*" = alla år eller månader, "9999" = senaste, finns: ', klartext_urval_txt, paste0('"', varden_klartext, '"', collapse = ", ")),
+                           # Funktion för att ta lägsta och högsta värde i ålder är borttagen genom att jag satt length(varden_klartext) > 0, ska vara typ kanske 90. Större än 0 = alla så därför är den i praktiken avstängd. 
+                           tolower(var_koder) %in% c("alder", "ålder") ~ paste0(tolower(var_koder), alder_txt,' = "*",\t\t\t # ', elim_info_txt, ' Finns: ', if(alder_ar_klartext) klartext_urval_txt else koder_urval_txt, paste0('"', if(alder_ar_klartext) varden_klartext else varden_koder , '"', collapse = ", ")),                                                 # gammalt: if (length(varden_klartext) < 0) paste0(tolower(var_koder), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', paste0('"', varden_klartext, '"', collapse = ", ")) else paste0(tolower(var_koder), '_koder = "*",\t\t\t # Finns: ', min(varden_klartext), " - ", max(varden_klartext)),
+                           TRUE ~ paste0(tolower(var_koder) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_klartext = "*",\t\t\t # ', elim_info_txt, ' Finns: ', klartext_urval_txt, paste0('"', varden_klartext %>% unique(), '"', collapse = ", ")) %>% str_replace("contentscode", "cont")) 
+    
+  }) %>% 
     c(., if (antal_contvar > 1) 'long_format = TRUE,\t\t\t# TRUE = konvertera innehållsvariablerna i datasetet till long-format \n\t\t\twide_om_en_contvar = TRUE,\t\t\t# TRUE = om man vill behålla wide-format om det bara finns en innehållsvariabel, FALSE om man vill konvertera till long-format även om det bara finns en innehållsvariabel' else "") %>%
     c(., 'output_mapp = NA,\t\t\t# anges om man vill exportera en excelfil med uttaget, den mapp man vill spara excelfilen till', paste0('excel_filnamn = "', tabell_namn, '.xlsx",\t\t\t# filnamn för excelfil som exporteras om excel_filnamn och output_mapp anges'), 'returnera_df = TRUE\t\t\t# TRUE om man vill ha en dataframe i retur från funktionen') %>%                     # lägg på output-mapp och excel-filnamn som kommer sist i funktionsparametrarna
     str_c('\t\t\t', ., collapse = "\n") %>% 
@@ -3889,7 +3421,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     str_replace("ar_vekt", "tid_vekt") %>% 
     str_replace("lan_vekt", "region_vekt") %>% 
     str_replace("kommun_vekt", "region_vekt")
-  #str_replace("tid_vekt", "tid_koder") 
+    #str_replace("tid_vekt", "tid_koder") 
   
   # skapa skriptrader för klartext-variabler som måste omvandlas till koder till query-listan, dvs. "vekt_" och sedan variabelnamnet
   var_klartext_skriptrader <- map(varlist_koder, function(var_kod) {
@@ -3900,10 +3432,10 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
           map_lgl(~ .x$elimination) %>%
           first()) {
         
-        # variabler som går att eliminera (dvs. inte ha med i uttaget)
-        if (!(str_detect(tolower(var_kod), "alder|ålder") & !alder_ar_klartext) |
-            str_detect(tolower(var_kod), "grupp") |
-            (str_detect(tolower(var_kod), "alder") & str_detect(tolower(var_kod), "kon") & str_detect(tolower(var_kod), "fodel"))){
+          # variabler som går att eliminera (dvs. inte ha med i uttaget)
+         if (!(str_detect(tolower(var_kod), "alder|ålder") & !alder_ar_klartext) |
+             str_detect(tolower(var_kod), "grupp") |
+             (str_detect(tolower(var_kod), "alder") & str_detect(tolower(var_kod), "kon") & str_detect(tolower(var_kod), "fodel"))){
           paste0("  ", tolower(var_kod) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_vekt <- if (!all(is.na(', tolower(var_kod) %>% byt_ut_svenska_tecken(), '_klartext))) hamta_kod_med_klartext(px_meta, ', tolower(var_kod) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '") else NA\n')
         } else NA
       } else {    # variabler som inte går att eliminera (göra uttag utan) men som är klartext till kod
@@ -3913,7 +3445,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
             (str_detect(tolower(var_kod), "alder") & str_detect(tolower(var_kod), "kon") & str_detect(tolower(var_kod), "fodel"))) paste0("  ", tolower(var_kod) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_vekt <- hamta_kod_med_klartext(px_meta, ', tolower(var_kod) %>% str_replace_all(" ", "_") %>% byt_ut_svenska_tecken(), '_klartext, skickad_fran_variabel = "', tolower(var_kod), '")\n')
       }
     } else NA           # om det är koder för region eller ålder så ska de inte med på dessa rader
-    
+       
   }) %>% 
     list_c() %>% 
     .[!is.na(.)] %>% 
@@ -3932,7 +3464,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
       var_klartext_alder_skriptrader <- '  alder_vekt <- if (!all(is.na(alder_klartext))) hamta_kod_med_klartext(px_meta, alder_klartext, skickad_fran_variabel = "alder") else NA\n'
     }
   } else var_klartext_alder_skriptrader <- NULL            # om inte ålder är med i tabellen
-  
+
   
   # skapa skriptrader för klartext-variabler som kan elimineras om de är NA
   var_klartext_tabort_NA_skriptrader <- map(varlist_koder, function(var_kod) {
@@ -3972,7 +3504,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   funktion_namn <- filnamn_suffix %>% str_remove(paste0("_", tabell_id))
   
   # hantera region i databaser med felaktiga länsnamn och där de korrekta koderna ligger tillsammans med klartext i samma kolumn
-  
+
   if (org_kortnamn %in% region_special_org) {
     region_variabel <- varlist_koder[str_detect(tolower(varlist_koder), "region|lan|län|kommun") & !str_detect(tolower(varlist_koder), "fodelse")]
     region_special_skriptrader <- paste0(
@@ -3995,34 +3527,34 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     paste0('  giltiga_ar <- hamta_giltiga_varden_fran_tabell(px_meta, "år")\n',
            '  tid_vekt <- if (all(tid_koder != "*")) tid_koder %>% as.character() %>% str_replace("9999", max(giltiga_ar)) %>% .[. %in% giltiga_ar] %>% unique() else giltiga_ar\n\n')
   } else tid_skriptrader
-  
-  if (any(c("månad", "år") %in% tolower(names(varlist_giltiga_varden)))) {                      # hlv
+
+    if (any(c("månad", "år") %in% tolower(names(varlist_giltiga_varden)))) {                      # hlv
     tid_variabel <- varlist_koder[str_detect(tolower(varlist_koder), "månad|år")]
     tid_klartext <- tid_variabel %>% svenska_tecken_byt_ut() %>% tolower() %>% paste0(., "_klartext")
     if (any(tolower(varlist_koder) %in% c("år", "månader")) & org_kortnamn == "fohm") tid_klartext <- "tid_koder"
     giltig_var <- ifelse(tolower(tid_variabel) == "månad", "giltiga_manader", paste0("giltiga_", tid_variabel %>% tolower %>% svenska_tecken_byt_ut()))
     tid_skriptrader <- paste0('  px_meta$variables <- sortera_px_variabler(px_meta$variables, sorterings_vars = "', tid_variabel, '", sortera_pa_kod = FALSE)        # sortera om månader så att de kommer i kronologisk ordning\n',
-                              '  ', tid_klartext, ' <- ', tid_klartext, ' %>%           # ersätt "9999" med senaste ', tolower(tid_variabel), '\n',
-                              '     str_replace_all("9999", hamta_giltiga_varden_fran_tabell(px_meta, "', tid_variabel, '", klartext = TRUE) %>% max())\n',
-                              '  ', giltig_var, ' <- hamta_giltiga_varden_fran_tabell(px_meta, "', tid_variabel, '")\n\n',
-                              '  if (all(', tid_klartext, ' == "*")) {\n',
-                              '      tid_vekt <- ', giltig_var, '\n',
-                              '  } else {\n',
-                              '     tid_vekt <- map(', tid_klartext, ', function(period) {\n',
-                              '        if (str_detect(period, ":")){     # kontrollera om det finns ett kolon = intervall\n',
-                              '           intervall <- map_chr(str_split(period, ":") %>% unlist(), ~ hamta_kod_med_klartext(px_meta, .x, "', tid_variabel, '"))\n',
-                              '           retur_txt <- ', giltig_var, '[which(', giltig_var, ' == intervall[1]):which(', giltig_var, ' == intervall[2])]\n',
-                              '        } else retur_txt <- hamta_kod_med_klartext(px_meta, period, "', tid_variabel, '")\n',
-                              '     }) %>% unlist()\n',
-                              '     index_period <- map_lgl(px_meta$variables, ~ .x$text == "', tid_variabel, '")          # hitta platsen i px_meta$variables där variabeln "', tid_variabel, '" finns\n',
-                              '     period_varden <- px_meta$variables[[which(index_period)]]$values         # läs in alla värden för variabeln "', tid_variabel, '"\n',
-                              '    tid_vekt <- tid_vekt[match(period_varden[period_varden %in% tid_vekt], tid_vekt)]        # sortera om tid_vekt utifrån ordningen i px_meta (som vi sorterade ovan) \n',
-                              '   }\n\n')
+           '  ', tid_klartext, ' <- ', tid_klartext, ' %>%           # ersätt "9999" med senaste ', tolower(tid_variabel), '\n',
+           '     str_replace_all("9999", hamta_giltiga_varden_fran_tabell(px_meta, "', tid_variabel, '", klartext = TRUE) %>% max())\n',
+           '  ', giltig_var, ' <- hamta_giltiga_varden_fran_tabell(px_meta, "', tid_variabel, '")\n\n',
+           '  if (all(', tid_klartext, ' == "*")) {\n',
+           '      tid_vekt <- ', giltig_var, '\n',
+           '  } else {\n',
+           '     tid_vekt <- map(', tid_klartext, ', function(period) {\n',
+           '        if (str_detect(period, ":")){     # kontrollera om det finns ett kolon = intervall\n',
+           '           intervall <- map_chr(str_split(period, ":") %>% unlist(), ~ hamta_kod_med_klartext(px_meta, .x, "', tid_variabel, '"))\n',
+           '           retur_txt <- ', giltig_var, '[which(', giltig_var, ' == intervall[1]):which(', giltig_var, ' == intervall[2])]\n',
+           '        } else retur_txt <- hamta_kod_med_klartext(px_meta, period, "', tid_variabel, '")\n',
+           '     }) %>% unlist()\n',
+           '     index_period <- map_lgl(px_meta$variables, ~ .x$text == "', tid_variabel, '")          # hitta platsen i px_meta$variables där variabeln "', tid_variabel, '" finns\n',
+           '     period_varden <- px_meta$variables[[which(index_period)]]$values         # läs in alla värden för variabeln "', tid_variabel, '"\n',
+           '    tid_vekt <- tid_vekt[match(period_varden[period_varden %in% tid_vekt], tid_vekt)]        # sortera om tid_vekt utifrån ordningen i px_meta (som vi sorterade ovan) \n',
+           '   }\n\n')
   } else tid_skriptrader <- tid_skriptrader
-  
+
   tid_skriptrader <- if ("tid" %in% tolower(names(varlist_giltiga_varden))) {                     # scb
-    paste0('  giltiga_ar <- hamta_giltiga_varden_fran_tabell(px_meta, "tid")\n',
-           '  tid_vekt <- if (all(tid_koder != "*")) tid_koder %>% as.character() %>% str_replace("9999", max(giltiga_ar)) %>% .[. %in% giltiga_ar] %>% unique() else giltiga_ar\n\n')
+   paste0('  giltiga_ar <- hamta_giltiga_varden_fran_tabell(px_meta, "tid")\n',
+                            '  tid_vekt <- if (all(tid_koder != "*")) tid_koder %>% as.character() %>% str_replace("9999", max(giltiga_ar)) %>% .[. %in% giltiga_ar] %>% unique() else giltiga_ar\n\n')
   } else tid_skriptrader
   
   # lägg till kommentar innan tid-skriptraderna om de finns och inte är NULL
@@ -4066,7 +3598,7 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
   
   cont_skriptrader <- if ("contentscode" %in% tolower(names(varlist_giltiga_varden))) {
     paste0('  cont_vekt <-  hamta_kod_med_klartext(px_meta, cont_klartext, "contentscode")\n',
-           '  if (length(cont_vekt) > 1) wide_om_en_contvar <- FALSE\n\n')
+                             '  if (length(cont_vekt) > 1) wide_om_en_contvar <- FALSE\n\n')
   } else NULL
   
   # skapa skript där användaren kan konvertera datasetet till long_format om det finns mer än en innehållsvariabel
@@ -4075,8 +3607,8 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     paste0('  # man kan välja bort long-format, då låter vi kolumnerna vara wide om det finns fler innehållsvariabler, annars\n',
            overlapp_txt, '  # pivoterar vi om till long-format, dock ej om det bara finns en innehållsvariabel\n',
            overlapp_txt, '  if (long_format & !wide_om_en_contvar) px_df <- px_df %>% konvertera_till_long_for_contentscode_variabler(url_uttag)\n\n')
-    
-  } else NULL # slut if-sats som kontrollera om vi vill ha df i long-format, blir "" om vi inte har fler än en cont_variabler i tabellen
+      
+    } else NULL # slut if-sats som kontrollera om vi vill ha df i long-format, blir "" om vi inte har fler än en cont_variabler i tabellen
   
   
   variabler_med_kod <- varlist_koder[str_detect(tolower(varlist_koder), "region|lan") & !str_detect(tolower(varlist_koder), "fodel")]
@@ -4089,8 +3621,8 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     names(variabler_med_kod) <- paste0(tolower(variabler_med_kod), "kod")
     variabler_med_klartext <- tabell_variabler$klartext[match(variabler_med_kod, tabell_variabler$koder)]
     var_vektor_skriptdel <- paste0(
-      '  var_vektor <- ', capture.output(dput(variabler_med_kod))%>% paste0(collapse = ""), '\n',
-      overlapp_txt, '  var_vektor_klartext <- ', capture.output(dput(variabler_med_klartext)) %>% paste0(collapse = ""), '\n'
+    '  var_vektor <- ', capture.output(dput(variabler_med_kod))%>% paste0(collapse = ""), '\n',
+    overlapp_txt, '  var_vektor_klartext <- ', capture.output(dput(variabler_med_klartext)) %>% paste0(collapse = ""), '\n'
     )
   } else {                                    # om det inte finns någon kolumn som vi vill ta med koder för
     var_vektor_skriptdel <- paste0(
@@ -4099,14 +3631,14 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     )
   }  # slut if-sats om det finns variabler med kod
   
-  # 
-  # # lägg in möjligheter att få med koder med variabler
-  # variabler_med_kod_skriptrader <- paste0(
-  #   '  variabler_med_kod <- varlist_koder[str_detect(tolower(varlist_koder), "region")]\n',
-  #   '  if (!is.na(c(', var_med_koder, ')) if (any(', var_med_koder, ' %in% varlist_koder)) variabler_med_kod <- c(variabler_med_kod, ', var_med_koder, '[', var_med_koder, ' %in% varlist_koder]) %>% unique()\n',
-  #   '  names(variabler_med_kod) <- paste0(tolower(var_med_koder), "koder")\n',
-  #   '  if (length(variabler_med_kod) > 0) variabler_med_klartext <- varlist_bada$klartext[match(variabler_med_kod, varlist_bada$koder)]\n\n'
-  # )
+                        # 
+                        # # lägg in möjligheter att få med koder med variabler
+                        # variabler_med_kod_skriptrader <- paste0(
+                        #   '  variabler_med_kod <- varlist_koder[str_detect(tolower(varlist_koder), "region")]\n',
+                        #   '  if (!is.na(c(', var_med_koder, ')) if (any(', var_med_koder, ' %in% varlist_koder)) variabler_med_kod <- c(variabler_med_kod, ', var_med_koder, '[', var_med_koder, ' %in% varlist_koder]) %>% unique()\n',
+                        #   '  names(variabler_med_kod) <- paste0(tolower(var_med_koder), "koder")\n',
+                        #   '  if (length(variabler_med_kod) > 0) variabler_med_klartext <- varlist_bada$klartext[match(variabler_med_kod, varlist_bada$koder)]\n\n'
+                        # )
   
   # lösning för om man skickar med flera url:er, funkar bara om tabellerna innehåller samma variabler
   # skapa en url-sträng utifrån om vi har en eller flera url:er
@@ -4256,8 +3788,8 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
       tid_varnamn <- varlista_info$namn[tolower(varlista_info$kod) == "tid"]
       paste0(' ', tid_varnamn, ' {min(', tabell_namn, '_df$', tid_varnamn, ')} - {max(', tabell_namn, '_df$', tid_varnamn, ')}')
     } else if ("år" %in% tolower(names(varlist_giltiga_varden))) {
-      tid_varnamn <- varlista_info$namn[tolower(varlista_info$kod) == "år"]
-      paste0(' ', tid_varnamn, ' {min(', tabell_namn, '_df$', tid_varnamn, ')} - {max(', tabell_namn, '_df$', tid_varnamn, ')}')
+        tid_varnamn <- varlista_info$namn[tolower(varlista_info$kod) == "år"]
+        paste0(' ', tid_varnamn, ' {min(', tabell_namn, '_df$', tid_varnamn, ')} - {max(', tabell_namn, '_df$', tid_varnamn, ')}')
     } else ""
     tid_filnamn_txt <- if(any(c("tid", "år") %in% names(varlist_giltiga_varden))) paste0('_ar{min(', tabell_namn, '_df$', tid_varnamn, ')}_{max(', tabell_namn, '_df$', tid_varnamn, ')}') else NULL
     if (is.null(tid_filnamn_txt)) tid_filnamn_txt <- if(any(c("månad", "månader") %in% names(varlist_giltiga_varden))) paste0('_manad{min(', tabell_namn, '_df$', tid_varnamn, ')}_{max(', tabell_namn, '_df$', tid_varnamn, ')}') else NULL
@@ -4283,32 +3815,32 @@ skapa_hamta_data_skript_pxweb <- function(skickad_url_pxweb = NA,
     
     y_var_txt <- if (length(varlist_giltiga_varden$contentscode) < 1) glue("names({tabell_namn}_df)[length(names({tabell_namn}_df))]") else varlist_giltiga_varden$contentscode[1]        # om det inte finns någon contents-variabel, kör sista variabeln som y-variabel istället
     testfil_diagram <- glue('{regionfix_txt}\n\ndiagramtitel <- glue("', auto_diag_titel, '{region_i_glue}{tid_txt}")\n',
-                            'diagramfil <- glue("{tabell_namn}_{regionkod_i_glue}{tid_filnamn_txt}.png") %>% str_replace_all("__", "_")\n\n',
-                            'if ("variabel" %in% names({tabell_namn}_df)) {{\n',
-                            '   if (length(unique({tabell_namn}_df$variabel)) > 6) chart_df <- {tabell_namn}_df %>% filter(variabel == unique({tabell_namn}_df$variabel)[1]) else chart_df <- {tabell_namn}_df\n',
-                            '}} else chart_df <- {tabell_namn}_df\n\n',
-                            'gg_obj <- SkapaStapelDiagram(skickad_df = chart_df,\n',
-                            '\t\t\t skickad_x_var = "', tid_varnamn, '",\n',
-                            '\t\t\t skickad_y_var = if ("varde" %in% names(chart_df)) "varde" else "', y_var_txt, '",\n',
-                            '\t\t\t skickad_x_grupp = if ("variabel" %in% names(chart_df) & length(unique(chart_df$variabel)) > 1) "variabel" else NA,\n',
-                            '\t\t\t x_axis_sort_value = FALSE,\n',
-                            '\t\t\t diagram_titel = diagramtitel,\n',
-                            '\t\t\t diagram_capt = diagram_capt,\n',
-                            '\t\t\t stodlinjer_avrunda_fem = TRUE,\n',
-                            '\t\t\t filnamn_diagram = diagramfil,\n',
-                            '\t\t\t dataetiketter = visa_dataetiketter,\n',
-                            '\t\t\t manual_y_axis_title = "",\n',
-                            '\t\t\t manual_x_axis_text_vjust = 1,\n',
-                            '\t\t\t manual_x_axis_text_hjust = 1,\n',
-                            '\t\t\t manual_color = if ("variabel" %in% names(chart_df) & length(unique(chart_df$variabel)) > 1) diagramfarger("rus_sex") else diagramfarger("rus_sex")[1],\n',
-                            '\t\t\t output_mapp = output_mapp,\n',
-                            '\t\t\t diagram_facet = FALSE,\n',
-                            '\t\t\t facet_grp = NA,\n',
-                            '\t\t\t facet_scale = "free",\n',
-                            ')\n\n',
-                            'gg_list <- c(gg_list, list(gg_obj))\n',
-                            'names(gg_list)[[length(gg_list)]] <- diagramfil %>% str_remove(".png")\n\n')
-    
+                           'diagramfil <- glue("{tabell_namn}_{regionkod_i_glue}{tid_filnamn_txt}.png") %>% str_replace_all("__", "_")\n\n',
+                           'if ("variabel" %in% names({tabell_namn}_df)) {{\n',
+                           '   if (length(unique({tabell_namn}_df$variabel)) > 6) chart_df <- {tabell_namn}_df %>% filter(variabel == unique({tabell_namn}_df$variabel)[1]) else chart_df <- {tabell_namn}_df\n',
+                           '}} else chart_df <- {tabell_namn}_df\n\n',
+                           'gg_obj <- SkapaStapelDiagram(skickad_df = chart_df,\n',
+                           '\t\t\t skickad_x_var = "', tid_varnamn, '",\n',
+                           '\t\t\t skickad_y_var = if ("varde" %in% names(chart_df)) "varde" else "', y_var_txt, '",\n',
+                           '\t\t\t skickad_x_grupp = if ("variabel" %in% names(chart_df) & length(unique(chart_df$variabel)) > 1) "variabel" else NA,\n',
+                           '\t\t\t x_axis_sort_value = FALSE,\n',
+                           '\t\t\t diagram_titel = diagramtitel,\n',
+                           '\t\t\t diagram_capt = diagram_capt,\n',
+                           '\t\t\t stodlinjer_avrunda_fem = TRUE,\n',
+                           '\t\t\t filnamn_diagram = diagramfil,\n',
+                           '\t\t\t dataetiketter = visa_dataetiketter,\n',
+                           '\t\t\t manual_y_axis_title = "",\n',
+                           '\t\t\t manual_x_axis_text_vjust = 1,\n',
+                           '\t\t\t manual_x_axis_text_hjust = 1,\n',
+                           '\t\t\t manual_color = if ("variabel" %in% names(chart_df) & length(unique(chart_df$variabel)) > 1) diagramfarger("rus_sex") else diagramfarger("rus_sex")[1],\n',
+                           '\t\t\t output_mapp = output_mapp,\n',
+                           '\t\t\t diagram_facet = FALSE,\n',
+                           '\t\t\t facet_grp = NA,\n',
+                           '\t\t\t facet_scale = "free",\n',
+                           ')\n\n',
+                           'gg_list <- c(gg_list, list(gg_obj))\n',
+                           'names(gg_list)[[length(gg_list)]] <- diagramfil %>% str_remove(".png")\n\n')
+
     if (skapa_diagram_i_testfil) testfil_skript <- paste0(testfil_skript, testfil_diagram)
     
     writeLines(testfil_skript, paste0(temp_dir, filnamn_testfil))        
@@ -4325,38 +3857,38 @@ kontrollera_pxweb_url <- function(url_scb_lista) {
   # Kontrollera att url:en är en giltig pxweb-url - om det är en webb-url från SCB:s öppna statstikdatabas på webben 
   # så konverterar vi den till en API-url, annars returnerar vi den som den är
   slut_retur_url <- map_chr(url_scb_lista, ~ {
-    if (str_detect(.x, "https://www.statistikdatabasen.scb.se/")) {
-      
-      start_url <- "https://api.scb.se/OV0104/v1/doris/sv/ssd/START/"
-      # här extraherar vi den del av url:en som är unik för varje tabell och som ska byggas ihop med start_url:en
-      retur_url <- .x %>% 
-        str_remove("https://www.statistikdatabasen.scb.se/pxweb/sv/ssd/START") %>%
-        str_split("__") %>% unlist() %>% .[. != ""] %>% 
-        str_split("/") %>% unlist() %>% .[. != ""] %>% 
-        str_c(., collapse = "/") %>% 
-        str_c(start_url, .) #%>% str_sub(., 1, nchar(.)-1)
-      
-      return(retur_url)
-    } else if (str_detect(.x, "https://fohm-app.folkhalsomyndigheten.se/Folkhalsodata/pxweb")) {
+  if (str_detect(.x, "https://www.statistikdatabasen.scb.se/")) {
+    
+    start_url <- "https://api.scb.se/OV0104/v1/doris/sv/ssd/START/"
+    # här extraherar vi den del av url:en som är unik för varje tabell och som ska byggas ihop med start_url:en
+    retur_url <- .x %>% 
+      str_remove("https://www.statistikdatabasen.scb.se/pxweb/sv/ssd/START") %>%
+      str_split("__") %>% unlist() %>% .[. != ""] %>% 
+      str_split("/") %>% unlist() %>% .[. != ""] %>% 
+      str_c(., collapse = "/") %>% 
+      str_c(start_url, .) #%>% str_sub(., 1, nchar(.)-1)
+    
+    return(retur_url)
+  } else if (str_detect(.x, "https://fohm-app.folkhalsomyndigheten.se/Folkhalsodata/pxweb")) {
       
       api_url <- .x %>%
         str_replace("pxweb", "api/v1")                           # byt ut 
-      #str_replace("https://", "http://")
+        #str_replace("https://", "http://")
       pos_revstart <- str_locate(api_url, "/sv/")[2]+1           # hitta slutet på start-delen av url:en
       start_url <- str_sub(api_url, 1, pos_revstart-2)           # ta ut start-url:en, dvs. den del som är likadan för alla url:er i Folkhälsomyndighetens tabeller
       rev_delar <- str_sub(api_url, pos_revstart) %>% str_split("/") %>% unlist() %>% .[. != ""]         # dela upp den del av url:en som vi ska revidera
       rev_nya <- rev_delar[2] %>% str_remove(rev_delar[1]) %>% str_split("__") %>% unlist() %>% .[. != ""] %>% paste0(collapse = "/")        # här skapar vi mellandelen i den reviderade delen av url:en
       retur_url <- paste(start_url, rev_delar[1], rev_nya, rev_delar[3], sep = "/")             # hela den reviderade url:en
-      
+
       return(retur_url)
     } else if (str_detect(.x, "statistik.tillvaxtanalys.se")) {
+    
+    retur_url <- .x %>% 
+      str_replace("statistik.tillvaxtanalys.se", "statistik.tillvaxtanalys.se:443") %>%
+      str_replace("pxweb/sv", "api/v1/sv") %>%
+      str_remove("Tillv%C3%A4xtanalys%20statistikdatabas__")  
       
-      retur_url <- .x %>% 
-        str_replace("statistik.tillvaxtanalys.se", "statistik.tillvaxtanalys.se:443") %>%
-        str_replace("pxweb/sv", "api/v1/sv") %>%
-        str_remove("Tillv%C3%A4xtanalys%20statistikdatabas__")  
-      
-      return(retur_url)
+    return(retur_url)
       
     } else if (str_detect(.x, "statistik.sjv.se")) {
       
@@ -4368,8 +3900,8 @@ kontrollera_pxweb_url <- function(url_scb_lista) {
       return(retur_url)
       
     } else {
-      return(.x)
-    }
+    return(.x)
+  }
   })
   return(slut_retur_url)
 }
@@ -4522,7 +4054,7 @@ demo_diagrambild_skapa <- function(
     revidera_diagramskript = TRUE,        # skickas med för att revidera själva diagramskriptet med en demo-parameter samt kod i själva skriptet för att visa demo-diagram
     github_diagram_repo = "diagram",    # om man vill skicka ändringar av diagramskriptet till github också
     mapp_diagramskript_ej_github = NA
-){
+  ){
   
   source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_filer.R")
   
@@ -4540,7 +4072,7 @@ demo_diagrambild_skapa <- function(
   
   dia_funktion <- hitta_funktioner_i_fil_ej_inuti_andra_funktioner(diagram_sokvag)
   dia_funktion <- dia_funktion[str_sub(dia_funktion,1,4) == "diag"]     # bara första funktionen i skriptet
-  
+
   # Skapa en temporär mapp
   temp_mapp <- file.path(tempdir(), "temp_mapp")
   skapa_mapp_om_den_inte_finns(temp_mapp)
@@ -4603,7 +4135,7 @@ demo_diagrambild_skapa <- function(
   # demodiagram för att sedan commita diagramskriptet till github-repot för diagram
   if (revidera_diagramskript){
     reviderat <- FALSE
-    
+
     # Läs in diagramskriptet
     diagram_skript <- readLines(diagram_sokvag)
     
@@ -4719,15 +4251,7 @@ demo_diagrambild_skapa <- function(
 # Funktion som hittar alla yttre funktioner i en skriptfil
 hitta_funktioner_i_fil_ej_inuti_andra_funktioner <- function(filnamn) {
   # Läser in skriptfilen som en vektor av rader
-  if (str_detect(filnamn, "^https?://")) {
-    h <- curl::new_handle()
-    curl::handle_setopt(h, ssl_verifypeer = FALSE)
-    con <- curl::curl(filnamn, handle = h)
-    rader <- readLines(con)
-    close(con)
-  } else {
-    rader <- readLines(filnamn)
-  }
+  rader <- readLines(filnamn)
   
   # Identifierar alla rader som innehåller funktionsdefinitioner
   funktionsrader <- str_which(rader, "\\bfunction\\b")
@@ -4760,356 +4284,6 @@ hitta_funktioner_i_fil_ej_inuti_andra_funktioner <- function(filnamn) {
 
 
 # ======================================== skapa och hantera Rmarkdown-rapporter samt Shiny-appar ======================================================
-
-
-# ==== Hämta filer från Region-Dalarna/depot ==================================
-#
-# Delade tillgångar (stilfiler, mallar, typsnitt, loggor m.m.) hämtas via
-# GitHub Contents API istället för raw.githubusercontent.com, eftersom rå-URL:er
-# cachas hårt av Fastly (samma problem som löstes för source_utan_cache() i
-# func_shinyappar.R). Contents API:et missar den cachen och ger alltid senaste
-# committade innehållet.
-
-#' Hämta en fil från depot-repot
-#'
-#' @param rel_sokvag Sökväg till filen inom depot-repot, t.ex.
-#'   "regiondalarna_ruf.css" eller "mallar/webbsida_portal/index.qmd.tmpl".
-#' @param target_path Om angiven: filen skrivs till denna sökväg på disk.
-#'   Om NULL: filinnehållet returneras istället (som text eller raw, se as_text).
-#' @param as_text TRUE för textfiler (.css, .qmd, .yml, .R ...), FALSE för
-#'   binärfiler (bilder, typsnitt, ico).
-#' @param repo Depot-repots namn. Default "depot".
-#' @param org  GitHub-org. Default "Region-Dalarna".
-#' @param branch Branch att hämta från. Default "main".
-#'
-#' @return Om target_path är NULL: filinnehållet (character om as_text = TRUE,
-#'   annars raw vector). Om target_path anges: target_path osynligt (invisible),
-#'   för att kunna kedjas.
-depot_hamta_fran <- function(rel_sokvag,
-                             target_path = NULL,
-                             as_text     = TRUE,
-                             repo        = "depot",
-                             org         = "Region-Dalarna",
-                             branch      = "main") {
-  
-  api_url <- sprintf("https://api.github.com/repos/%s/%s/contents/%s?ref=%s",
-                     org, repo, utils::URLencode(rel_sokvag), branch)
-  
-  resp <- httr::GET(
-    api_url,
-    httr::accept("application/vnd.github.raw+json"),  # ber om rått filinnehåll direkt
-    httr::add_headers(`Cache-Control` = "no-cache")
-  )
-  
-  if (httr::status_code(resp) == 404) {
-    stop("Filen hittades inte i depot: ", rel_sokvag,
-         " (repo: ", org, "/", repo, ", branch: ", branch, ")", call. = FALSE)
-  }
-  httr::stop_for_status(resp, task = paste("hämta", rel_sokvag, "från depot"))
-  
-  raw_innehall <- httr::content(resp, as = "raw")
-  
-  if (is.null(target_path)) {
-    if (as_text) {
-      return(rawToChar(raw_innehall))
-    }
-    return(raw_innehall)
-  }
-  
-  dir.create(dirname(target_path), recursive = TRUE, showWarnings = FALSE)
-  
-  if (as_text) {
-    writeLines(rawToChar(raw_innehall), target_path, useBytes = TRUE)
-  } else {
-    writeBin(raw_innehall, target_path)
-  }
-  
-  invisible(target_path)
-}
-
-
-#' Lista och ladda ner alla filer i en mapp i depot-repot
-#'
-#' Motsvarar fonts/-hämtningen i Brottsappen, men generaliserad. Laddar INTE
-#' ner undermappar rekursivt (depot har hittills bara platta mappar som
-#' fonts/ och mallar/<namn>/) — utöka vid behov om det blir aktuellt.
-#'
-#' @param rel_mapp Mappens sökväg inom depot-repot, t.ex. "fonts" eller
-#'   "mallar/webbsida_portal".
-#' @param target_dir Lokal mapp filerna ska sparas i.
-#' @param as_text TRUE om filerna i mappen är textfiler, FALSE om binära.
-#'   Går inte att blanda i samma anrop — kör depot_hamta_fran() filvis om så behövs.
-#' @param repo,org,branch Se depot_hamta_fran().
-#'
-#' @return Osynligt: character vector med namnen på nedladdade filer.
-depot_hamta_mapp_fran <- function(rel_mapp,
-                                  target_dir,
-                                  as_text = FALSE,
-                                  repo    = "depot",
-                                  org     = "Region-Dalarna",
-                                  branch  = "main") {
-  
-  api_url <- sprintf("https://api.github.com/repos/%s/%s/contents/%s?ref=%s",
-                     org, repo, utils::URLencode(rel_mapp), branch)
-  
-  resp <- httr::GET(api_url, httr::accept("application/vnd.github+json"))
-  
-  if (httr::status_code(resp) != 200) {
-    warning("Kunde inte lista depot/", rel_mapp, "/ (status ",
-            httr::status_code(resp), "). Inga filer hämtades.", call. = FALSE)
-    return(invisible(character(0)))
-  }
-  
-  innehall <- httr::content(resp, as = "parsed")
-  filer    <- purrr::keep(innehall, ~ identical(.x$type, "file"))
-  
-  if (length(filer) == 0) {
-    warning("Mappen depot/", rel_mapp, "/ är tom eller saknar filer.", call. = FALSE)
-    return(invisible(character(0)))
-  }
-  
-  dir.create(target_dir, recursive = TRUE, showWarnings = FALSE)
-  
-  namn <- purrr::map_chr(filer, "name")
-  purrr::walk(namn, function(filnamn) {
-    depot_hamta_fran(
-      rel_sokvag  = paste0(rel_mapp, "/", filnamn),
-      target_path = file.path(target_dir, filnamn),
-      as_text     = as_text,
-      repo        = repo, org = org, branch = branch
-    )
-  })
-  
-  message("✅ Hämtade ", length(namn), " fil(er) från depot/", rel_mapp, "/.")
-  invisible(namn)
-}
-
-
-#' Hämta en mallfil från depot och fyll i {{variabler}}
-#'
-#' Tunn wrapper runt depot_hamta_fran() specifikt för .tmpl-filer som ska
-#' textsubstitueras innan de skrivs till ett nytt repo, t.ex. vid
-#' webbsida_med_portal_skapa_med_github_repo().
-#'
-#' @param mallfil Filnamn inom mallmappen, t.ex. "_quarto.yml.tmpl".
-#' @param malfil Lokal sökväg den ifyllda filen ska skrivas till.
-#' @param variabler Named list med värden att fylla i, t.ex.
-#'   list(titel = "Min portal", runner_label = "rapport").
-#' @param mallmapp Sökväg till mallmappen inom depot-repot.
-#' @param repo,org,branch Se depot_hamta_fran().
-depot_skriv_mall_fran <- function(mallfil, malfil, variabler,
-                                  mallmapp = "mallar/webbsida_portal",
-                                  repo     = "depot",
-                                  org      = "Region-Dalarna",
-                                  branch   = "main") {
-  
-  raw_mall <- depot_hamta_fran(
-    rel_sokvag = paste0(mallmapp, "/", mallfil),
-    as_text    = TRUE,
-    repo = repo, org = org, branch = branch
-  )
-  
-  ifylld <- glue::glue(raw_mall, .open = "{{", .close = "}}", .envir = list2env(variabler))
-  
-  dir.create(dirname(malfil), recursive = TRUE, showWarnings = FALSE)
-  writeLines(ifylld, malfil, useBytes = TRUE)
-  
-  invisible(malfil)
-}
-
-webbsida_med_portal_skapa_med_github_repo <- function(github_repo,
-                                                      server = c("publik", "intern"),
-                                                      titel = github_repo,
-                                                      beskrivning = titel,
-                                                      privat_repo = TRUE,
-                                                      github_org = "Region-Dalarna",
-                                                      behorighet_team = "samhallsanalys",  # namn på team som ska ges behörighet, NULL om man inte vill ge något team behörighet, teamet måste finnas i organisationen om detta ska fungera
-                                                      lokal_root = "c:/gh/") {
-  
-  server <- match.arg(server)
-  
-  malkonfig <- switch(server,
-                      publik = list(runner_label = "rapport"),
-                      intern = list(runner_label = "rapport-intern")
-  )
-  
-  lokal_path <- file.path(lokal_root, github_repo)
-  if (dir.exists(lokal_path)) {
-    stop("Mappen finns redan: ", lokal_path, ". Avbryter för säkerhets skull.")
-  }
-  
-  # 1. Skapa repo på GitHub
-  gh::gh("POST /orgs/{org}/repos",
-         org = github_org,
-         name = github_repo,
-         private = privat_repo,
-         auto_init = FALSE)
-  
-  # Ställ in behörighet för angivet team, om parametern är satt
-  if (!is.null(behorighet_team) && !is.null(github_org)) {
-    
-    response <- httr::PUT(
-      url = glue::glue("https://api.github.com/orgs/{github_org}/teams/{behorighet_team}/repos/{github_org}/{github_repo}"),
-      httr::add_headers(Authorization = paste("token", keyring::key_get("github_token", keyring::key_list(service = "github_token")$username))),
-      body = list(permission = "push"),
-      encode = "json"
-    )
-    
-    if (httr::status_code(response) == 204) {
-      message("✅ Teamet '", behorighet_team, "' har fått push-behörighet.")
-    } else {
-      warning("⚠️ Kunde inte ge teamet '", behorighet_team, "' behörighet (status ",
-              httr::status_code(response), "). Kontrollera att teamet finns i organisationen.")
-    }
-  }
-  
-  # 2. Klona ner lokalt
-  repo_url <- sprintf("https://github.com/%s/%s.git", github_org, github_repo)
-  gert::git_clone(repo_url, path = lokal_path)
-  
-  # Säkerställ att branchen heter "main" oavsett lokal git-konfiguration
-  current_branch <- gert::git_branch(repo = lokal_path)
-  if (current_branch != "main") {
-    gert::git_branch_move(current_branch, "main", repo = lokal_path)
-  }
-  
-  # 3. Hämta och skriv ut mallfilerna från depot, ifyllda med repo-specifika värden
-  dir.create(file.path(lokal_path, ".github", "workflows"), recursive = TRUE)
-  
-  variabler <- list(titel        = titel,
-                    beskrivning  = beskrivning,
-                    runner_label = malkonfig$runner_label,
-                    github_repo  = github_repo)
-  
-  depot_skriv_mall_fran("_quarto.yml.tmpl", file.path(lokal_path, "_quarto.yml"), variabler)
-  depot_skriv_mall_fran("index.qmd.tmpl",   file.path(lokal_path, "index.qmd"),   variabler)
-  depot_skriv_mall_fran("deploy.yml.tmpl",  file.path(lokal_path, ".github/workflows/deploy.yml"), variabler)
-  depot_skriv_mall_fran("README.md.tmpl",   file.path(lokal_path, "README.md"),  variabler)
-  
-  depot_hamta_fran("regiondalarna_ruf.css",
-                   file.path(lokal_path, "regiondalarna_ruf.css"),
-                   as_text = TRUE)
-  
-  depot_hamta_fran("mallar/webbsida_portal/portal_overrides.css",
-                   file.path(lokal_path, "portal_overrides.css"),
-                   as_text = TRUE)
-  
-  writeLines(c(".quarto/", "_site/", "*.html", "*_files/"), file.path(lokal_path, ".gitignore"))
-  
-  # 4. Commit + push grundstrukturen till main
-  gert::git_add(".", repo = lokal_path)
-  gert::git_commit("Initiera webbsida/portal-struktur", repo = lokal_path)
-  gert::git_push(remote = "origin",
-                 refspec = "refs/heads/main:refs/heads/main",
-                 repo = lokal_path)
-  
-  # 5. Sätt defaultbranch till "main" på GitHub
-  gh::gh("PATCH /repos/{owner}/{repo}",
-         owner = github_org,
-         repo  = github_repo,
-         default_branch = "main")
-  
-  url_server <- switch(server,
-                       publik = "https://samhallsanalys.regiondalarna.se",
-                       intern = "https://samhallsanalys.ltdalarna.se"
-  )
-  
-  message("Repo skapat: https://github.com/", github_org, "/", github_repo)
-  message("Publiceras vid push till main till: ", url_server, "/", github_repo, "/")
-  message("(kräver att runnern '", malkonfig$runner_label, "' är aktiv på rätt server)")
-  invisible(lokal_path)
-}
-
-
-dokumentation_sida_skapa <- function(titel,
-                                     beskrivning,
-                                     filnamn,
-                                     undertitel      = NULL,
-                                     repo            = "dokumentation",
-                                     lokal_root      = "c:/gh/",
-                                     oppna_i_rstudio = TRUE,
-                                     commit_och_push = FALSE) {
-  
-  # --- 1. Validera filnamn strikt, innan något annat händer -----------------
-  fel <- character(0)
-  
-  if (grepl(" ", filnamn)) fel <- c(fel, "innehåller mellanslag")
-  if (grepl("[A-ZÅÄÖ]", filnamn)) fel <- c(fel, "innehåller versaler")
-  if (grepl("[åäöÅÄÖ]", filnamn)) fel <- c(fel, "innehåller svenska tecken (å/ä/ö)")
-  
-  if (length(fel) > 0) {
-    forslag <- filnamn |> tolower() |> svenska_tecken_byt_ut() |> gsub(" ", "_", x = _)
-    stop(
-      "Ogiltigt filnamn '", filnamn, "': ", paste(fel, collapse = ", "), ".\n",
-      "Filnamn får bara innehålla gemener, siffror, understreck och bindestreck.\n",
-      "Förslag: '", forslag, "'"
-    )
-  }
-  
-  if (!grepl("\\.qmd$", filnamn)) filnamn <- paste0(filnamn, ".qmd")
-  
-  # --- 2. Kontrollera att repot finns lokalt --------------------------------
-  repo_path <- file.path(lokal_root, repo)
-  if (!dir.exists(repo_path)) {
-    stop(
-      "Repot '", repo, "' finns inte lokalt under '", repo_path, "'.\n",
-      "Klona det först, t.ex. med gert::git_clone(),\n",
-      "eller kontrollera att 'repo' och 'lokal_root' är korrekt angivna."
-    )
-  }
-  
-  fil_path <- file.path(repo_path, filnamn)
-  
-  # --- 3. Kontrollera kollision ----------------------------------------------
-  if (file.exists(fil_path)) {
-    stop("Filen finns redan: '", fil_path, "'. Avbryter för säkerhets skull.")
-  }
-  
-  # --- 4. Skapa filen med skelett ---------------------------------------------
-  # subtitle skrivs alltid ut, tomt om ingen undertitel angetts
-  subtitel_varde <- if (is.null(undertitel)) "" else undertitel
-  
-  yaml_rader <- c(
-    "---",
-    paste0('title: "', titel, '"'),
-    paste0('subtitle: "', subtitel_varde, '"'),
-    paste0('listing-description: "', beskrivning, '"'),
-    "---"
-  )
-  
-  innehall <- c(
-    yaml_rader,
-    "",
-    "## Inledning",
-    "",
-    "## Struktur",
-    "",
-    "## Sammanfattning",
-    ""
-  )
-  
-  writeLines(innehall, fil_path, useBytes = TRUE)
-  message("Skapade '", fil_path, "'.")
-  
-  # --- 5. Öppna i RStudio -------------------------------------------------
-  if (oppna_i_rstudio && rstudioapi::isAvailable()) {
-    rstudioapi::navigateToFile(fil_path)
-  }
-  
-  # --- 6. Valfri commit + push, annars en vänlig påminnelse -----------------
-  if (commit_och_push) {
-    github_commit_push(repo, commit_txt = paste0("Ny sida: ", titel))
-  } else {
-    message(
-      "\nFilen ligger bara lokalt än så länge — den syns inte på ", repo,
-      "-portalen förrän du kört:\n",
-      "  github_commit_push(\"", repo, "\")\n",
-      "Skriv klart sidan, spara, och kör kommandot ovan när du är redo att publicera."
-    )
-  }
-  
-  invisible(fil_path)
-}
 
 
 skapa_webbrapport_github <- function(githubmapp_lokalt,                 # sökväg till den mapp där du har alla github-repos (ska INTE innehålla själva repositoryt), tex c:/github_repos/
@@ -5224,8 +4398,9 @@ skapa_webbrapport_github <- function(githubmapp_lokalt,                 # sökv�
     filnamn <- str_extract(.x, "[^/]+$")
     download.file(.x, paste0(sokvag_skript, filnamn), mode = "wb")
   })
-  
-  # vi skapar nu själva .Rmd-filen
+
+  # ============================================== vi skapar nu själva .Rmd-filen ===================================================
+
   
   # vi börjar med headern i webbrapporten
   rmd_header <- glue('
@@ -5498,66 +4673,23 @@ if(uppdatera_hemsida==TRUE){{
   # # ställ in att vi ska använda Github pages
   # use_github_pages(branch = git_default_branch(), path = "/docs", cname = NA)
   
-  # ställ in behörighet för samhallsanalys om parametern är något annat än NULL
-  if (!is.null(behorighet_team) && !is.null(github_org)) {
+  # ställ in behörighet för samhallsanalys om parametern är TRUE
+  if (behorighet_samhallsanalys && !is.null(github_org)) {
     
     response <- PUT(
-      url = glue("https://api.github.com/orgs/{github_org}/teams/{behorighet_team}/repos/{github_org}/{github_repo}"),
+      url = glue("https://api.github.com/orgs/{github_org}/teams/samhallsanalys/repos/{github_org}/{repo_namn}"),
       add_headers(Authorization = paste("token", key_get("github_token", key_list(service = "github_token")$username))),
       body = list(permission = "push"),
       encode = "json"
     )
     
     if (httr::status_code(response) == 204) {
-      message("✅ Teamet '", behorighet_team, "' har fått push-behörighet.")
+      message("✅ Teamet 'samhallsanalys' har fått push-behörighet.")  # visa svar från GitHub
     }
     
   }
   
 } # slut funktion
-
-git_kontrollera_id_uppgifter <- function() {
-  
-  # 1. Rensa env vars som annars vinner över config
-  Sys.unsetenv(c(
-    "GIT_AUTHOR_NAME",
-    "GIT_AUTHOR_EMAIL",
-    "GIT_COMMITTER_NAME",
-    "GIT_COMMITTER_EMAIL"
-  ))
-  
-  # 2. Läs global git-config (samma princip som git_value)
-  git_value <- function(key) {
-    res <- tryCatch(
-      system(paste("git config --global", key), intern = TRUE),
-      error = function(e) character(0)
-    )
-    if (length(res) == 0) "" else res[[1]]
-  }
-  
-  name  <- git_value("user.name")
-  email <- git_value("user.email")
-  
-  # 3. Kontroll
-  if (!nzchar(name) || !nzchar(email)) {
-    stop(
-      "Git-identitet saknas eller är tom.\n\n",
-      "Åtgärda genom att köra:\n",
-      "  git config --global user.name \"Ditt Namn\"\n",
-      "  git config --global user.email \"din.epost@example.com\"",
-      call. = FALSE
-    )
-  }
-  
-  # 4. Sätt lokalt (gäller bara detta repo)
-  gert::git_config_set("user.name",  name)
-  gert::git_config_set("user.email", email)
-  
-  invisible(TRUE)
-}
-
-
-
 
 shinyapp_skapa_med_github_repo <- function(
     github_repo,                            # Namn på repo OCH Shiny-app (mapp på servern)
@@ -5565,32 +4697,14 @@ shinyapp_skapa_med_github_repo <- function(
     rapport_titel      = github_repo,       # Titel som visas i titlePanel
     rapport_undertitel = NA,                # (används bara i README nu, kan byggas ut)
     githubmapp_lokalt  = "c:/gh/",          # Sökväg till mapp där du har alla github-repon, t.ex. "C:/github_repos"
-    behorighet_team    = "samhallsanalys",  # GitHub-team som får push-behörighet, NULL om inget team
-    target             = "publik",          # Default-server i _publicering_till_server.yml: "publik" eller "intern"
-    anvandningsstatistik_samla_in = TRUE,    # TRUE = installera shiny.telemetry och lagg in boilerplate for anvandningsstatistik
-    test_skapa_ej_repo = FALSE,             # TRUE = hoppa över git-init OCH GitHub-repo (bara lokala filer/mappar)
-    oppna_github_sida = TRUE,               # vi öppnar github-sidan när repot är skapat
-    github_oppna_fordrojning = 2            # vi fördröjer öppningen av GitHub-sidan med någon sekund för att ge GitHub tid att skapa repot innan vi försöker öppna det (annars kan det bli 404)
+    behorighet_team    = "samhallsanalys"   # GitHub-team som får push-behörighet, NULL om inget team
 ) {
   
-  # =============================================================================
-  #  shinyapp_skapa_med_github_repo()  —  UTPLATTAD STRUKTUR
-  #
-  #  Ersätt din nuvarande shinyapp_skapa_med_github_repo() i func_API.R med denna.
-  #  Övriga funktioner i func_API.R är oförändrade.
-  #
-  #  Skillnad mot tidigare:
-  #   * Appfilerna (global.R, ui.R, server.R, R/, www/) skapas DIREKT I ROTEN,
-  #     inte i en app/-undermapp.
-  #   * Ingen app.R / runApp('app')-omväg längre — Shiny Server kör appen direkt
-  #     från roten, precis som dina fungerande appar (brott, export).
-  #   * renv ligger kvar i roten (renv.lock, .Rprofile, renv/) bredvid appfilerna.
-  #   * deploy.yml använder oförändrat TEMP_DIR="${GITHUB_WORKSPACE}" (hela roten).
-  # =============================================================================
-  
+  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_filer.R", encoding = "utf-8")
+
   # ==== Beroenden ==============================================================
-  
-  pkg_needed <- c("usethis", "gert", "glue", "stringr", "purrr", "httr", "keyring", "renv", "callr")
+
+  pkg_needed <- c("usethis", "gert", "glue", "stringr", "purrr", "httr", "keyring")
   miss <- pkg_needed[!vapply(pkg_needed, requireNamespace, logical(1), quietly = TRUE)]
   if (length(miss) > 0) {
     stop(
@@ -5600,18 +4714,14 @@ shinyapp_skapa_med_github_repo <- function(
     )
   }
   
-  if (!target %in% c("publik", "intern")) {
-    stop("target måste vara 'publik' eller 'intern'.", call. = FALSE)
-  }
-  
   # Lokal helper: skapa mapp om den inte finns
   skapa_mapp_om_den_inte_finns <- function(path) {
     if (!dir.exists(path)) dir.create(path, recursive = TRUE)
   }
   
-  
+
   # ==== Normalisera sökvägar ===================================================
-  
+
   githubmapp_lokalt <- stringr::str_replace_all(githubmapp_lokalt, stringr::fixed("\\"), "/")
   if (!stringr::str_ends(githubmapp_lokalt, "/")) {
     githubmapp_lokalt <- paste0(githubmapp_lokalt, "/")
@@ -5625,9 +4735,9 @@ shinyapp_skapa_med_github_repo <- function(
   # Skapa rotmapp om den inte finns
   skapa_mapp_om_den_inte_finns(sokvag_proj)
   
-  
+
   # ==== Skapa R-projekt ========================================================
-  
+
   gitprojekt_sokvag <- if (stringr::str_sub(sokvag_proj, -1, -1) == "/") {
     stringr::str_sub(sokvag_proj, 1, -2)
   } else {
@@ -5635,94 +4745,30 @@ shinyapp_skapa_med_github_repo <- function(
   }
   
   usethis::create_project(gitprojekt_sokvag, open = FALSE)
-  unlink(file.path(sokvag_proj, "R"), recursive = TRUE)             # ta bort R-mappen som usethis lägger i roten; vi skapar vår egen nedan
   
-  # ==== Skapa struktur i ROTEN: www/, R/, .github/workflows/ ==================
-  # Appfilerna ligger direkt i repo-roten (ingen app/-undermapp), så att
-  # Shiny Server kör appen utan app.R-omväg.
-  
-  www_dir       <- file.path(sokvag_proj, "www")
-  r_dir         <- file.path(sokvag_proj, "R")
+
+  # ==== Skapa app-struktur: app/, www/, R/ ====================================
+
+  app_dir      <- file.path(sokvag_proj, "app")
+  www_dir      <- file.path(app_dir, "www")
+  #r_dir        <- file.path(app_dir, "R")
   workflows_dir <- file.path(sokvag_proj, ".github", "workflows")
-  fonts_dir     <- file.path(www_dir, "fonts")
   
   purrr::walk(
-    c(www_dir, r_dir, workflows_dir, fonts_dir),
+    c(app_dir, www_dir, workflows_dir),
     skapa_mapp_om_den_inte_finns
   )
   
-  file.create(file.path(r_dir, ".gitkeep"))                        # .gitkeep så att tomma R/ följer med i git
-  
-  # ==== Hämta stilfiler från Region-Dalarna/depot =============================
-  # Filer som hämtas direkt från depot (delade tillgångar):
-  #   - favicon.ico               -> www/favicon.ico
-  #   - regiondalarna_ruf.css     -> www/regiondalarna_ruf.css
-  #   - logo_liggande_fri_vit.png -> www/logo_liggande_fri_vit.png
-  #   - fonts/*                   -> www/fonts/  (listas via GitHub API)
-  #
-  # OBS: app.css genereras lokalt som ett tomt skal nedan, eftersom depot-versionen
-  # är specifik för Brottsappen. Lägg appspecifika regler i appens egen app.css.
-  
-  depot_raw_bas <- "https://raw.githubusercontent.com/Region-Dalarna/depot/main"
-  
-  # Helper: ladda ner binär eller text-fil från depot via httr::GET
-  depot_hamta_fran <- function(rel_sokvag, target_path) {
-    url  <- paste0(depot_raw_bas, "/", rel_sokvag)
-    resp <- httr::GET(url)
-    httr::stop_for_status(resp, task = paste("hämta", rel_sokvag, "från depot"))
-    writeBin(httr::content(resp, as = "raw"), target_path)
-  }
-  
-  depot_hamta_fran("favicon.ico",               file.path(www_dir, "favicon.ico"))
-  depot_hamta_fran("regiondalarna_ruf.css",     file.path(www_dir, "regiondalarna_ruf.css"))
-  depot_hamta_fran("logo_liggande_fri_vit.png", file.path(www_dir, "logo_liggande_fri_vit.png"))
-  
-  # Lista fonts/-katalogen i depot via GitHub Contents API och ladda ner varje fil
-  fonts_api_url <- "https://api.github.com/repos/Region-Dalarna/depot/contents/fonts"
-  fonts_resp <- httr::GET(fonts_api_url, httr::accept("application/vnd.github+json"))
-  if (httr::status_code(fonts_resp) == 200) {
-    fonts_lista <- httr::content(fonts_resp, as = "parsed")
-    purrr::walk(fonts_lista, function(f) {
-      if (identical(f$type, "file")) {
-        depot_hamta_fran(paste0("fonts/", f$name), file.path(fonts_dir, f$name))
-      }
-    })
-    message("✅ Hämtade ", length(fonts_lista), " typsnittsfiler från depot/fonts/.")
-  } else {
-    warning("Kunde inte lista depot/fonts/ (status ", httr::status_code(fonts_resp),
-            "). Lägg till typsnitt manuellt i www/fonts/.", call. = FALSE)
-  }
-  
-  # Generera ett tomt skal för app.css (appspecifika overrides)
-  app_css <- glue::glue(
-    "/* ============================================================
-   app.css
-   App-specifik styling för {github_repo}.
-   Laddas EFTER regiondalarna_ruf.css så att lokala regler
-   kan överstyra den delade identiteten vid behov.
-   ============================================================ */
 
-/* Lägg appspecifika regler här. */
-"
-  )
-  writeLines(app_css, file.path(www_dir, "app.css"))
-  
-  
-  # ==== Skapa global.R (i roten) ==============================================
-  
-  telemetri_block <- if (isTRUE(anvandningsstatistik_samla_in)) {
-    glue::glue(
-      '
-source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_shinyappar.R", encoding = "utf-8", echo = FALSE)
+  # ==== Hämta favicon till www/ ===============================================
 
-telemetry <- skapa_telemetry("<<github_repo>>")
-',
-      .open = "<<", .close = ">>"
-    )
-  } else {
-    ""
-  }
+  favicon_url  <- "https://raw.githubusercontent.com/Region-Dalarna/depot/main/favicon.ico"
+  favicon_path <- file.path(www_dir, "favicon.ico")
+  utils::download.file(favicon_url, favicon_path, mode = "wb")
   
+
+  # ==== Skapa global.R ========================================================
+
   global_R <- glue::glue(
     '## Globala inställningar för Shinyappen: <<github_repo>>
 
@@ -5736,64 +4782,37 @@ library(dplyr)
 library(tidyr)
 library(readr)
 library(ggplot2)
-<<telemetri_block>>
+
 # Allmänna options - TRUE = visa inte R-felmeddelanden i appen, FALSE = visa felmeddelanden från R på webben
 options(shiny.sanitize.errors = FALSE)
 ',
-    .open = "<<", .close = ">>")
+.open = "<<", .close = ">>")
   
+
+writeLines(global_R, file.path(app_dir, "global.R"))
   
-  writeLines(global_R, file.path(sokvag_proj, "global.R"))
-  
-  # ==== Skapa ui.R (i roten) ==================================================
-  
-  telemetri_ui_rad <- if (isTRUE(anvandningsstatistik_samla_in)) {
-    ",\n      telemetri_ui(telemetry)"
-  } else {
-    ""
-  }
-  
+  # ==== Skapa ui.R ============================================================
   ui_R <- glue::glue("
 source('global.R')
 
 shinyUI(
   fluidPage(
     tags$head(
-      tags$link(rel = 'icon', type = 'image/x-icon', href = 'favicon.ico'),
-      tags$link(rel = 'stylesheet', type = 'text/css', href = 'regiondalarna_ruf.css'),
-      tags$link(rel = 'stylesheet', type = 'text/css', href = 'app.css')<<telemetri_ui_rad>>
+      tags$link(rel = 'icon', type = 'image/x-icon', href = 'favicon.ico')
     ),
-
-    # ---- Header (matchar .rd-header i regiondalarna_ruf.css) --------------
-    tags$div(
-      class = 'rd-header',
-      tags$div(class = 'rd-header__title', '<<rapport_titel>>'),
-      tags$a(
-        class  = 'rd-header__right',
-        href   = 'https://www.regiondalarna.se',
-        target = '_blank',
-        tags$img(src = 'logo_liggande_fri_vit.png', alt = 'Region Dalarna'),
-        tags$span('Samhällsanalys')
-      )
-    ),
-
-    # ---- Innehåll ---------------------------------------------------------
-    tabsetPanel(
-      id = 'flikval',
-      tabPanel('Tab 1',
-        h3('Hej från <<github_repo>>'),
-        verbatimTextOutput('example_text')
+    titlePanel('<<rapport_titel>>'),
+    sidebarLayout(
+      sidebarPanel(
+        h4('Exempelsida'),
+        p('Byt ut detta innehåll mot din riktiga UI.')
       ),
-      tabPanel('Om', p('Beskriv applikationen här.'))
-    ),
-
-    # ---- Footer (matchar .rd-footer i regiondalarna_ruf.css) --------------
-    tags$div(
-      class = 'rd-footer',
-      'Samhällsanalys, Region Dalarna · ',
-      tags$a(
-        href = 'mailto:samhallsanalys@regiondalarna.se',
-        'samhallsanalys@regiondalarna.se'
+      mainPanel(
+        tabsetPanel(
+          tabPanel('Tab 1', h3('Hej från <<github_repo>>')),
+          tabPanel('Om', p('Beskriv applikationen här.'))
+        ),
+        hr(),
+        verbatimTextOutput('example_text')
       )
     )
   )
@@ -5802,27 +4821,21 @@ shinyUI(
   .open = "<<", .close = ">>"
   )
 
-writeLines(ui_R, file.path(sokvag_proj, "ui.R"))
+writeLines(ui_R, file.path(app_dir, "ui.R"))
 
-# ==== Skapa server.R (i roten) ==============================================
+# ==== Skapa server.R ========================================================
 
-  telemetri_server_rad <- if (isTRUE(anvandningsstatistik_samla_in)) {
-    "\n  telemetri_server(telemetry, navigation_id = 'flikval', forsta_flik = 'Tab 1')\n"
-  } else ""
-  
-  server_R <- glue::glue(
-    "shinyServer(function(input, output, session) {
-  <<telemetri_server_rad>>
-    output$example_text <- renderText({{
-      'Byt ut detta mot din egen serverlogik.'
-    }})
-  
+server_R <- 
+  "shinyServer(function(input, output, session) {
+
+  output$example_text <- renderText({
+    'Byt ut detta mot din egen serverlogik.'
   })
-  ",
-    .open = "<<", .close = ">>"
-  )
 
-writeLines(server_R, file.path(sokvag_proj, "server.R"))
+})
+"
+
+writeLines(server_R, file.path(app_dir, "server.R"))
 
 # ==== Skapa .gitignore ======================================================
 
@@ -5852,2293 +4865,173 @@ Detta repository innehåller en Shinyapplikation (`{github_repo}`) för Samhäll
 
 ## Struktur
 
-Appfilerna ligger **direkt i repo-roten** (så att Shiny Server kör appen utan omväg):
+- All appkod ligger i katalogen `app/`
+  - `ui.R`, `server.R`, `global.R`
+  - `www/` för favicon och övriga statiska filer
+  - `R/` för hjälpfunktioner
 
-- `ui.R`, `server.R`, `global.R`
-- `www/` för favicon, logotyp, CSS (`regiondalarna_ruf.css` + `app.css`) och `fonts/`
-- `R/` för hjälpfunktioner
-
-- `_dependencies.R` i root listar alla paket appen använder (läses av `renv::dependencies()`, körs aldrig)
-- `_publicering_till_server.yml` i root styr vilken Shiny-server som är default för `shinyapp_publicera()`
-- `renv.lock` + `renv/` + `.Rprofile` styr paketversioner. Kör `renv::restore()` efter klon för att få samma paket som senast snapshot:ades. Vid nya paket: `renv::install(...)` följt av `renv::snapshot()`.
-
-- Deployment sker via GitHub Actions:
-  - `.github/workflows/deploy.yml` – publicerar vid push till `publicera-publik` eller `publicera-intern`
-  - `.github/workflows/avpublicera.yml` – tar bort appen från vald server (manuell trigger)
-
-  Appmapp på servern: `/srv/shiny-server/{github_repo}`.
+- Deployment sker via GitHub Actions (`.github/workflows/deploy.yml`)
+  till Shiny-servern (appmapp `/srv/shiny-server/{github_repo}`).
 
 ")
 
 writeLines(readme_content, file.path(sokvag_proj, "README.md"))
 
-# ==== Skapa _dependencies.R (root) ==========================================
+# ==== Skapa deploy.yml för GitHub Actions ===================================
 
-telemetri_dep_rad <- if (isTRUE(anvandningsstatistik_samla_in)) "library(shiny.telemetry)\n" else ""
-
-dependencies_R <- glue::glue(
-  "# _dependencies.R – läses av renv::dependencies(), körs aldrig
-# Lägg till alla paket appen använder, även de som laddas via source().
-library(DBI)
-library(RPostgres)
-library(sf)
-library(dbplyr)
-<<telemetri_dep_rad>># ... lägg till fler paket vid behov
-",
-  .open = "<<", .close = ">>"
-)
-
-writeLines(dependencies_R, file.path(sokvag_proj, "_dependencies.R"))
-
-
-# ==== Skapa _publicering_till_server.yml (root) =============================
-
-publicering_yml <- glue::glue(
-  "# publicering_till_server.yml
-#
-# Styr vilken Shiny-server som appen publiceras till när
-# shinyapp_publicera() körs utan target-parameter.
-#
-# Giltiga värden för target:
-#   publik   - publicera till den publika Shiny-servern
-#              (shiny.regiondalarna.se)
-#   intern   - publicera till den interna Shiny-servern
-#              (shiny.ltdalarna.se)
-#
-# För engångs-override utan att andra appens hemvist:
-#   shinyapp_publicera(\"appnamn\", target = \"intern\")
-#
-# For att permanent flytta appen till andra servern, använd:
-#   shinyapp_flytta(\"appnamn\", till = \"intern\")
-
-target: {target}
-"
-)
-
-writeLines(publicering_yml, file.path(sokvag_proj, "_publicering_till_server.yml"))
-
-
-# ==== Skapa .github/workflows/deploy.yml ====================================
-
-deploy_yml <-
-  "name: Deploy Shiny app
-run-name: Deploy ${{ github.event.repository.name }} → ${{ github.ref_name == 'publicera-intern' && 'intern' || 'publik' }}
+deploy_yml <- glue::glue(
+  'name: Deploy <<github_repo>>
 
 on:
   push:
-    branches: [ publicera-publik, publicera-intern ]
-  workflow_dispatch:
+    branches: [ publicera ]
 
 jobs:
   deploy:
-    runs-on:
-      - self-hosted
-      - ${{ github.ref == 'refs/heads/publicera-intern' && 'shiny-deploy-intern' || 'shiny-deploy-publik' }}
+    runs-on: [ self-hosted, shiny ]
 
     steps:
-      - name: Fix permissions från tidigare renv-installation
-        shell: bash
-        run: chmod -R u+w \"$GITHUB_WORKSPACE\" 2>/dev/null || true
-        
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Visa vilken server som deploy:as till
-        run: |
-          if [ \"$GITHUB_REF\" = \"refs/heads/publicera-intern\" ]; then
-            echo \"Deploy till INTERN server (${{ github.event.repository.name }})\"
-          else
-            echo \"Deploy till PUBLIK server (${{ github.event.repository.name }})\"
-          fi
-
       - name: Deploy app using server-side script
         run: |
-          TEMP_DIR=\"${GITHUB_WORKSPACE}\"
-          /usr/local/bin/shiny_deploy.sh \"${{ github.event.repository.name }}\" \"$TEMP_DIR\"
-
-      - name: Restart Shiny Server if available
-        run: |
-          echo \"Kontrollerar om shiny-server-tjänsten finns...\"
-
-          if systemctl status shiny-server >/dev/null 2>&1; then
-            echo \"shiny-server hittades. Försöker restart...\"
-
-            if sudo systemctl restart shiny-server; then
-              echo \"Shiny Server restart lyckades.\"
-            else
-              echo \"FEL: Kunde inte köra 'sudo systemctl restart shiny-server'\" >&2
-              echo \"Försöker hämta senaste loggrader från /var/log/shiny-server.log...\"
-
-              if [ -f /var/log/shiny-server.log ]; then
-                echo \"====== SISTA 50 RADERNA UR shiny-server.log ======\"
-                sudo tail -n 50 /var/log/shiny-server.log || echo \"Kunde inte läsa /var/log/shiny-server.log\"
-                echo \"====================================================\"
-              else
-                echo \"Ingen loggfil hittades på /var/log/shiny-server.log\"
-              fi
-
-              exit 1
-            fi
-          else
-            echo \"Ingen systemd-tjänst med namnet 'shiny-server' hittades. Hoppar över restart.\"
-          fi
-
-      - name: Regenerera landningssida
-        run: |
-          sudo -u shiny /usr/local/bin/generera_landningssida.sh || echo \"Varning: kunde inte regenerera landningssidan (ej kritiskt fel)\"
-
-      - name: Synka app-lista mot databasen
-        run: |
-          sudo -u shiny /usr/local/bin/synka_app_lista.sh || echo \"Varning: kunde inte synka app-listan (ej kritiskt fel)\"
-"
+          TEMP_DIR=\"${GITHUB_WORKSPACE}/app\"
+          /usr/local/bin/shiny_deploy.sh <<github_repo>> \"$TEMP_DIR\"
+',
+.open = "<<", .close = ">>"
+)
 
 writeLines(deploy_yml, file.path(workflows_dir, "deploy.yml"))
 
 
-# ==== Skapa .github/workflows/avpublicera.yml ===============================
+# ==== Initiera Git, skapa branch 'utveckling', lägg upp på GitHub ===========
+old_wd <- getwd()
+on.exit(setwd(old_wd), add = TRUE)
+setwd(sokvag_proj)
 
-avpublicera_yml <-
-  "name: Avpublicera Shiny app
-run-name: Avpublicera ${{ github.event.repository.name }} från ${{ inputs.target }}
-
-on:
-  workflow_dispatch:
-    inputs:
-      target:
-        description: 'Vilken server ska appen tas bort från?'
-        required: true
-        type: choice
-        options:
-          - publik
-          - intern
-      bekraftelse:
-        description: 'Skriv appnamnet (= repo-namnet) för att bekräfta'
-        required: true
-        type: string
-
-jobs:
-  avpublicera:
-    runs-on:
-      - self-hosted
-      - ${{ inputs.target == 'intern' && 'shiny-deploy-intern' || 'shiny-deploy-publik' }}
-
-    steps:
-      - name: Kontrollera bekräftelse
-        run: |
-          if [ \"${{ inputs.bekraftelse }}\" != \"${{ github.event.repository.name }}\" ]; then
-            echo \"FEL: Bekräftelseordet matchar inte repo-namnet.\"
-            exit 1
-          fi
-          echo \"Bekräftelse OK. Tar bort ${{ github.event.repository.name }} från ${{ inputs.target }} server.\"
-
-      - name: Ta bort app från Shiny-server
-        run: |
-          APP_DIR=\"/srv/shiny-server/${{ github.event.repository.name }}\"
-
-          # säkerhetsräcke: pathen MÅSTE ligga under /srv/shiny-server/
-          # och får inte vara just själva foldern
-          if [[ \"$APP_DIR\" != /srv/shiny-server/* ]] || [ \"$APP_DIR\" = \"/srv/shiny-server/\" ]; then
-            echo \"FEL: Otillåten sökväg: $APP_DIR\"
-            exit 1
-          fi
-
-          if [ -d \"$APP_DIR\" ]; then
-            echo \"Tar bort $APP_DIR\"
-            sudo rm -rf \"$APP_DIR\"
-            echo \"App borttagen.\"
-          else
-            echo \"Ingen app hittades i $APP_DIR — inget att ta bort.\"
-          fi
-
-      - name: Restart Shiny Server if available
-        run: |
-          if systemctl status shiny-server >/dev/null 2>&1; then
-            sudo systemctl restart shiny-server && echo \"Shiny Server omstartad.\"
-          fi
-
-      - name: Regenerera landningssida
-        run: |
-          sudo -u shiny /usr/local/bin/generera_landningssida.sh || echo \"Varning: kunde inte regenerera landningssidan (ej kritiskt fel)\"
-
-      - name: Synka app-lista mot databasen
-        run: |
-          sudo -u shiny /usr/local/bin/synka_app_lista.sh || echo \"Varning: kunde inte synka app-listan (ej kritiskt fel)\"
-"
-
-writeLines(avpublicera_yml, file.path(workflows_dir, "avpublicera.yml"))
+gert::git_init()
+gert::git_add(".")
+gert::git_commit("Initiera Shinyapp-projekt")
 
 
-# ==== Initiera renv och installera grundpaket ===============================
-
-paket_app <- c(
-  "shiny", "shinyjs", "shinyWidgets", "DT", "ggiraph", "dplyr", "tidyr",
-  "readr", "ggplot2", "DBI", "RPostgres", "sf",
-  if (isTRUE(anvandningsstatistik_samla_in)) "shiny.telemetry"
-)
-
-if (!requireNamespace("renv", quietly = TRUE)) {
-  stop(
-    "Paketet 'renv' är inte installerat. Installera det först med install.packages('renv').",
-    call. = FALSE
+# Skapa repo på GitHub
+if (is.null(github_org)) {
+  usethis::use_github(
+    private   = FALSE,
+    protocol  = "https"
   )
-}
-
-if (!requireNamespace("callr", quietly = TRUE)) {
-  stop(
-    "Paketet 'callr' är inte installerat. Installera det först med install.packages('callr').",
-    call. = FALSE
-  )
-}
-
-callr::r(
-  func = function(project, packages) {
-    
-    # Tvinga https-CRAN så att renv.lock föds med en URL servern faktiskt når.
-    # http://cloud.r-project.org är blockerat utgående på servern, och PPM:s
-    # backend (rspm-sync) likaså — https://cloud.r-project.org fungerar.
-    options(repos = c(CRAN = "https://cloud.r-project.org"))
-    
-    renv::init(
-      project = project,
-      bare    = TRUE,
-      restart = FALSE,
-      load    = TRUE
-    )
-    
-    # Hämta bara riktiga runtime-beroenden, inte Suggests
-    ap <- available.packages()
-    
-    deps <- tools::package_dependencies(
-      packages = packages,
-      db       = ap,
-      which    = c("Depends", "Imports", "LinkingTo"),
-      recursive = TRUE
-    )
-    
-    packages_all <- unique(c(
-      packages,
-      unlist(deps, use.names = FALSE)
-    ))
-    
-    packages_all <- setdiff(packages_all, c("R", NA))
-    
-    renv_lib <- renv::paths$library(project = project)
-    
-    renv::install(
-      packages = packages_all,
-      project  = project,
-      library  = renv_lib,
-      prompt   = FALSE
-    )
-    
-    renv::snapshot(
-      project = project,
-      prompt  = FALSE
-    )
-    
-    renv::restore(
-      project = project,
-      prompt  = FALSE
-    )
-    
-  },
-  args = list(
-    project  = gitprojekt_sokvag,
-    packages = paket_app
-  )
-)
-
-message("✅ renv initierat, grundpaket installerade, renv.lock skapad och projektbiblioteket synkat.")
-
-# ==== Initiera Git och GitHub-repo (om test_skapa_ej_repo = FALSE) ==========
-
-if (isTRUE(test_skapa_ej_repo)) {
-  message("ℹ️ test_skapa_ej_repo = TRUE — hoppar över git-init och GitHub-repo. ",
-          "Projektet finns bara lokalt i ", sokvag_proj)
 } else {
-  old_wd <- getwd()
-  on.exit(setwd(old_wd), add = TRUE)
-  setwd(sokvag_proj)
+  usethis::use_github(
+    organisation = github_org,
+    private      = FALSE,
+    visibility   = "public",
+    protocol     = "https"
+  )
+}
+
+# Ge team behörighet om angivet
+if (!is.null(behorighet_team) && !is.null(github_org)) {
+  # Kräver att keyring är konfigurerad med github_token etc, samma som i din webbrapport-funktion
+  gh_user  <- keyring::key_list(service = "github_token")$username
+  gh_token <- keyring::key_get("github_token", gh_user)
   
-  gert::git_init()
-  git_kontrollera_id_uppgifter()
-  gert::git_add(".")
-  gert::git_commit("Initiera Shinyapp-projekt")
+  resp <- httr::PUT(
+    url = glue::glue(
+      "https://api.github.com/orgs/{github_org}/teams/{behorighet_team}/repos/{github_org}/{github_repo}"
+    ),
+    httr::add_headers(Authorization = paste("token", gh_token)),
+    body   = list(permission = "push"),
+    encode = "json"
+  )
   
-  
-  if (Sys.getenv("GITHUB_PAT") == "") {
-    keyring_poster <- keyring::key_list(service = "github_token")
-    
-    if (nrow(keyring_poster) == 0) {
-      stop(
-        "Ingen GitHub-token hittades i Sys.getenv('GITHUB_PAT') eller keyring service = 'github_token'.\n",
-        "Kör usethis::gh_token_help() eller spara token med gitcreds::gitcreds_set().",
-        call. = FALSE
-      )
-    }
-    
-    gh_user <- keyring_poster$username[1]
-    Sys.setenv(GITHUB_PAT = keyring::key_get("github_token", gh_user))
-  }
-  
-  if (Sys.getenv("GITHUB_PAT") == "") {
-    stop(
-      "GITHUB_PAT är fortfarande tom efter försök att läsa från keyring.",
-      call. = FALSE
-    )
-  }
-  
-  # Skapa repo på GitHub
-  if (is.null(github_org)) {
-    usethis::use_github(
-      private   = FALSE,
-      protocol  = "https"
-    )
+  if (httr::status_code(resp) == 204) {
+    message("✅ Teamet '", behorighet_team, "' har fått push-behörighet.")
   } else {
-    
-    # Skapa URL till GitHub-repot
-    github_repo_url <- paste0("https://github.com/", github_org, "/", github_repo)
-    
-    # Hindra usethis::use_github() från att öppna webbläsaren direkt
-    old_browser <- getOption("browser")
-    on.exit(options(browser = old_browser), add = TRUE)
-    
-    options(browser = function(url) invisible(NULL))
-    
-    # Skapa repo på GitHub
-    usethis::use_github(
-      organisation = github_org,
-      private      = FALSE,
-      visibility   = "public",
-      protocol     = "https"
-    )
-    
-    # Återställ browser-option direkt efter use_github()
-    options(browser = old_browser)
-    
-    # Öppna GitHub-sidan själv, efter liten fördröjning
-    if (isTRUE(oppna_github_sida)) {
-      Sys.sleep(github_oppna_fordrojning)
-      utils::browseURL(github_repo_url)
-    }
-    
-  } # if-sats för att avgöra om repo ska skapas under org eller privat konto, detta är slutet på org-delen
-  
-  # Ge team behörighet om angivet
-  if (!is.null(behorighet_team) && !is.null(github_org)) {
-    
-    gh_token <- Sys.getenv("GITHUB_PAT")
-    
-    resp <- httr::PUT(
-      url = glue::glue(
-        "https://api.github.com/orgs/{github_org}/teams/{behorighet_team}/repos/{github_org}/{github_repo}"
-      ),
-      httr::add_headers(Authorization = paste("token", gh_token)),
-      body   = list(permission = "push"),
-      encode = "json"
-    )
-    
-    if (httr::status_code(resp) == 204) {
-      message("✅ Teamet '", behorighet_team, "' har fått push-behörighet.")
-    } else {
-      message("⚠️ Kunde inte sätta team-behörighet automatiskt (status ",
-              httr::status_code(resp), ").")
-    }
+    message("⚠️ Kunde inte sätta team-behörighet automatiskt (status ", 
+            httr::status_code(resp), ").")
   }
-  
-  # ---- Registrera avpublicera.yml hos GitHub Actions -----------------------
-  # En workflow med enbart workflow_dispatch indexeras inte alltid från
-  # initial-pushen — bara deploy.yml (som har en push-trigger) plockas upp.
-  # Vi rör avpublicera.yml en gång till på master så att GitHub Actions
-  # scannar in den. Utan detta failar första avpublicera()/flytta() på en
-  # oregistrerad workflow (HTTP 404 vid dispatch).
-  cat("\n# (touch för workflow-registrering)\n",
-      file = file.path(workflows_dir, "avpublicera.yml"), append = TRUE)
-  gert::git_add(".github/workflows/avpublicera.yml", repo = sokvag_proj)
-  gert::git_commit("Registrera-avpublicera-workflow", repo = sokvag_proj)
-  .gh_push(sokvag_proj, "master")
-  message("✅ avpublicera.yml registrerad hos GitHub Actions.")
-  
 }
 
 invisible(sokvag_proj)
 }
 
 
-shinyapp_skapa_med_github_repo_forka_befintligt <- function(
-    github_repo,                            # Namn på NYTT repo OCH Shiny-app (mapp på servern)
-    kalla_repo_url,                         # URL till det befintliga repot, t.ex. "https://github.com/nån/coolapp.git"
-    kalla_branch       = "main",            # Branch att hämta från i källrepot
-    github_org         = "Region-Dalarna",  # Org på GitHub, sätt till NULL för privat konto
-    rapport_titel      = github_repo,       # Titel som visas i README
-    rapport_undertitel = NA,                # (används bara i README nu, kan byggas ut)
-    githubmapp_lokalt  = "c:/gh/",          # Sökväg till mapp där du har alla github-repon
-    behorighet_team    = "samhallsanalys",  # GitHub-team som får push-behörighet, NULL om inget team
-    target             = "publik",          # Default-server i _publicering_till_server.yml: "publik" eller "intern"
-    r_projekt_oppna    = TRUE               # TRUE = öppna .Rproj-filen i RStudio när allt är klart
-) {
-  
-  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_filer.R", encoding = "utf-8")
-  
-  # ==== Beroenden ==============================================================
-  
-  pkg_needed <- c("usethis", "gert", "glue", "stringr", "purrr", "httr", "keyring")
-  miss <- pkg_needed[!vapply(pkg_needed, requireNamespace, logical(1), quietly = TRUE)]
-  if (length(miss) > 0) {
-    stop(
-      "Följande paket behöver installeras först: ",
-      paste(miss, collapse = ", "),
-      call. = FALSE
-    )
-  }
-  
-  if (!target %in% c("publik", "intern")) {
-    stop("target måste vara 'publik' eller 'intern'.", call. = FALSE)
-  }
-  
-  if (missing(kalla_repo_url) || !nzchar(kalla_repo_url)) {
-    stop("Parametern 'kalla_repo_url' måste anges (URL till det befintliga repot).",
-         call. = FALSE)
-  }
-  
-  # Lokal helper: skapa mapp om den inte finns
-  skapa_mapp_om_den_inte_finns <- function(path) {
-    if (!dir.exists(path)) dir.create(path, recursive = TRUE)
-  }
-  
-  
-  # ==== Normalisera sökvägar ===================================================
-  
-  githubmapp_lokalt <- stringr::str_replace_all(githubmapp_lokalt, stringr::fixed("\\"), "/")
-  if (!stringr::str_ends(githubmapp_lokalt, "/")) {
-    githubmapp_lokalt <- paste0(githubmapp_lokalt, "/")
-  }
-  
-  sokvag_proj <- paste0(githubmapp_lokalt, github_repo)
-  if (!stringr::str_ends(sokvag_proj, "/")) {
-    sokvag_proj <- paste0(sokvag_proj, "/")
-  }
-  
-  if (dir.exists(sokvag_proj)) {
-    stop("Mappen finns redan: ", sokvag_proj,
-         "\nVälj ett annat namn eller ta bort mappen först.", call. = FALSE)
-  }
-  
-  # Skapa rotmapp
-  skapa_mapp_om_den_inte_finns(sokvag_proj)
-  
-  
-  # ==== Skapa R-projekt ========================================================
-  
-  gitprojekt_sokvag <- if (stringr::str_sub(sokvag_proj, -1, -1) == "/") {
-    stringr::str_sub(sokvag_proj, 1, -2)
-  } else {
-    sokvag_proj
-  }
-  
-  usethis::create_project(gitprojekt_sokvag, open = FALSE)
-  unlink(file.path(sokvag_proj, "R"), recursive = TRUE)  # ta bort mappen R i root
-  
-  # OBS: skapa INTE app/ — git subtree add kräver att prefix-mappen inte finns
-  
-  # ==== Skapa .github/workflows-mappen =========================================
-  
-  workflows_dir <- file.path(sokvag_proj, ".github", "workflows")
-  skapa_mapp_om_den_inte_finns(workflows_dir)
-  
-  
-  # ==== Hjälpare: kör git i rätt repo (för subtree-stöd) =======================
-  
-  kor_git <- function(...) {
-    res <- suppressWarnings(
-      system2("git", args = c("-C", gitprojekt_sokvag, ...),
-              stdout = TRUE, stderr = TRUE)
-    )
-    status <- attr(res, "status"); if (is.null(status)) status <- 0L
-    if (status != 0) {
-      stop("git ", paste(c(...), collapse = " "), " misslyckades:\n",
-           paste(res, collapse = "\n"), call. = FALSE)
-    }
-    res
-  }
-  
-  
-  # ==== Skapa .gitignore =======================================================
-  
-  gitignore_content <- "
-.Rproj.user
-.Rhistory
-.RData
-.Ruserdata
-.Rproj.user/
-.Rhistory
-.RData
-.Ruserdata
-.Rhistory
-.Rapp.history
-"
-  
-  writeLines(trimws(gitignore_content, which = "left"),
-             file.path(sokvag_proj, ".gitignore"))
-  
-  
-  # ==== Skapa README ===========================================================
-  
-  readme_content <- glue::glue(
-    "# {rapport_titel}
-
-Detta repository innehåller en Shinyapplikation (`{github_repo}`) för Samhällsanalys, Region Dalarna.
-
-Appkoden under `app/` är importerad från ett befintligt repo via `git subtree`:
-
-- **Källa:** {kalla_repo_url}
-- **Branch vid import:** {kalla_branch}
-
-## Struktur
-
-- All appkod ligger i katalogen `app/` (importerad via git subtree)
-- `_publicering_till_server.yml` i root styr vilken Shiny-server som är default för `shinyapp_publicera()`
-
-- Deployment sker via GitHub Actions:
-  - `.github/workflows/deploy.yml` – publicerar vid push till `publicera-publik` eller `publicera-intern`
-  - `.github/workflows/avpublicera.yml` – tar bort appen från vald server (manuell trigger)
-
-  Appmapp på servern: `/srv/shiny-server/{github_repo}`.
-
-## Hämta uppdateringar från källrepot
-
-Appkoden under `app/` är kopplad till källrepot via `git subtree`. När
-källrepot uppdateras kan du dra in ändringarna med ett kommando.
-
-### Så här fungerar det
-
-`git subtree pull` hämtar senaste från källrepot och slår ihop ändringarna
-till en enda squashad commit under `app/`. Resten av repot (`.github/`,
-README, deploy-workflows) påverkas inte.
-
-Subtree pull kräver att working tree är **clean** — alla ändringar måste
-vara committade eller stashade innan du kör. Annars får du felet:
-
-```
-fatal: working tree has modifications. Cannot add.
-```
-
-### Kommandon (Terminal, från repots mapp)
-
-Stå i `{gitprojekt_sokvag}` när du kör kommandona:
-
-```
-cd {gitprojekt_sokvag}
-```
-
-**1. Kontrollera att working tree är clean:**
-
-```
-git status
-```
-
-Om det visar `nothing to commit, working tree clean` — hoppa till steg 3.
-
-**2. Om det finns ändringar — committa eller stasha dem:**
-
-Ett vanligt fall: `.Rproj`-filen ändras när du öppnat projektet i RStudio.
-Committa den då:
-
-```
-git add .
-git commit -m \"Lokala ändringar innan subtree pull\"
-```
-
-Eller stasha tillfälligt om du inte vill committa:
-
-```
-git stash
-```
-
-(återställ sedan efter pull med `git stash pop`)
-
-**3. Hämta uppdateringar från källrepot:**
-
-```
-git subtree pull --prefix=app {kalla_repo_url} {kalla_branch} --squash
-```
-
-Om en editor öppnas med merge-meddelandet — bara spara och stäng:
-- I **vim**: `Esc`, sen `:wq` + Enter
-- I **nano**: `Ctrl+O`, Enter, `Ctrl+X`
-
-**4. Pusha till GitHub:**
-
-```
-git push
-```
-
-### Alternativ: kör från R-konsolen
-
-Om du föredrar att stanna i R kan du köra hela kedjan så här
-(fungerar oavsett var i R du står — `-C` byter mapp åt dig):
-
-```r
-system2(\"git\", c(\"-C\", \"{gitprojekt_sokvag}\", \"add\", \".\"))
-system2(\"git\", c(\"-C\", \"{gitprojekt_sokvag}\", \"commit\",
-                 \"-m\", \"Lokala ändringar innan subtree pull\"))
-system2(\"git\", c(\"-C\", \"{gitprojekt_sokvag}\",
-                 \"subtree\", \"pull\", \"--prefix=app\",
-                 \"{kalla_repo_url}\", \"{kalla_branch}\", \"--squash\"))
-system2(\"git\", c(\"-C\", \"{gitprojekt_sokvag}\", \"push\"))
-```
-
-")
-  
-  writeLines(readme_content, file.path(sokvag_proj, "README.md"))
-  
-  
-  # ==== Skapa _publicering_till_server.yml (root) =============================
-  
-  publicering_yml <- glue::glue(
-    "# publicering_till_server.yml
-#
-# Styr vilken Shiny-server som appen publiceras till när
-# shinyapp_publicera() körs utan target-parameter.
-#
-# Giltiga värden för target:
-#   publik   - publicera till den publika Shiny-servern
-#              (shiny.regiondalarna.se)
-#   intern   - publicera till den interna Shiny-servern
-#              (shiny.ltdalarna.se)
-#
-# För engångs-override utan att andra appens hemvist:
-#   shinyapp_publicera(\"appnamn\", target = \"intern\")
-#
-# For att permanent flytta appen till andra servern, använd:
-#   shinyapp_flytta(\"appnamn\", till = \"intern\")
-
-target: {target}
-"
-  )
-  
-  writeLines(publicering_yml, file.path(sokvag_proj, "_publicering_till_server.yml"))
-  
-  
-  # ==== Skapa .github/workflows/deploy.yml ====================================
-  
-  deploy_yml <-
-    "name: Deploy Shiny app
-run-name: Deploy ${{ github.event.repository.name }} → ${{ github.ref_name == 'publicera-intern' && 'intern' || 'publik' }}
-
-on:
-  push:
-    branches: [ publicera-publik, publicera-intern ]
-  workflow_dispatch:
-
-jobs:
-  deploy:
-    runs-on:
-      - self-hosted
-      - ${{ github.ref == 'refs/heads/publicera-intern' && 'shiny-deploy-intern' || 'shiny-deploy-publik' }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Visa vilken server som deploy:as till
-        run: |
-          if [ \"$GITHUB_REF\" = \"refs/heads/publicera-intern\" ]; then
-            echo \"Deploy till INTERN server (${{ github.event.repository.name }})\"
-          else
-            echo \"Deploy till PUBLIK server (${{ github.event.repository.name }})\"
-          fi
-
-      - name: Deploy app using server-side script
-        run: |
-          TEMP_DIR=\"${GITHUB_WORKSPACE}/app\"
-          /usr/local/bin/shiny_deploy.sh \"${{ github.event.repository.name }}\" \"$TEMP_DIR\"
-
-      - name: Restart Shiny Server if available
-        run: |
-          echo \"Kontrollerar om shiny-server-tjänsten finns...\"
-
-          if systemctl status shiny-server >/dev/null 2>&1; then
-            echo \"shiny-server hittades. Försöker restart...\"
-
-            if sudo systemctl restart shiny-server; then
-              echo \"Shiny Server restart lyckades.\"
-            else
-              echo \"FEL: Kunde inte köra 'sudo systemctl restart shiny-server'\" >&2
-              echo \"Försöker hämta senaste loggrader från /var/log/shiny-server.log...\"
-
-              if [ -f /var/log/shiny-server.log ]; then
-                echo \"====== SISTA 50 RADERNA UR shiny-server.log ======\"
-                sudo tail -n 50 /var/log/shiny-server.log || echo \"Kunde inte läsa /var/log/shiny-server.log\"
-                echo \"====================================================\"
-              else
-                echo \"Ingen loggfil hittades på /var/log/shiny-server.log\"
-              fi
-
-              exit 1
-            fi
-          else
-            echo \"Ingen systemd-tjänst med namnet 'shiny-server' hittades. Hoppar över restart.\"
-          fi
-"
-  
-  writeLines(deploy_yml, file.path(workflows_dir, "deploy.yml"))
-  
-  
-  # ==== Skapa .github/workflows/avpublicera.yml ===============================
-  
-  avpublicera_yml <-
-    "name: Avpublicera Shiny app
-run-name: Avpublicera ${{ github.event.repository.name }} från ${{ inputs.target }}
-
-on:
-  workflow_dispatch:
-    inputs:
-      target:
-        description: 'Vilken server ska appen tas bort från?'
-        required: true
-        type: choice
-        options:
-          - publik
-          - intern
-      bekraftelse:
-        description: 'Skriv appnamnet (= repo-namnet) för att bekräfta'
-        required: true
-        type: string
-
-jobs:
-  avpublicera:
-    runs-on:
-      - self-hosted
-      - ${{ inputs.target == 'intern' && 'shiny-deploy-intern' || 'shiny-deploy-publik' }}
-
-    steps:
-      - name: Kontrollera bekräftelse
-        run: |
-          if [ \"${{ inputs.bekraftelse }}\" != \"${{ github.event.repository.name }}\" ]; then
-            echo \"FEL: Bekräftelseordet matchar inte repo-namnet.\"
-            exit 1
-          fi
-          echo \"Bekräftelse OK. Tar bort ${{ github.event.repository.name }} från ${{ inputs.target }} server.\"
-
-      - name: Ta bort app från Shiny-server
-        run: |
-          APP_DIR=\"/srv/shiny-server/${{ github.event.repository.name }}\"
-
-          # säkerhetsräcke: pathen MÅSTE ligga under /srv/shiny-server/
-          # och får inte vara just själva foldern
-          if [[ \"$APP_DIR\" != /srv/shiny-server/* ]] || [ \"$APP_DIR\" = \"/srv/shiny-server/\" ]; then
-            echo \"FEL: Otillåten sökväg: $APP_DIR\"
-            exit 1
-          fi
-
-          if [ -d \"$APP_DIR\" ]; then
-            echo \"Tar bort $APP_DIR\"
-            sudo rm -rf \"$APP_DIR\"
-            echo \"App borttagen.\"
-          else
-            echo \"Ingen app hittades i $APP_DIR — inget att ta bort.\"
-          fi
-
-      - name: Restart Shiny Server if available
-        run: |
-          if systemctl status shiny-server >/dev/null 2>&1; then
-            sudo systemctl restart shiny-server && echo \"Shiny Server omstartad.\"
-          fi
-"
-  
-  writeLines(avpublicera_yml, file.path(workflows_dir, "avpublicera.yml"))
-  
-  
-  # ==== Initiera git + första commit (krävs för subtree add) ==================
-  
-  old_wd <- getwd()
-  on.exit(setwd(old_wd), add = TRUE)
-  setwd(sokvag_proj)
-  
-  gert::git_init()
-  git_kontrollera_id_uppgifter()
-  gert::git_add(".")
-  gert::git_commit("Initiera Shinyapp-projekt med deploy-workflow")
-  
-  
-  # ==== Hämta källrepots innehåll till app/ via git subtree ===================
-  
-  cat("Hämtar in '", kalla_repo_url, "' (branch '", kalla_branch,
-      "') till app/ ...\n", sep = "")
-  kor_git("subtree", "add",
-          "--prefix=app",
-          kalla_repo_url, kalla_branch, "--squash")
-  
-  
-  # ==== Varna om källrepot inte verkar vara en Shiny-app =======================
-  
-  app_dir <- file.path(sokvag_proj, "app")
-  shiny_filer <- c("ui.R", "server.R", "app.R", "global.R")
-  hittade <- shiny_filer[file.exists(file.path(app_dir, shiny_filer))]
-  
-  if (length(hittade) == 0) {
-    rek_traffar <- list.files(app_dir, pattern = "^(ui|server|app|global)\\.R$",
-                              recursive = TRUE, ignore.case = TRUE)
-    
-    msg <- paste0(
-      "\n⚠️  VARNING: Hittade inga typiska Shiny-filer ",
-      "(ui.R, server.R, app.R, global.R) direkt i app/.\n"
-    )
-    if (length(rek_traffar) > 0) {
-      msg <- paste0(msg,
-                    "    Hittade dock följande i undermappar:\n      - ",
-                    paste(rek_traffar, collapse = "\n      - "), "\n",
-                    "    Deploy-skriptet förväntar sig att filerna ligger direkt i app/.\n"
-      )
-    } else {
-      msg <- paste0(msg,
-                    "    Källrepot verkar inte vara en Shiny-app — ",
-                    "deployen kommer troligen inte att fungera.\n"
-      )
-    }
-    cat(msg)
-    
-    svar <- readline(prompt = "Vill du ändå fortsätta och pusha till GitHub? (j/N): ")
-    if (!tolower(trimws(svar)) %in% c("j", "ja", "y", "yes")) {
-      message("Avbryter. Lokal mapp finns kvar i: ", sokvag_proj)
-      return(invisible(NULL))
-    }
-    cat("Fortsätter på användarens bekräftelse...\n")
-  } else {
-    cat("✓ Hittade Shiny-filer i app/: ",
-        paste(hittade, collapse = ", "), "\n", sep = "")
-  }
-  
-  
-  # ==== Initiera GitHub-repo ==================================================
-  
-  if (Sys.getenv("GITHUB_PAT") == "") {
-    gh_user  <- keyring::key_list(service = "github_token")$username
-    Sys.setenv(GITHUB_PAT = keyring::key_get("github_token", gh_user))
-  }
-  
-  # Skapa repo på GitHub
-  if (is.null(github_org)) {
-    usethis::use_github(
-      private   = FALSE,
-      protocol  = "https"
-    )
-  } else {
-    usethis::use_github(
-      organisation = github_org,
-      private      = FALSE,
-      visibility   = "public",
-      protocol     = "https"
-    )
-  }
-  
-  # Ge team behörighet om angivet
-  if (!is.null(behorighet_team) && !is.null(github_org)) {
-    gh_user  <- keyring::key_list(service = "github_token")$username
-    gh_token <- keyring::key_get("github_token", gh_user)
-    
-    resp <- httr::PUT(
-      url = glue::glue(
-        "https://api.github.com/orgs/{github_org}/teams/{behorighet_team}/repos/{github_org}/{github_repo}"
-      ),
-      httr::add_headers(Authorization = paste("token", gh_token)),
-      body   = list(permission = "push"),
-      encode = "json"
-    )
-    
-    if (httr::status_code(resp) == 204) {
-      message("✅ Teamet '", behorighet_team, "' har fått push-behörighet.")
-    } else {
-      message("⚠️ Kunde inte sätta team-behörighet automatiskt (status ",
-              httr::status_code(resp), ").")
-    }
-  }
-  
-  # ==== Öppna R-projektet (om så valt och RStudio är tillgängligt) ============
-  
-  if (isTRUE(r_projekt_oppna)) {
-    rproj_fil <- list.files(sokvag_proj, pattern = "\\.Rproj$",
-                            full.names = TRUE)[1]
-    
-    if (!is.na(rproj_fil) &&
-        requireNamespace("rstudioapi", quietly = TRUE) &&
-        rstudioapi::isAvailable()) {
-      message("📂 Öppnar R-projektet: ", rproj_fil)
-      rstudioapi::openProject(rproj_fil, newSession = FALSE)
-    } else {
-      message("ℹ️ Kunde inte öppna R-projektet automatiskt ",
-              "(kör inte i RStudio eller rstudioapi saknas). ",
-              "Öppna manuellt: ", sokvag_proj)
-    }
-  }
-  
-  invisible(sokvag_proj)
-}
-
-
-
 shinyapp_publicera <- function(
-    github_repo,
-    target            = NULL,        # NULL = läs från _publicering_till_server.yml
-    lokal_grundsokvag = "c:/gh/",
-    github_org        = "Region-Dalarna"
+    repo,
+    from_branch = "master",
+    to_branch   = "publicera",
+    remote      = "origin",
+    sokvag_lokalt_repo = "c:/gh"
 ) {
+  stopifnot(requireNamespace("gert", quietly = TRUE))
   
-  # --- Validering ---
-  if (missing(github_repo) || !nzchar(github_repo)) {
-    stop("Parametern 'github_repo' måste anges.")
-  }
-  repo_sokvag <- file.path(lokal_grundsokvag, github_repo)
-  if (!dir.exists(repo_sokvag)) stop("Repot finns inte: ", repo_sokvag)
-  if (!dir.exists(file.path(repo_sokvag, ".git"))) {
-    stop("Mappen är inte ett git-repository: ", repo_sokvag)
-  }
-  
-  default_branch <- .shinyapp_default_branch(repo_sokvag)                       # hämtar default branch, t.ex. "master" eller "main"
-  
-  # --- Bestäm target ---
-  if (is.null(target)) {
-    target <- .shinyapp_las_publicering_config(repo_sokvag)
-    cat("Target från config: '", target, "'\n", sep = "")
-  } else {
-    if (!target %in% c("publik", "intern")) {
-      stop("target måste vara 'publik' eller 'intern' (eller NULL).")
-    }
-    cat("Override: target = '", target,
-        "' (config-filen ändras inte).\n", sep = "")
-  }
-  
-  publicera_branch <- switch(target,
-                             "publik" = "publicera-publik",
-                             "intern" = "publicera-intern")
-  
-  server_url <- switch(target,
-                       "publik" = "shiny.regiondalarna.se",
-                       "intern" = "shiny.ltdalarna.se")
-  
-  # --- Hjälpfunktion: kör git i rätt repo ---
-  kor_git <- function(..., stopp_vid_fel = TRUE) {
-    git_args <- c("-C", repo_sokvag, ...)
-    res <- suppressWarnings(
-      system2("git", args = git_args, stdout = TRUE, stderr = TRUE)
-    )
-    status <- attr(res, "status"); if (is.null(status)) status <- 0L
-    if (status != 0 && stopp_vid_fel) {
-      stop("git ", paste(c(...), collapse = " "), " misslyckades:\n",
-           paste(res, collapse = "\n"))
-    }
-    res
-  }
-  
-  # --- 1. Working tree clean? ---
-  status_output <- kor_git("status", "--porcelain")
-  if (length(status_output) > 0 && any(nzchar(status_output))) {
-    stop("Repot har ohanterade ändringar:\n",
-         paste(status_output, collapse = "\n"),
-         "\nCommit:a eller stash:a först.")
-  }
-  
-  # --- 2. Fetch ---
-  cat("Fetchar från origin...\n")
-  kor_git("fetch", "origin")
-  
-  # --- 3. Säkerställ att target-branchen finns ---
-  remote_branches <- trimws(kor_git("branch", "-r"))
-  if (!any(grepl(paste0("^origin/", publicera_branch, "$"), remote_branches))) {
-    if (target == "publik") {
-      cat("'", publicera_branch, "' saknas — kör konfigurering...\n", sep = "")
-      .shinyapp_konfigurera_publicera_branch(github_repo, lokal_grundsokvag)
-      # uppdatera fetch efteråt
-      kor_git("fetch", "origin")
-    } else {
-      # publicera-intern skapas inline (vi har ingen migreringsväg där)
-      cat("'", publicera_branch, "' saknas — skapar från ", default_branch, "...\n", sep = "")
-      kor_git("checkout", default_branch)
-      kor_git("pull", "--ff-only", "origin", default_branch)
-      # Om branchen redan finns lokalt (t.ex. från en tidigare körning där pushen
-      # dog) återanvänder vi den i stället för att krascha på checkout -b.
-      status_lokal <- .shinyapp_lokal_branch_redo_for_push(repo_sokvag, publicera_branch, default_branch)
-      if (status_lokal == "redo") {
-        cat("'", publicera_branch, "' fanns redan lokalt — återanvänder den.\n", sep = "")
-        kor_git("checkout", publicera_branch)
-      } else {
-        kor_git("checkout", "-b", publicera_branch)
-      }
-      #kor_git("push", "-u", "origin", publicera_branch)
-      .gh_push(repo_sokvag, publicera_branch, set_upstream = TRUE)
-      kor_git("fetch", "origin")
-    }
-  }
-  
-  # --- 4. Checka ut publicera-branchen lokalt ---
-  local_branches <- trimws(kor_git("branch"))
-  if (!any(grepl(paste0("^\\*?\\s*", publicera_branch, "$"), local_branches))) {
-    kor_git("checkout", "-b", publicera_branch,
-            paste0("origin/", publicera_branch))
-  } else {
-    kor_git("checkout", publicera_branch)
-    kor_git("pull", "--ff-only", "origin", publicera_branch)
-  }
-  
-  # --- 5. Merge default-branchen in ---
-  cat("Merge:ar ", default_branch, " in i ", publicera_branch, "...\n", sep = "")
-  kor_git("merge", paste0("origin/", default_branch), "--no-edit",
-          "-X", "ignore-space-change")
-  
-  # --- 5b. No-op-skydd: om merge inte gav någon ny commit, gör en tom commit ---
-  # Annars blir push:en en no-op och GitHub Actions triggas inte.
-  lokal_sha  <- trimws(kor_git("rev-parse", "HEAD"))[1]
-  remote_sha <- trimws(kor_git("rev-parse", paste0("origin/", publicera_branch)))[1]
-  if (identical(lokal_sha, remote_sha)) {
-    cat("Inga nya commits efter merge — lägger in tom commit för att trigga deploy.\n")
-    kor_git("commit", "--allow-empty",
-            "-m", paste0("Trigga-deploy-", publicera_branch))
-  }
-  
-  # --- 6. Pusha ---
-  cat("Pushar till origin/", publicera_branch, "...\n", sep = "")
-  #kor_git("push", "origin", publicera_branch)
-  .gh_push(repo_sokvag, publicera_branch)
-  
-  # --- 7. Tillbaka till default-branchen ---
-  kor_git("checkout", default_branch)
-  
-  cat("\n✓ '", github_repo, "' publicerat till '", target, "'-servern.\n",
-      "  GitHub Actions deploy:ar nu till ", server_url, ".\n", sep = "")
-  invisible(TRUE)
-}
-
-
-.gh_pat <- function(service = "github_token") {
-  pat <- Sys.getenv("GITHUB_PAT")
-  if (nzchar(pat)) return(invisible(pat))
-  
-  if (!requireNamespace("keyring", quietly = TRUE)) {
-    stop("Paketet 'keyring' måste vara installerat.", call. = FALSE)
-  }
-  
-  poster <- keyring::key_list(service = service)
-  if (nrow(poster) == 0) {
-    stop("Ingen GitHub-token hittades i GITHUB_PAT eller keyring service = '",
-         service, "'.\n",
-         "Spara en token med keyring::key_set('", service, "') eller ",
-         "gitcreds::gitcreds_set().", call. = FALSE)
-  }
-  
-  pat <- keyring::key_get(service, poster$username[1])
-  if (!nzchar(pat)) stop("GitHub-token från keyring är tom.", call. = FALSE)
-  
-  Sys.setenv(GITHUB_PAT = pat)   # så att gert / usethis / gh hittar den automatiskt
-  invisible(pat)
-}
-
-.gh_push <- function(repo, branch,
-                     set_upstream = FALSE,
-                     force        = FALSE,
-                     ta_bort      = FALSE) {
-  
-  # Push mot GitHub via gert + paketet 'credentials', som plockar upp
-  # GITHUB_PAT ur miljön automatiskt (samma mekanism som webbrapport_publicera).
-  # Inga GIT_ASKPASS-skript, inget som stänger av en fungerande credential manager.
-  
-  if (!requireNamespace("gert", quietly = TRUE)) {
-    stop("Paketet 'gert' måste vara installerat.", call. = FALSE)
-  }
-  if (missing(repo) || !nzchar(repo) || !dir.exists(file.path(repo, ".git"))) {
-    stop("'repo' måste peka på ett lokalt git-repository: ", repo, call. = FALSE)
-  }
-  
-  .gh_pat()  # ser till att GITHUB_PAT finns i miljön
-  
-  if (isTRUE(ta_bort)) {
-    refspec      <- paste0(":refs/heads/", branch)   # tom källa => radera ref på remote
-    set_upstream <- FALSE
-  } else {
-    refspec <- paste0("refs/heads/", branch)
-  }
-  
-  gert::git_push(
-    remote       = "origin",
-    refspec      = refspec,
-    set_upstream = set_upstream,
-    force        = force,
-    repo         = repo
-  )
-  
-  invisible(TRUE)
-}
-
-
-.shinyapp_las_publicering_config <- function(repo_sokvag) {
-  config_fil <- file.path(repo_sokvag, "_publicering_till_server.yml")
-  
-  if (!file.exists(config_fil)) {
-    warning("Hittar ingen '_publicering_till_server.yml' i ", repo_sokvag,
-            " — antar target = 'publik' (default).")
-    return("publik")
-  }
-  
-  if (requireNamespace("yaml", quietly = TRUE)) {
-    cfg <- yaml::read_yaml(config_fil)
-    target <- cfg$target
-  } else {
-    # Fallback om yaml-paketet saknas: enkel rad-baserad parsning
-    lines <- readLines(config_fil, warn = FALSE)
-    m <- regmatches(lines, regexec("^\\s*target\\s*:\\s*(\\S+)\\s*$", lines))
-    hit <- Filter(function(x) length(x) >= 2, m)
-    if (length(hit) == 0) stop("Hittade inte 'target:' i ", config_fil)
-    target <- hit[[1]][2]
-  }
-  
-  if (is.null(target) || !target %in% c("publik", "intern")) {
-    stop("Felaktigt värde på 'target' i ", config_fil, ": '", target,
-         "'\nMåste vara 'publik' eller 'intern'.")
-  }
-  target
-}
-
-shinyapp_avpublicera <- function(
-    github_repo,
-    target            = NULL,
-    lokal_grundsokvag = "c:/gh/",
-    github_org        = "Region-Dalarna",
-    bekrafta_automatiskt = FALSE                    # TRUE om man kör shinyapp_flytta
-) {
-  if (missing(github_repo) || !nzchar(github_repo)) {
-    stop("github_repo måste anges.")
-  }
-  
-  repo_sokvag <- file.path(lokal_grundsokvag, github_repo)
-  if (!dir.exists(repo_sokvag)) {
-    stop("Hittar inte repot lokalt: ", repo_sokvag)
-  }
-  
-  if (is.null(target)) {
-    target <- .shinyapp_las_publicering_config(repo_sokvag)
-  } else if (!target %in% c("publik", "intern")) {
-    stop("target måste vara 'publik' eller 'intern', inte '", target, "'.")
-  }
-  
-  server_url <- switch(target,
-                       "publik" = "shiny.regiondalarna.se",
-                       "intern" = "shiny.ltdalarna.se")
-  app_url <- paste0("https://", server_url, "/", github_repo, "/")
-  
-  # tydlig varning
-  # --- Bekräftelse (hoppas över om bekrafta_automatiskt = TRUE) ---
-  if (!bekrafta_automatiskt) {
-    cat("\n")
-    cat("========================================================================\n")
-    cat("  VARNING - AVPUBLICERING AV SHINY-APP\n")
-    cat("========================================================================\n\n")
-    cat("Du är på väg att AVPUBLICERA följande app:\n\n")
-    cat("  App:    ", github_repo, "\n", sep = "")
-    cat("  Server: ", server_url, " (", target, ")\n", sep = "")
-    cat("  URL:    ", app_url, "\n\n", sep = "")
-    cat("Detta innebär att:\n")
-    cat("  - App-katalogen tas bort från servern\n")
-    cat("  - Appen blir otillgänglig på URL:en ovan\n")
-    cat("  - Shiny Server startas om\n\n")
-    cat("Repot på GitHub PÅVERKAS INTE. All källkod finns kvar och du kan\n")
-    cat("publicera appen igen när du vill med:\n\n")
-    cat("  shinyapp_publicera(\"", github_repo, "\")\n\n", sep = "")
-    cat("========================================================================\n\n")
-    cat("Skriv appnamnet (", github_repo, ") för att bekräfta, eller\n", sep = "")
-    cat("tryck ENTER för att avbryta:\n")
-    
-    svar <- readline("> ")
-    
-    if (trimws(svar) != github_repo) {
-      message("Avpublicering avbruten.")
-      return(invisible(FALSE))
-    }
-  }
-  
-  default_branch <- .shinyapp_default_branch(repo_sokvag)               # kolla om huvud-branchen heter master eller main
-  
-  message("Triggar avpublicera-workflow på GitHub...")
-  .shinyapp_trigga_workflow(
-    github_repo      = github_repo,
-    workflow_filnamn = "avpublicera.yml",
-    inputs           = list(target = target, bekraftelse = github_repo),
-    github_org       = github_org,
-    ref              = default_branch
-  )
-  
-  message("Workflow triggad. Väntar på att den ska slutföras")
-  .shinyapp_vanta_pa_workflow(
-    github_repo      = github_repo,
-    workflow_filnamn = "avpublicera.yml",
-    github_org       = github_org
-  )
-  
-  message("Klart. Appen '", github_repo, "' är avpublicerad från ", server_url, ".")
-  message("För att publicera igen: shinyapp_publicera(\"", github_repo, "\")")
-  
-  invisible(TRUE)
-}
-
-
-# funktion för att flytta en app från intern server till publik, eller tvärtom. 
-# Appen publicerar på den server den inte ligger på nu, och tar därefter bort appen från den server den ligger på 
-shinyapp_flytta <- function(
-    github_repo,
-    lokal_grundsokvag = "c:/gh/",
-    max_vantetid_s = 600
-) {
-  if (missing(github_repo) || !nzchar(github_repo)) {
-    stop("Parametern 'github_repo' måste anges.")
-  }
-  
-  repo_sokvag <- file.path(lokal_grundsokvag, github_repo)
-  if (!dir.exists(repo_sokvag)) stop("Hittar inte repot: ", repo_sokvag)
-  if (!dir.exists(file.path(repo_sokvag, ".git"))) {
-    stop("Mappen är inte ett git-repository: ", repo_sokvag)
-  }
-  
-  kor_git <- function(..., stopp_vid_fel = TRUE) {
-    res <- suppressWarnings(
-      system2("git", args = c("-C", repo_sokvag, ...),
-              stdout = TRUE, stderr = TRUE)
-    )
-    status <- attr(res, "status"); if (is.null(status)) status <- 0L
-    if (status != 0 && stopp_vid_fel) {
-      stop("git ", paste(c(...), collapse = " "),
-           " misslyckades:\n", paste(res, collapse = "\n"))
-    }
-    res
-  }
-  
-  # --- 1. Working tree rent + uppdaterad default-branch ---
-  status_output <- kor_git("status", "--porcelain")
-  if (length(status_output) > 0 && any(nzchar(status_output))) {
-    stop("Repot har ohanterade ändringar:\n",
-         paste(status_output, collapse = "\n"),
-         "\nCommit:a eller stash:a först innan du kör funktionen.")
-  }
-  
-  default_branch <- .shinyapp_default_branch(repo_sokvag)
-  kor_git("checkout", default_branch)
-  kor_git("pull", "origin", default_branch)
-  
-  # --- 2. Bestäm nuvarande target ---
-  nuvarande_target <- .shinyapp_las_target(repo_sokvag)
-  
-  if (is.na(nuvarande_target)) {
-    cat("_publicering_till_server.yml saknas eller är ogiltig.\n")
-    cat("Försöker detektera vilken server appen ligger på...\n")
-    
-    cat("  - Pingar publika servern (", 
-        .shinyapp_app_url(github_repo, "publik"), ")... ", sep = "")
-    pa_publik <- .shinyapp_ping_app(github_repo, "publik")
-    cat(if (pa_publik) "✓ svarar\n" else "saknas\n")
-    
-    cat("  - Pingar interna servern (", 
-        .shinyapp_app_url(github_repo, "intern"), ")... ", sep = "")
-    pa_intern <- .shinyapp_ping_app(github_repo, "intern")
-    cat(if (pa_intern) "✓ svarar\n" else "saknas\n")
-    
-    if (pa_publik && pa_intern) {
-      stop("Appen svarar på BÅDA servrarna. Lös manuellt — kan inte avgöra ",
-           "vilken som ska räknas som 'nuvarande'.")
-    }
-    if (!pa_publik && !pa_intern) {
-      stop("Appen verkar inte ligga uppe på någon av servrarna.\n",
-           "Använd shinyapp_publicera() för att publicera den först.")
-    }
-    
-    nuvarande_target <- if (pa_publik) "publik" else "intern"
-    cat("→ Detekterat: appen ligger på '", nuvarande_target, "'.\n", sep = "")
-    cat("Skapar _publicering_till_server.yml och committar till ",
-        default_branch, "...\n", sep = "")
-    .shinyapp_skriv_target(repo_sokvag, nuvarande_target)
-    gert::git_add("_publicering_till_server.yml", repo = repo_sokvag)
-    gert::git_commit(
-      paste0("Lägg till _publicering_till_server.yml (detekterat: ",
-             nuvarande_target, ")"),
-      repo = repo_sokvag
-    )
-    .gh_push(repo_sokvag, default_branch)
-  }
-  
-  nytt_target <- if (nuvarande_target == "publik") "intern" else "publik"
-  
-  # --- 3. Bekräftelseruta ---
-  cat("\n",
-      "⚠️  FLYTT AV SHINY-APP\n",
-      "─────────────────────────────────────────\n",
-      "App:   ", github_repo, "\n",
-      "FRÅN:  ", nuvarande_target, " server  (", 
-      .shinyapp_app_url(github_repo, nuvarande_target), ")\n",
-      "TILL:  ", nytt_target, " server  (", 
-      .shinyapp_app_url(github_repo, nytt_target), ")\n",
-      "\n",
-      "Detta innebär:\n",
-      "  1. Appen publiceras på ", nytt_target, " servern\n",
-      "  2. Verifiering att den svarar med HTTP 200\n",
-      "  3. _publicering_till_server.yml uppdateras till '",
-      nytt_target, "' på ", default_branch, "\n",
-      "  4. Appen tas bort från den ", nuvarande_target, "a servern\n",
-      "─────────────────────────────────────────\n",
-      sep = "")
-  
-  svar <- readline(paste0("Skriv appnamnet ('", github_repo, 
-                          "') för att bekräfta: "))
-  if (trimws(svar) != github_repo) {
-    cat("Bekräftelse matchar inte. Avbryter.\n")
-    return(invisible(FALSE))
-  }
-  
-  # --- 4. Publicera till nya servern (explicit target — ignorerar YAML) ---
-  cat("\n[1/4] Publicerar till ", nytt_target, " servern...\n", sep = "")
-  shinyapp_publicera(github_repo, target = nytt_target,
-                     lokal_grundsokvag = lokal_grundsokvag)
-  
-  # --- 5. Vänta in deploy.yml ---
-  cat("\n[2/4] Väntar in deploy.yml på ", nytt_target, " servern...\n", sep = "")
-  .shinyapp_vanta_pa_workflow(github_repo, "deploy.yml",
-                              max_vantetid_s = max_vantetid_s)
-  
-  # --- 6. HTTP-ping nya URL:en ---
-  cat("\n[3/4] Verifierar att appen svarar på ", nytt_target, " servern...\n",
-      sep = "")
-  Sys.sleep(3)  # liten paus så Shiny Server hinner ladda om
-  if (!.shinyapp_ping_app(github_repo, nytt_target)) {
-    stop("Appen svarade INTE med HTTP 200 på ", nytt_target, " servern.\n",
-         "URL: ", .shinyapp_app_url(github_repo, nytt_target), "\n\n",
-         "Avbryter flytten. Appen ligger nu på BÅDA servrarna men ",
-         "_publicering_till_server.yml pekar fortfarande på '",
-         nuvarande_target, "'.\n",
-         "Felsök manuellt. Om nya servern inte ska användas:\n",
-         "  shinyapp_avpublicera('", github_repo, "', target = '",
-         nytt_target, "')")
-  }
-  cat("✓ Appen svarar.\n")
-  
-  # --- 7. Uppdatera YAML på default_branch ---
-  cat("\n[4/4] Uppdaterar _publicering_till_server.yml och tar bort från ",
-      nuvarande_target, " servern...\n", sep = "")
-  .shinyapp_skriv_target(repo_sokvag, nytt_target)
-  gert::git_add("_publicering_till_server.yml", repo = repo_sokvag)
-  gert::git_commit(
-    paste0("Flytta target: ", nuvarande_target, " -> ", nytt_target),
-    repo = repo_sokvag
-  )
-  .gh_push(repo_sokvag, default_branch)
-  
-  # --- 8. Avpublicera från gamla servern (utan andra bekräftelse) ---
-  shinyapp_avpublicera(github_repo, target = nuvarande_target,
-                       lokal_grundsokvag = lokal_grundsokvag,
-                       bekrafta_automatiskt = TRUE)
-  
-  cat("\n✓ Klart! '", github_repo, "' är flyttad från ",
-      nuvarande_target, " till ", nytt_target, ".\n", sep = "")
-  cat("Ny URL: ", .shinyapp_app_url(github_repo, nytt_target), "\n", sep = "")
-  invisible(TRUE)
-}
-
-
-# ---------------------------------------------------------------------------
-# Trigga workflow_dispatch via GitHub REST API
-# ---------------------------------------------------------------------------
-.shinyapp_trigga_workflow <- function(
-    github_repo,
-    workflow_filnamn,
-    inputs       = list(),
-    github_org   = "Region-Dalarna",
-    ref          = "master"
-) {
-  if (!requireNamespace("httr", quietly = TRUE)) {
-    stop("Paketet 'httr' måste vara installerat.")
-  }
-  pat <- .gh_pat()
-  
-  url <- paste0("https://api.github.com/repos/", github_org, "/", github_repo,
-                "/actions/workflows/", workflow_filnamn, "/dispatches")
-  
-  resp <- httr::POST(
-    url,
-    httr::add_headers(
-      Accept                 = "application/vnd.github+json",
-      Authorization          = paste("Bearer", pat),
-      `X-GitHub-Api-Version` = "2022-11-28"
-    ),
-    body   = list(ref = ref, inputs = inputs),
-    encode = "json"
-  )
-  
-  if (httr::status_code(resp) != 204) {
-    stop("Misslyckades att trigga workflow ", workflow_filnamn,
-         ". HTTP ", httr::status_code(resp), ": ",
-         httr::content(resp, as = "text", encoding = "UTF-8"))
-  }
-  invisible(TRUE)
-}
-
-# ---------------------------------------------------------------------------
-# Vänta tills senaste körning av ett workflow har slutförts
-# ---------------------------------------------------------------------------
-.shinyapp_vanta_pa_workflow <- function(
-    github_repo,
-    workflow_filnamn,
-    github_org       = "Region-Dalarna",
-    max_vantetid_s   = 600,
-    poll_intervall_s = 5
-) {
-  if (!requireNamespace("httr", quietly = TRUE)) {
-    stop("Paketet 'httr' måste vara installerat.")
-  }
-  pat <- .gh_pat()
-  
-  url <- paste0("https://api.github.com/repos/", github_org, "/", github_repo,
-                "/actions/workflows/", workflow_filnamn, "/runs?per_page=5")
-  
-  startad <- Sys.time()
-  Sys.sleep(3)   # ge GitHub en kort stund att registrera körningen
-  
-  repeat {
-    resp <- httr::GET(
-      url,
-      httr::add_headers(
-        Accept                 = "application/vnd.github+json",
-        Authorization          = paste("Bearer", pat),
-        `X-GitHub-Api-Version` = "2022-11-28"
-      )
-    )
-    if (httr::status_code(resp) != 200) {
-      stop("Kunde inte läsa workflow-status. HTTP ", httr::status_code(resp))
-    }
-    data <- httr::content(resp, as = "parsed")
-    if (length(data$workflow_runs) == 0) {
-      stop("Hittade inga körningar av ", workflow_filnamn)
-    }
-    senaste <- data$workflow_runs[[1]]
-    
-    if (isTRUE(senaste$status == "completed")) {
-      if (isTRUE(senaste$conclusion == "success")) {
-        message("\nWorkflow ", workflow_filnamn, " slutfördes (success).")
-        return(invisible(TRUE))
-      } else {
-        stop("Workflow ", workflow_filnamn, " slutfördes med status '",
-             senaste$conclusion, "'. Se: ", senaste$html_url)
-      }
-    }
-    
-    if (as.numeric(difftime(Sys.time(), startad, units = "secs")) > max_vantetid_s) {
-      stop("Timeout: workflow inte klar efter ", max_vantetid_s, " s.")
-    }
-    
-    cat(".")
-    Sys.sleep(poll_intervall_s)
-  }
-}
-
-.shinyapp_default_branch <- function(repo_sokvag) {
-  # Försök 1: git symbolic-ref (snabbast, fungerar om origin/HEAD är satt)
-  res <- suppressWarnings(
-    system2("git",
-            args = c("-C", repo_sokvag,
-                     "symbolic-ref", "refs/remotes/origin/HEAD"),
-            stdout = TRUE, stderr = TRUE)
-  )
-  status <- attr(res, "status")
-  if (is.null(status) || status == 0) {
-    return(sub("^refs/remotes/origin/", "", res[1]))
-  }
-  
-  # Försök 2: fallback — sök efter origin/main eller origin/master
-  branches <- suppressWarnings(
-    system2("git",
-            args = c("-C", repo_sokvag, "branch", "-r"),
-            stdout = TRUE, stderr = TRUE)
-  )
-  branches <- trimws(branches)
-  if (any(grepl("^origin/main$",   branches))) return("main")
-  if (any(grepl("^origin/master$", branches))) return("master")
-  
-  stop("Kunde inte hitta default-branch för ", repo_sokvag, ". ",
-       "Kör 'git remote set-head origin -a' i repot och försök igen.")
-}
-
-.shinyapp_lokal_branch_redo_for_push <- function(repo, branch, bas_branch) {
-  # Hjälpare för en lokal branch som finns lokalt men inte på origin (typiskt
-  # efter en tidigare körning där pushen dog, t.ex. på autentisering).
-  # Returnerar "saknas" om branchen inte finns lokalt, "redo" om den finns och
-  # saknar egna commits utöver bas_branch (ofarlig att pusha), och stop():ar om
-  # den har egna commits (då vågar vi inte gissa om de ska publiceras).
-  g <- function(...) {
-    suppressWarnings(
-      system2("git", c("-C", repo, ...), stdout = TRUE, stderr = TRUE)
-    )
-  }
-  
-  lokala <- trimws(g("branch"))
-  finns  <- any(grepl(paste0("^\\*?\\s*", branch, "$"), lokala))
-  if (!finns) return("saknas")
-  
-  egna <- g("log", "--oneline", paste0(bas_branch, "..", branch))
-  egna <- egna[nzchar(trimws(egna))]
-  if (length(egna) == 0) return("redo")
-  
-  stop("Branchen '", branch, "' finns lokalt (men inte på origin) och har egna ",
-       "commits utöver ", bas_branch, ":\n  ",
-       paste(egna, collapse = "\n  "),
-       "\nKontrollera manuellt och pusha själv om den är rätt, eller ta bort den:\n",
-       "  git branch -D ", branch, call. = FALSE)
-}
-
-
-.shinyapp_konfigurera_publicera_branch <- function(
-    github_repo,
-    lokal_grundsokvag = "c:/gh/",
-    bas_branch        = NULL                   # NULL = auto-detektera
-) {
-  
-  # --- Validera parameter ---
-  if (missing(github_repo) || !nzchar(github_repo)) {
-    stop("Parametern 'github_repo' måste anges.")
-  }
-  
-  repo_sokvag <- file.path(lokal_grundsokvag, github_repo)
-  
-  if (!dir.exists(repo_sokvag)) {
-    stop("Hittar inte repot: ", repo_sokvag)
-  }
-  if (!dir.exists(file.path(repo_sokvag, ".git"))) {
-    stop("Mappen är inte ett git-repository: ", repo_sokvag)
-  }
-  
-  if (is.null(bas_branch)) {
-    bas_branch <- .shinyapp_default_branch(repo_sokvag)
-  }
-  
-  # --- Hjälpfunktion: kör git i rätt repo med felhantering ---
-  kor_git <- function(..., stopp_vid_fel = TRUE) {
-    git_args <- c("-C", repo_sokvag, ...)
-    res <- suppressWarnings(
-      system2("git", args = git_args, stdout = TRUE, stderr = TRUE)
-    )
-    status <- attr(res, "status")
-    if (is.null(status)) status <- 0L
-    if (status != 0 && stopp_vid_fel) {
-      stop("git ", paste(c(...), collapse = " "),
-           " misslyckades:\n", paste(res, collapse = "\n"))
-    }
-    res
-  }
-  
-  cat("\n--- Säkerställer publicera-publik i '",
-      github_repo, "' ---\n", sep = "")
-  
-  # --- 1. Working tree clean ---
-  status_output <- kor_git("status", "--porcelain")
-  if (length(status_output) > 0 && any(nzchar(status_output))) {
-    stop("Repot har ohanterade ändringar:\n",
-         paste(status_output, collapse = "\n"),
-         "\nCommit:a eller stash:a först innan du kör funktionen.")
-  }
-  
-  # --- 2. Fetch ---
-  cat("1. Fetchar från origin...\n")
-  kor_git("fetch", "origin")
-  
-  # --- 3. Vad finns på origin? ---
-  remote_branches <- trimws(kor_git("branch", "-r"))
-  finns_publicera        <- any(grepl("^origin/publicera$",        remote_branches))
-  finns_publicera_publik <- any(grepl("^origin/publicera-publik$", remote_branches))
-  finns_bas              <- any(grepl(paste0("^origin/", bas_branch, "$"), remote_branches))
-  
-  # --- 4. Beslutsträd ---
-  
-  # 4a. Redan migrerat
-  if (finns_publicera_publik && !finns_publicera) {
-    message("'publicera-publik' finns redan — ingen åtgärd.")
-    return(invisible(FALSE))
-  }
-  
-  # 4b. Konflikt — båda finns
-  if (finns_publicera && finns_publicera_publik) {
-    stop("Både 'publicera' och 'publicera-publik' finns på origin. ",
-         "Lös konflikten manuellt — funktionen vågar inte gissa vilken som är aktuell.")
-  }
-  
-  # 4c. Befintlig rename-väg
-  if (finns_publicera) {
-    cat("Hittade 'publicera' — döper om till 'publicera-publik'.\n")
-    
-    cat("2. Checkar ut publicera lokalt...\n")
-    local_branches <- trimws(kor_git("branch"))
-    finns_lokalt <- any(grepl("^\\*?\\s*publicera$", local_branches))
-    if (finns_lokalt) {
-      kor_git("checkout", "publicera")
-    } else {
-      kor_git("checkout", "-b", "publicera", "origin/publicera")
-    }
-    
-    cat("3. Döper om lokalt...\n")
-    kor_git("branch", "-m", "publicera", "publicera-publik")
-    
-    cat("4. Pushar publicera-publik till GitHub...\n")
-    #kor_git("push", "-u", "origin", "publicera-publik")
-    .gh_push(repo_sokvag, "publicera-publik", set_upstream = TRUE)
-    
-    cat("5. Tar bort gamla publicera från GitHub...\n")
-    #kor_git("push", "origin", "--delete", "publicera")
-    .gh_push(repo_sokvag, "publicera", ta_bort = TRUE)
-    
-    cat("6. Återgår till ", bas_branch, " och städar...\n", sep = "")
-    kor_git("checkout", bas_branch)
-    kor_git("fetch", "--prune")
-    
-    cat("\n✓ Klart! '", github_repo,
-        "' har nu publicera-publik istället för publicera.\n", sep = "")
-    return(invisible(TRUE))
-  }
-  
-  # 4d. NY: Ingen branch finns — skapa från bas_branch
-  cat("Ingen 'publicera'- eller 'publicera-publik'-branch finns.\n")
-  cat("Skapar 'publicera-publik' från '", bas_branch, "'.\n", sep = "")
-  
-  if (!finns_bas) {
-    stop("Hittar inte basbranchen 'origin/", bas_branch, "'. ",
-         "Repot kan vara tomt eller använda annat namn på huvudbranchen ",
-         "(t.ex. 'main'). Använd parametern 'bas_branch' för att ange rätt namn.")
-  }
-  
-  cat("2. Checkar ut ", bas_branch, "...\n", sep = "")
-  kor_git("checkout", bas_branch)
-  kor_git("pull", "--ff-only", "origin", bas_branch)
-  
-  cat("3. Skapar publicera-publik från ", bas_branch, "...\n", sep = "")
-  
-  # Om publicera-publik redan finns lokalt (t.ex. från en tidigare körning där
-  # pushen dog) återanvänder vi den om den är ofarlig — annars stannar vi.
-  status_lokal <- .shinyapp_lokal_branch_redo_for_push(repo_sokvag, "publicera-publik", bas_branch)
-  if (status_lokal == "redo") {
-    cat("publicera-publik fanns redan lokalt utan egna commits — pushar den befintliga branchen.\n")
-    kor_git("checkout", "publicera-publik")
-  } else {
-    kor_git("checkout", "-b", "publicera-publik")
-  }
-  
-  cat("4. Pushar publicera-publik till GitHub...\n")
-  #kor_git("push", "-u", "origin", "publicera-publik")
-  .gh_push(repo_sokvag, "publicera-publik", set_upstream = TRUE)
-  
-  cat("5. Återgår till ", bas_branch, "...\n", sep = "")
-  kor_git("checkout", bas_branch)
-  kor_git("fetch", "--prune")
-  
-  cat("\n✓ Klart! '", github_repo,
-      "' har nu en ny publicera-publik-branch (skapad från ",
-      bas_branch, ").\n", sep = "")
-  invisible(TRUE)
-}
-
-# === Server-URL och ping ===
-
-.shinyapp_app_url <- function(appnamn, target, anvand_http = FALSE) {
-  bas <- switch(target,
-                publik = "shiny.regiondalarna.se",
-                intern = "shiny.ltdalarna.se",
-                stop("Okänt target: ", target)
-  )
-  protokoll <- if (anvand_http) "http" else "https"
-  paste0(protokoll, "://", bas, "/", appnamn, "/")
-}
-
-.shinyapp_ping_app <- function(appnamn, target, timeout_s = 10) {
-  # Returnerar TRUE om appen svarar med 200, annars FALSE.
-  # För 'intern': prova https först, sen http (tills https är konfigurerat).
-  if (!requireNamespace("httr", quietly = TRUE)) {
-    stop("Paketet 'httr' krävs.")
-  }
-  
-  prova_http_lista <- if (target == "intern") c(FALSE, TRUE) else c(FALSE)
-  
-  for (anvand_http in prova_http_lista) {
-    url <- .shinyapp_app_url(appnamn, target, anvand_http = anvand_http)
-    resp <- tryCatch(
-      httr::GET(url, httr::timeout(timeout_s)),
-      error = function(e) NULL
-    )
-    if (!is.null(resp) && httr::status_code(resp) == 200) {
-      return(TRUE)
-    }
-  }
-  FALSE
-}
-
-# === _publicering_till_server.yml ===
-
-.shinyapp_las_target <- function(repo_sokvag) {
-  # Returnerar "publik", "intern" eller NA om filen saknas/är ogiltig.
-  yml_path <- file.path(repo_sokvag, "_publicering_till_server.yml")
-  if (!file.exists(yml_path)) return(NA_character_)
-  
-  target <- if (requireNamespace("yaml", quietly = TRUE)) {
-    konfig <- tryCatch(yaml::read_yaml(yml_path), error = function(e) NULL)
-    konfig$target
-  } else {
-    rader <- readLines(yml_path, warn = FALSE)
-    target_rad <- grep("^\\s*target\\s*:", rader, value = TRUE)
-    if (length(target_rad) > 0) {
-      trimws(sub("^[^:]*:\\s*", "", target_rad[1]))
-    } else NA_character_
-  }
-  
-  if (is.null(target) || is.na(target) || !target %in% c("publik", "intern")) {
-    return(NA_character_)
-  }
-  target
-}
-
-.shinyapp_skriv_target <- function(repo_sokvag, target) {
-  yml_path <- file.path(repo_sokvag, "_publicering_till_server.yml")
-  writeLines(paste0("target: ", target), yml_path)
-}
-
-
-webbrapport_publicera <- function(
-    rapport_repo,
-    target              = c("publik", "intern"),
-    deploy_namn         = NULL,   # om HTML-fil/mapp-namn ska skilja sig fran repo-namnet, OBS! Vi ska gå ifrån detta så använd inte om vi inte absolut måste
-    from_branch         = "main",
-    remote              = "origin",
-    sokvag_lokalt_repo  = "c:/gh",
-    github_org          = "Region-Dalarna",
-    publicera_aven_om_html_fil_aldre_an_rmd_qmd_fil = FALSE,
-    tolerans_sekunder   = 60,   # marginal innan "html äldre än källa" varnas
-    commit_meddelande   = NULL
-) {
-  
-  target <- match.arg(target)
-  to_branch <- paste0("publicera-", target)
-  
-  stopifnot(
-    is.character(rapport_repo), length(rapport_repo) == 1, nzchar(rapport_repo)
-  )
-  
-  repo_dir <- normalizePath(
-    file.path(sokvag_lokalt_repo, rapport_repo),
-    winslash = "/", mustWork = TRUE
-  )
-  
-  # Namnet som faktiskt ska anvandas for HTML-fil OCH mapp pa servern.
-  # Om deploy_namn inte anges, anvands rapport_repo precis som forut -
-  # helt bakatkompatibelt for repon dar namnen redan stammer.
-  effektivt_namn <- if (!is.null(deploy_namn)) deploy_namn else rapport_repo
-  
-  html_fil  <- file.path(repo_dir, paste0(effektivt_namn, ".html"))
-  if (!file.exists(html_fil)) {
-    stop(
-      "Hittar inte förväntad HTML-fil: ", html_fil,
-      "\nFilen måste heta '", effektivt_namn, ".html'",
-      if (!is.null(deploy_namn)) " (enligt deploy_namn)" else " (samma som repot)", "."
-    )
-  }
-  
-  # --- Skriv/uppdatera .rapport_deploy_namn om deploy_namn skiljer sig fran repot ---
-  # Servern lasser denna fil for att veta vilket namn den ska publicera under,
-  # istallet for att alltid anta att det ar samma som GitHub-repots namn.
-  namn_fil <- file.path(repo_dir, ".rapport_deploy_namn")
-  if (!is.null(deploy_namn)) {
-    befintligt <- if (file.exists(namn_fil)) trimws(readLines(namn_fil, warn = FALSE)) else NA_character_
-    if (is.na(befintligt) || befintligt != deploy_namn) {
-      writeLines(deploy_namn, namn_fil)
-      message("Skrev '.rapport_deploy_namn' = '", deploy_namn, "' (workaround tills repo/HTML-namn stammer).")
-    }
-  }
-  
-  # --- Färskhetskontroll: varna (inte stoppa) om html är äldre än källfilen ---
-  html_stam <- rapport_repo
-  kallfil_kandidater <- c(
-    file.path(repo_dir, paste0(html_stam, ".qmd")),
-    file.path(repo_dir, paste0(html_stam, ".Rmd")),
-    file.path(repo_dir, paste0(html_stam, ".rmd"))
-  )
-  kallfil <- unique(normalizePath(kallfil_kandidater[file.exists(kallfil_kandidater)]))
-  
-  if (length(kallfil) > 0) {
-    kallfil_mtime <- max(file.info(kallfil)$mtime)
-    html_mtime    <- file.info(html_fil)$mtime
-    if (as.numeric(html_mtime) < as.numeric(kallfil_mtime) - tolerans_sekunder) {
-      msg <- paste0(
-        "VARNING: HTML-filen är äldre än källfilen — kanske glömt rendera om?\n",
-        "  HTML:  ", html_fil, " (", format(html_mtime), ")\n",
-        "  Källa: ", paste(kallfil, collapse = ", "), " (", format(kallfil_mtime), ")"
-      )
-      if (!isTRUE(publicera_aven_om_html_fil_aldre_an_rmd_qmd_fil)) {
-        message(msg)
-        message("Fortsätter ändå (publicera_aven_om_html_fil_aldre_an_rmd_qmd_fil styr bara om detta ska stoppa körningen framöver).")
-      } else {
-        message(msg)
-      }
-    }
-  }
-  
+  # Byt till repo-mapp
+  repo_path <- file.path(sokvag_lokalt_repo, repo)
   old_wd <- getwd()
   on.exit(setwd(old_wd), add = TRUE)
-  setwd(repo_dir)
+  setwd(repo_path)
   
-  # Verifiera remote
-  remotes <- gert::git_remote_list()
-  remote_rad <- remotes[remotes$name == remote, , drop = FALSE]
-  if (nrow(remote_rad) == 0) {
-    stop("Hittar ingen remote med namnet '", remote, "' i ", repo_dir)
-  }
-  remote_url <- remote_rad$url[1]
-  forvantad <- paste0(github_org, "/", rapport_repo)
-  if (!grepl(tolower(forvantad), tolower(remote_url), fixed = TRUE)) {
-    stop(
-      "Remote '", remote, "' pekar inte mot '", forvantad, "'.\n",
-      "  Faktisk url: ", remote_url
-    )
-  }
+  # 1. Säkerställ att vi är i ett git-repo
+  repo <- gert::git_info()
+  message("📁 Repo: ", repo$path)
   
-  gert::git_fetch(remote = remote)
   
-  # Fallback: om angiven from_branch inte finns (varken lokalt eller på remote),
-  # och from_branch är "main" eller "master", prova den andra av de två innan
-  # vi ger upp. Ingen annan gissning görs.
-  alla_branches <- gert::git_branch_list()$name
-  branch_finns <- function(namn) {
-    namn %in% alla_branches || paste0(remote, "/", namn) %in% alla_branches
-  }
+  # 1b. Säkerställ att from_branch (t.ex. master) är uppdaterad
+  message("📌 Säkerställer att '", from_branch, "' är uppdaterad mot remote...")
+  gert::git_branch_checkout(from_branch)
+  gert::git_pull(remote = remote, refspec = from_branch)
   
-  if (!branch_finns(from_branch)) {
-    alternativ <- switch(from_branch,
-                         "main"   = "master",
-                         "master" = "main",
-                         NA_character_
-    )
-    if (!is.na(alternativ) && branch_finns(alternativ)) {
-      message(
-        "Branchen '", from_branch, "' hittades inte i '", rapport_repo,
-        "' — använder '", alternativ, "' istället."
-      )
-      from_branch <- alternativ
-    } else {
-      stop(
-        "Hittar varken branchen '", from_branch, "'",
-        if (!is.na(alternativ)) paste0(" eller '", alternativ, "'") else "",
-        " i '", rapport_repo, "'. Kontrollera branch-namnet manuellt."
-      )
-    }
-  }
+  # 1c. Kontrollera att det inte finns ocomittade ändringar
   
-  if (gert::git_branch() != from_branch) {
-    gert::git_branch_checkout(from_branch)
-  }
-  suppressMessages(gert::git_pull(remote = remote))
-  
-  # Committa ev. ändringar på from_branch (t.ex. nyrenderad html) om det finns
   status <- gert::git_status()
   if (nrow(status) > 0) {
-    if (is.null(commit_meddelande)) {
-      commit_meddelande <- paste0("Uppdatera rapport: ", rapport_repo, " (", Sys.Date(), ")")
-    }
-    gert::git_add(".")
-    gert::git_commit(commit_meddelande)
-    gert::git_push(remote = remote)
-    message("Committade och pushade ändringar till '", from_branch, "'.")
-  } else {
-    message("Inga lokala ändringar att committa på '", from_branch, "'.")
+    stop("Det finns ocommittade ändringar i repo:t. Commita eller stash:a innan du kör shiny_merge_till_publicera().")
   }
   
-  # Kolla om publicera-<target> redan pekar på samma commit som from_branch —
-  # om så, är denna version redan publicerad till target-servern och vi
-  # kan hoppa över pushen (och därmed undvika en icke-triggande no-op-push).
+  # 2. Hämta senaste från remote
+  message("⬇️  Hämtar senaste från remote...")
   gert::git_fetch(remote = remote)
-  branch_info   <- gert::git_branch_list()
-  lokal_sha     <- branch_info$commit[branch_info$name == from_branch]
-  remote_to_sha <- branch_info$commit[branch_info$name == paste0(remote, "/", to_branch)]
   
-  redan_publicerad <- length(lokal_sha) == 1 && length(remote_to_sha) == 1 &&
-    lokal_sha == remote_to_sha
+  # 3. Finns to_branch lokalt? Om inte, skapa från remote om den finns,
+  #    annars skapa från from_branch.
+  branches <- gert::git_branch_list()$name
   
-  if (redan_publicerad) {
-    message(
-      "Den här versionen av '", rapport_repo, "' är redan publicerad på ",
-      target, "-servern. Ingen updatering behöver därför göras."
-    )
-  } else {
-    # Push direkt till publicera-publik/publicera-intern via refspec.
-    # Detta ÄR hela publiceringen — deploy.yml i repot sköter resten
-    # (döper om html:en till index.html, kör rapport_deploy_repo.sh,
-    # regenererar landningssidan).
-    refspec <- paste0("refs/heads/", from_branch, ":refs/heads/", to_branch)
-    gert::git_push(remote = remote, refspec = refspec, force = TRUE)
+  if (!(to_branch %in% branches)) {
+    message("ℹ️  Branch '", to_branch, "' finns inte lokalt.")
     
-    message("Pushade '", from_branch, "' -> '", to_branch, "' — deploy triggas via GitHub Actions (", target, ").")
-  }
-  
-  invisible(list(
-    rapport_repo = rapport_repo,
-    target = target,
-    to_branch = to_branch,
-    html_fil = html_fil
-  ))
-}
-
-
-webbrapport_avpublicera <- function(
-    rapport_repo,
-    target      = c("publik", "intern"),
-    github_org  = "Region-Dalarna",
-    ref         = "main",   # branchen workflow_dispatch triggas mot — inte avgörande för VAD som tas bort, bara var workflow-filen läses ifrån
-    bekrafta    = TRUE   # TRUE = fråga interaktivt innan triggning, FALSE = kör direkt (t.ex. i skript)
-) {
-  target <- match.arg(target)
-  
-  if (isTRUE(bekrafta) && interactive()) {
-    svar <- readline(prompt = paste0(
-      "Är du säker på att du vill avpublicera '", rapport_repo,
-      "' från ", target, "-servern? Skriv repo-namnet för att bekräfta: "
-    ))
-    if (svar != rapport_repo) {
-      message("Avbrutet — bekräftelsen matchade inte repo-namnet.")
-      return(invisible(FALSE))
+    # Finns den på remote?
+    remote_branches <- gert::git_remote_ls(remote)$ref
+    remote_full <- paste0("refs/remotes/", remote, "/", to_branch)
+    
+    if (remote_full %in% remote_branches) {
+      message("   Skapar lokal branch från remote ", remote, "/", to_branch)
+      gert::git_branch_create(to_branch, ref = paste0(remote, "/", to_branch))
+    } else {
+      message("   Skapar ny branch '", to_branch, "' från '", from_branch, "'.")
+      gert::git_branch_create(to_branch, ref = from_branch)
     }
   }
   
-  if (Sys.getenv("GITHUB_PAT") == "") {
-    keyring_poster <- keyring::key_list(service = "github_token")
-    if (nrow(keyring_poster) == 0) {
-      stop(
-        "Ingen GitHub-token hittades. Kör usethis::gh_token_help() eller ",
-        "spara token med gitcreds::gitcreds_set().",
-        call. = FALSE
-      )
-    }
-    gh_user <- keyring_poster$username[1]
-    Sys.setenv(GITHUB_PAT = keyring::key_get("github_token", gh_user))
-  }
+  # 4. Checka ut publicera
+  message("🔀 Byter till branch '", to_branch, "'...")
+  gert::git_branch_checkout(to_branch)
   
-  dispatch_url <- glue::glue(
-    "https://api.github.com/repos/{github_org}/{rapport_repo}/actions/workflows/avpublicera.yml/dispatches"
-  )
+  # 5. Merge in från from_branch
+  message("🔁 Mergear in ändringar från '", from_branch, "'...")
+  gert::git_merge(from_branch, commit = TRUE)
   
-  gor_dispatch <- function(anvand_ref) {
-    httr::POST(
-      url = dispatch_url,
-      httr::add_headers(
-        Authorization = paste("token", Sys.getenv("GITHUB_PAT")),
-        Accept = "application/vnd.github+json"
-      ),
-      body = list(
-        ref = anvand_ref,
-        inputs = list(
-          target = target,
-          bekraftelse = rapport_repo
-        )
-      ),
-      encode = "json"
-    )
-  }
+  # 6. Pusha publicera till remote
+  message("⬆️  Pushar '", to_branch, "' till ", remote, "...")
+  gert::git_push(remote = remote)
   
-  resp <- gor_dispatch(ref)
+  # 7. Gå tillbaka till master
+  message("⬅️  Går tillbaka till branch '", from_branch, "'...")
+  gert::git_branch_checkout(from_branch)
   
-  # Fallback: om ref inte hittades och det var "main"/"master", prova den andra
-  if (httr::status_code(resp) == 422 &&
-      grepl("No ref found", httr::content(resp, as = "text", encoding = "UTF-8"), fixed = TRUE) &&
-      ref %in% c("main", "master")) {
-    alternativ_ref <- if (ref == "main") "master" else "main"
-    message("Branchen '", ref, "' hittades inte — provar '", alternativ_ref, "' istället.")
-    ref <- alternativ_ref
-    resp <- gor_dispatch(ref)
-  }
   
-  if (httr::status_code(resp) == 204) {
-    message(
-      "✅ Avpublicering triggad för '", rapport_repo, "' (", target, "-server).\n",
-      "Följ förloppet på: https://github.com/", github_org, "/", rapport_repo, "/actions"
-    )
-    invisible(TRUE)
-  } else {
-    stop(
-      "Kunde inte trigga avpublicera-workflown (status ", httr::status_code(resp), ").\n",
-      "Svar: ", httr::content(resp, as = "text", encoding = "UTF-8")
-    )
-  }
+  message("✅ Klar: '", from_branch, "' är mergad till '", to_branch,
+          "' och pushad. GitHub Actions bör nu trigga deploy.")
 }
 
 
-# ==============================================================================
-# Funktioner för att hantera landningssidans exkluderingslistor via SSH.
-# Kräver nyckelbaserad SSH-inloggning uppsatt
-# sedan tidigare (ingen lösenordsprompt vid ssh-anrop).
-# ==============================================================================
-
-.LANDNINGSSIDA_SERVRAR <- list(
-  publik = "shinyserver",
-  intern = "shinyserver_intern"
-)
-
-.landningssida_validera_target <- function(target) {
-  giltiga <- names(.LANDNINGSSIDA_SERVRAR)
-  if (length(target) != 1 || !target %in% giltiga) {
-    stop(
-      "Ogiltigt värde för target: '", paste(target, collapse = ", "), "'.\n",
-      "Giltiga värden är: ", paste(giltiga, collapse = " eller "), ".",
-      call. = FALSE
-    )
-  }
-  target
-}
-
-.landningssida_kontrollera_ssh <- function(target) {
-  destination <- .LANDNINGSSIDA_SERVRAR[[target]]
-  
-  test <- suppressWarnings(system2(
-    "ssh",
-    args = c("-o", "BatchMode=yes", "-o", "ConnectTimeout=5", destination, "exit"),
-    stdout = FALSE, stderr = FALSE
-  ))
-  
-  if (!identical(test, 0L)) {
-    stop(
-      "Kunde inte nå SSH-anslutningen '", destination, "'.\n",
-      "Dessa funktioner förutsätter en uppsatt, nyckelbaserad SSH-anslutning ",
-      "med det namnet i din SSH-konfiguration (~/.ssh/config) — se dokumentationen ",
-      "för Shiny-servrarna för instruktioner om hur du sätter upp den.\n",
-      "OBS: dessa funktioner är enbart relevanta för dig som administrerar och ",
-      "förvaltar Region Dalarnas Shiny-servrar.",
-      call. = FALSE
-    )
-  }
-  invisible(TRUE)
-}
-
-.landningssida_ssh <- function(target, kommando) {
-  target <- match.arg(target, c("publik", "intern"))
-  .landningssida_kontrollera_ssh(target)
-  destination <- .LANDNINGSSIDA_SERVRAR[[target]]
-  
-  resultat <- system2(
-    "ssh",
-    args = c(destination, shQuote(kommando)),
-    stdout = TRUE, stderr = TRUE
-  )
-  
-  status <- attr(resultat, "status")
-  if (!is.null(status) && status != 0) {
-    stop(
-      "SSH-kommandot misslyckades mot ", target, " (", destination, "):\n",
-      paste(resultat, collapse = "\n")
-    )
-  }
-  resultat
-}
-
-#' Lista alla appar/rapporter på en server, med exkluderingsstatus
-#'
-#' @param target "publik" eller "intern"
-#' @return data.frame med kolumnerna typ, namn, exkluderad
-landningssida_lista_allt <- function(target = c("publik", "intern")) {
-  target <- .landningssida_validera_target(target)
-  rader <- .landningssida_ssh(target, "sudo /usr/local/bin/landningssida_status.sh")
-  
-  if (length(rader) == 0) {
-    message("Inget hittades (varken appar eller rapporter) på ", target, "-servern.")
-    return(invisible(data.frame(typ = character(0), namn = character(0), exkluderad = character(0))))
-  }
-  
-  delar <- strsplit(rader, "\\|")
-  df <- data.frame(
-    typ        = vapply(delar, `[`, character(1), 1),
-    namn       = vapply(delar, `[`, character(1), 2),
-    exkluderad = vapply(delar, `[`, character(1), 3),
-    stringsAsFactors = FALSE
-  )
-  df <- df[order(df$typ, df$namn), ]
-  rownames(df) <- NULL
-  df
-}
-
-#' Lista bara det som står i exkluderingslistan (manuellt tillagda undantag)
-#'
-#' @param target "publik" eller "intern"
-#' @return character vector med mappnamn
-landningssida_lista_exkluderade <- function(target = c("publik", "intern")) {
-  target <- .landningssida_validera_target(target)
-  rader <- .landningssida_ssh(target, "sudo /usr/local/bin/hantera_exkludering.sh lista")
-  if (length(rader) == 0) {
-    message("Exkluderingslistan för ", target, " är tom.")
-    return(invisible(character(0)))
-  }
-  rader
-}
-
-#' Lägg till en eller flera appar/rapporter i exkluderingslistan
-#'
-#' @param target "publik" eller "intern"
-#' @param namn character vector med mappnamn som ska exkluderas
-landningssida_exkludera <- function(target = c("publik", "intern"), namn) {
-  target <- .landningssida_validera_target(target)
-  stopifnot(is.character(namn), length(namn) > 0)
-  kommando <- paste(
-    "sudo /usr/local/bin/hantera_exkludering.sh lagg_till",
-    paste(shQuote(namn), collapse = " ")
-  )
-  resultat <- .landningssida_ssh(target, kommando)
-  cat(paste(resultat, collapse = "\n"), "\n")
-  
-  .landningssida_ssh(target, "sudo /usr/local/bin/generera_landningssida.sh")
-  message("Landningssidan på ", target, " är regenererad — ändringen är live.")
-  invisible(resultat)
-}
-
-#' Ta bort en eller flera appar/rapporter från exkluderingslistan
-#'
-#' @param target "publik" eller "intern"
-#' @param namn character vector med mappnamn som inte längre ska exkluderas
-landningssida_inkludera <- function(target = c("publik", "intern"), namn) {
-  target <- .landningssida_validera_target(target)
-  stopifnot(is.character(namn), length(namn) > 0)
-  kommando <- paste(
-    "sudo /usr/local/bin/hantera_exkludering.sh ta_bort",
-    paste(shQuote(namn), collapse = " ")
-  )
-  resultat <- .landningssida_ssh(target, kommando)
-  cat(paste(resultat, collapse = "\n"), "\n")
-  
-  .landningssida_ssh(target, "sudo /usr/local/bin/generera_landningssida.sh")
-  message("Landningssidan på ", target, " är regenererad — ändringen är live.")
-  invisible(resultat)
-}
-
-
-# ==============================================================================
-# Funktioner för att hantera landningssidans ikonkopplingar via SSH.
-# Återanvänder .LANDNINGSSIDA_SERVRAR, .landningssida_validera_target och
-# .landningssida_ssh som redan finns definierade där.
-# ==============================================================================
-
-# Kurerad lista över relevanta ikoner ur Tabler-biblioteket (https://tabler.io/icons).
-# Fullständig bläddring: valfri giltig "ti-xxx"-klass funkar även om den inte
-# står med här — detta är bara en praktisk startpunkt, inte en begränsning.
-.LANDNINGSSIDA_IKONER_KURERADE <- c(
-  "ti-map"          = "Karta / geografi",
-  "ti-users"        = "Befolkning / grupper",
-  "ti-school"       = "Utbildning / skola",
-  "ti-shield"       = "Brott / säkerhet",
-  "ti-briefcase"    = "Näringsliv / arbete",
-  "ti-building"     = "Organisation / myndighet",
-  "ti-chart-bar"    = "Statistik / analys (stapeldiagram)",
-  "ti-chart-line"   = "Statistik / analys (linjediagram)",
-  "ti-chart-pie"    = "Statistik / analys (cirkeldiagram)",
-  "ti-virus"        = "Epidemiologi / hälsa",
-  "ti-heart"        = "Hälsa / vård",
-  "ti-home"         = "Bostad / hushåll",
-  "ti-car"          = "Transport / trafik",
-  "ti-bus"          = "Kollektivtrafik",
-  "ti-leaf"         = "Miljö / hållbarhet",
-  "ti-coin"         = "Ekonomi",
-  "ti-file-text"    = "Rapport / dokument (standard för rapporter)",
-  "ti-book"         = "Utredning / kunskap",
-  "ti-calendar"     = "Tidsserie / prognos",
-  "ti-database"     = "Data / register",
-  "ti-globe"        = "Internationellt / omvärld",
-  "ti-tool"         = "Verktyg / admin",
-  "ti-settings"     = "Inställningar / konfiguration",
-  "ti-apps"         = "Övrigt (standard för appar)"
-)
-
-#' Lista aktuell ikon för alla appar/rapporter på en server
-#'
-#' @param target "publik" eller "intern"
-#' @return data.frame med kolumnerna typ, namn, ikon, kalla ("override" eller "standard")
-landningssida_ikoner_lista <- function(target = c("publik", "intern")) {
-  target <- .landningssida_validera_target(target)
-  rader <- .landningssida_ssh(target, "sudo /usr/local/bin/landningssida_ikoner_status.sh")
-  
-  if (length(rader) == 0) {
-    message("Inget hittades (varken appar eller rapporter) på ", target, "-servern.")
-    return(invisible(data.frame(typ = character(0), namn = character(0), ikon = character(0), kalla = character(0))))
-  }
-  
-  delar <- strsplit(rader, "\\|")
-  df <- data.frame(
-    typ  = vapply(delar, `[`, character(1), 1),
-    namn = vapply(delar, `[`, character(1), 2),
-    ikon = vapply(delar, `[`, character(1), 3),
-    kalla = vapply(delar, `[`, character(1), 4),
-    stringsAsFactors = FALSE
-  )
-  df <- df[order(df$typ, df$namn), ]
-  rownames(df) <- NULL
-  df
-}
-
-#' Koppla en specifik ikon till en app eller rapport
-#'
-#' @param target "publik" eller "intern"
-#' @param namn mappnamnet (samma namn som visas i landningssida_lista_allt())
-#' @param ikon en giltig Tabler-ikonklass, t.ex. "ti-map" (se landningssida_lista_tillgangliga_ikoner())
-landningssida_ikoner_koppla <- function(target = c("publik", "intern"), namn, ikon) {
-  target <- .landningssida_validera_target(target)
-  stopifnot(is.character(namn), length(namn) == 1, nzchar(namn))
-  stopifnot(is.character(ikon), length(ikon) == 1, nzchar(ikon))
-  
-  if (!grepl("^ti-", ikon)) {
-    stop("Ikonklassen måste börja med 'ti-' (t.ex. 'ti-map'). Fick: '", ikon, "'", call. = FALSE)
-  }
-  
-  kommando <- paste("sudo /usr/local/bin/hantera_ikon.sh koppla", shQuote(namn), shQuote(ikon))
-  resultat <- .landningssida_ssh(target, kommando)
-  cat(paste(resultat, collapse = "\n"), "\n")
-  
-  .landningssida_ssh(target, "sudo /usr/local/bin/generera_landningssida.sh")
-  message("Landningssidan på ", target, " är regenererad — ändringen är live.")
-  invisible(resultat)
-}
-
-#' Ta bort en manuell ikonkoppling (återgår till standardlogikens gissning)
-#'
-#' @param target "publik" eller "intern"
-#' @param namn mappnamnet vars koppling ska tas bort
-landningssida_ikoner_ta_bort_koppling <- function(target = c("publik", "intern"), namn) {
-  target <- .landningssida_validera_target(target)
-  stopifnot(is.character(namn), length(namn) > 0)
-  
-  kommando <- paste(
-    "sudo /usr/local/bin/hantera_ikon.sh ta_bort",
-    paste(shQuote(namn), collapse = " ")
-  )
-  # ta_bort i hantera_ikon.sh tar bara emot ETT namn i taget, loopa om fler angetts
-  resultat <- unlist(lapply(namn, function(n) {
-    .landningssida_ssh(target, paste("sudo /usr/local/bin/hantera_ikon.sh ta_bort", shQuote(n)))
-  }))
-  cat(paste(resultat, collapse = "\n"), "\n")
-  
-  .landningssida_ssh(target, "sudo /usr/local/bin/generera_landningssida.sh")
-  message("Landningssidan på ", target, " är regenererad — ändringen är live.")
-  invisible(resultat)
-}
-
-#' Öppna webbläsaren mot Tabler-ikonbiblioteket för att bläddra bland alla ikoner
-landningssida_ikoner_bladdra <- function() {
-  utils::browseURL("https://tabler.io/icons")
-  invisible(NULL)
-}
-
-#' Visa en kurerad lista med relevanta ikoner att välja bland
-#'
-#' Ingen SSH-anrop — helt lokal. Hela Tabler-biblioteket (>4500 ikoner) går
-#' att bläddra fritt på https://tabler.io/icons, och landningssida_koppla_ikon()
-#' accepterar VILKEN giltig "ti-xxx"-klass som helst, inte bara de listade här.
-landningssida_ikoner_lista_tillgangliga <- function() {
-  df <- data.frame(
-    ikon = names(.LANDNINGSSIDA_IKONER_KURERADE),
-    beskrivning = unname(.LANDNINGSSIDA_IKONER_KURERADE),
-    stringsAsFactors = FALSE
-  )
-  message(
-    "Kurerad lista (", nrow(df), " st) — full bläddring: https://tabler.io/icons\n",
-    "Vilken giltig 'ti-xxx'-klass som helst funkar i landningssida_koppla_ikon(), ",
-    "även sådana som inte står med nedan."
-  )
-  df
-}
