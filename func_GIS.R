@@ -2302,10 +2302,7 @@ postgres_df_till_postgrestabell <- function(con = "default",
         DBI::dbWriteTable(con, Id(schema = schema, table = tabell), inlas_df, overwrite = TRUE)
       }
     })
-<<<<<<< Updated upstream
 
-=======
-    
     # Konvertera text-kolumner tillbaka till TIMESTAMP om de innehåller datum
     datetime_text_cols <- names(inlas_df)[datetime_cols]
     if (length(datetime_text_cols) > 0) {
@@ -2319,7 +2316,6 @@ postgres_df_till_postgrestabell <- function(con = "default",
       }
     }
     
->>>>>>> Stashed changes
     # gör id_kol till id-kolumn i tabellen
     if (!is.na(id_kol)) {
       DBI::dbExecute(con, glue::glue_sql("ALTER TABLE {`schema`}.{`tabell`} ADD PRIMARY KEY ({`id_kol`});", .con = con))
