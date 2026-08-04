@@ -2263,15 +2263,7 @@ postgres_df_till_postgrestabell <- function(con = "default",
     # säkerställ att alla kolumnnamn är i gemener, ställer inte till problem i postgis då
     if (kolumnnamn_till_gemener) names(inlas_df) <- tolower(names(inlas_df))
     if (tabellnamn_till_gemener) tabell <- tabell %>% tolower()
-    
-    # Konvertera POSIXct-kolumner till character
-    datetime_cols <- sapply(inlas_df, function(x) inherits(x, "POSIXct") || inherits(x, "POSIXlt"))
-    if (any(datetime_cols)) {
-      for (col in names(inlas_df)[datetime_cols]) {
-        inlas_df[[col]] <- format(inlas_df[[col]], "%Y-%m-%d %H:%M:%S")
-      }
-    }
-    
+
     # kör sql-kod för att skapa ett nytt schema med namn definierat ovan om det inte redan finns
     schema_finns <- postgres_schema_finns(con, schema)
 
@@ -2596,57 +2588,6 @@ postgres_schema_ta_bort <- function(con,
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)  # Beräkna och skriv ut tidsåtgång
   if (meddelande_tid) cat(glue("Processen tog {berakningstid} sekunder att köra"))
 
-}
-
-postgres_kontrollera_och_andra_timestamp <- function(con, tabell_namn, kolumn_namn) {
-  # Funktion för att kontrollera och ändra kolumntyp till timestamp men utan timezone
-  
-  # Dela upp schema och tabell om det finns punktnotation
-  if (str_detect(tabell_namn, "\\.")) {
-    delar <- str_split(tabell_namn, "\\.", simplify = TRUE)
-    schema <- delar[1]
-    tabell <- delar[2]
-  } else {
-    schema <- "public"
-    tabell <- tabell_namn
-  }
-  
-  # Hämta aktuell datatyp
-  query <- glue("
-    SELECT data_type 
-    FROM information_schema.columns 
-    WHERE table_schema = '{schema}'
-    AND table_name = '{tabell}' 
-    AND column_name = '{kolumn_namn}'
-  ")
-  
-  resultat <- dbGetQuery(con, query)
-  
-  if (nrow(resultat) == 0) {
-    stop(paste("Kolumn", kolumn_namn, "finns inte i tabell", tabell_namn))
-  }
-  
-  aktuell_typ <- resultat$data_type[1]
-  #cat("Aktuell datatyp:", aktuell_typ, "\n")
-  
-  # Om det är timestamp with time zone, ändra till timestamp without time zone
-  if (aktuell_typ == "timestamp with time zone") {
-    cat("Ändrar till TIMESTAMP...\n")
-    
-    alter_query <- sprintf(
-      "ALTER TABLE %s ALTER COLUMN %s TYPE TIMESTAMP USING (%s AT TIME ZONE 'Europe/Stockholm')",
-      tabell_namn, kolumn_namn, kolumn_namn
-    )
-    
-    dbExecute(con, alter_query)
-    #cat("Klar! Kolumnen är nu TIMESTAMP\n")
-    
-  } else if (aktuell_typ == "timestamp without time zone") {
-    #cat("Kolumnen är redan TIMESTAMP - ingen ändring behövs\n")
-    invisible(NULL)
-  } else {
-    cat("Varning: Kolumnen har datatyp", aktuell_typ, "- ingen ändring gjord\n")
-  }
 }
 
 postgres_metadata_uppdatera <- function(con, schema, tabell, version_datum = NA, version_tid = NA,
