@@ -2231,3 +2231,38 @@ hamta_nedladdning <- function(skrap,
     Sys.sleep(0.3)
   }
 }
+
+#' Initiera en loggfunktion för webbskrapning
+#'
+#' Skapar och returnerar en loggfunktion som skriver ut meddelanden med
+#' förfluten tid sedan start, förutsatt att `verbose` är TRUE. Den
+#' returnerade funktionen "minns" (via closure) vilka värden på `verbose`
+#' och `tid_start` den skapades med, så att den kan anropas med enbart en
+#' textsträng vid varje efterföljande loggning.
+#'
+#' @param verbose Om TRUE (default) skriver den returnerade loggfunktionen
+#'   ut meddelanden. Om FALSE gör den ingenting.
+#' @param tid_start Tidpunkt (POSIXct) som förfluten tid ska beräknas från.
+#'   Default är aktuell tidpunkt när `loggning_initiera()` anropas (fixeras
+#'   direkt med `force()` för att undvika ett negativt första värde).
+#'
+#' @return En funktion med signaturen `function(txt)` som, när den anropas,
+#'   skriver ut `txt` föregånget av förfluten tid i sekunder sedan
+#'   `tid_start`, t.ex. "[  3.2 s] Startar nedladdning...".
+#'
+#' @examples
+#' tid_start <- Sys.time()
+#' logg <- loggning_initiera(verbose = TRUE, tid_start = tid_start)
+#' logg("Startar nedladdning...")
+#'
+
+loggning_initiera <- function(verbose = TRUE, tid_start = Sys.time()) {
+  force(tid_start)
+  function(txt) {
+    if (isTRUE(verbose)) {
+      message(sprintf("[%6.1f s] %s",
+                      as.numeric(difftime(Sys.time(), tid_start, units = "secs")),
+                      txt))
+    }
+  }
+}
