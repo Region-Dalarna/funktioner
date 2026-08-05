@@ -1474,6 +1474,11 @@ stang_skrapsession <- function(skrap) {
     stop("Objektet ar inte skapat av starta_skrapsession().")
   }
   
+  message("Stänger skrapsessionen. En rad i stil med ",
+          "'handle_read_frame error ... anslutningen tvingades stänga' ",
+          "kan visas här - det är ofarligt och betyder bara att ",
+          "webbläsarprocessen stängdes innan anslutningen hann kopplas ner snyggt.")
+  
   # Stang i ratt ordning: selenider -> chromote -> sjalva Edge-processen.
   # Websocket-lagret under chromote loggar annars en ofarlig
   # "handle_read_frame error ... 10054"-rad om Edge-processen doodas innan
@@ -1496,7 +1501,7 @@ stang_skrapsession <- function(skrap) {
   tyst({
     selenider::selenider_session_close(skrap$session)
     skrap$chrom$close()
-    Sys.sleep(0.2)  # lat websocket-nedkopplingen slutforas
+    Sys.sleep(0.5)  # lat websocket-nedkopplingen slutforas
   })
   
   if (!is.null(skrap$process) && skrap$process$is_alive()) {
