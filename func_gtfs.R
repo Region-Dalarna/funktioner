@@ -461,16 +461,16 @@ gtfs_validera <- function(gtfs,
 }
 
 
-# Minimal rensning innan skrivning till databas
+# Minimal rensning innan skrivning till databas.
 #
-# Bevarar hela datastrukturen (anropsstyrd trafik, transfers, attributions,
-# stationshierarki, shape_dist_traveled, feed_info som den är) så att
-# databasstrukturen i skapa_tabeller() matchas exakt.
-#
-# Fixar endast genuina datafel:
+# Fixar endast genuina datafel som hindrar uppladdning:
 # - Säkerställer numeriska koordinater
-# - Tar bort hållplatser med ogiltiga koordinater + tillhörande stop_times
+# - Konverterar tomma strängar till NA i heltalkolumner (sweden_3)
 # - Normaliserar stop_sequence så den börjar på 1
+#
+# Koordinatfiltrering och analytisk rensning (parent stations,
+# anropsstyrd trafik osv.) sker istället i gtfs_rensa_for_r5r()
+# inför analys, så att databasen speglar källdatan så nära som möjligt.
 gtfs_rensa_for_db <- function(gtfs, gtfs_dataset = "regional") {
 
   sweden_3 <- gtfs_dataset == "sweden_3"
@@ -480,12 +480,6 @@ gtfs_rensa_for_db <- function(gtfs, gtfs_dataset = "regional") {
   gtfs$stops <- gtfs$stops %>%
     mutate(stop_lat = as.numeric(stop_lat),
            stop_lon = as.numeric(stop_lon))
-
-  # Ta bort hållplatser med ogiltiga koordinater + tillhörande stop_times
-  gtfs$stops <- gtfs$stops %>%
-    filter(between(stop_lat, 55, 70), between(stop_lon, 10, 25))
-  gtfs$stop_times <- gtfs$stop_times %>%
-    filter(stop_id %in% gtfs$stops$stop_id)
 
   # Normalisera stop_sequence
   gtfs$stop_times <- gtfs$stop_times %>%
@@ -514,7 +508,7 @@ gtfs_rensa_for_db <- function(gtfs, gtfs_dataset = "regional") {
         mutate(is_operator = suppressWarnings(as.integer(is_operator)))
     }
 
-    # calendar — tomma strängar → NA, dagkolumner och datum konverteras
+    # calendar — tomma strängar → NA, dagkolumner konverteras
     if (!is.null(gtfs$calendar)) {
       gtfs$calendar <- gtfs$calendar %>%
         mutate(across(where(is.character), ~ na_if(., ""))) %>%
@@ -529,18 +523,18 @@ gtfs_rensa_for_db <- function(gtfs, gtfs_dataset = "regional") {
       gtfs$feed_info <- gtfs$feed_info %>%
         mutate(across(where(is.character), ~ na_if(., "")))
     }
-
   }
 
   gtfs
 }
 
-# Rensa GTFS för r5r
+# Rensa GTFS för r5r.
 #
 # Tar bort anropsstyrd trafik (1501), konverterar tågkoder, kaskadfiltrerar,
-# tar bort parent stations, attributions och transfers, samt sätter
-# feed_info-datum dynamiskt. Kan anropas separat på vilket GTFS-objekt
-# som helst eller via gtfs_hamta_for_r5r().
+# tar bort parent stations och stops med ogiltiga koordinater,
+# attributions och transfers, samt sätter feed_info-datum dynamiskt.
+# Kan anropas separat på vilket GTFS-objekt som helst eller via
+# gtfs_hamta_for_r5r().
 gtfs_rensa_for_r5r <- function(gtfs) {
 
   # Ta bort anropsstyrd trafik (1501) och konvertera tågkoder till standard
@@ -553,12 +547,13 @@ gtfs_rensa_for_r5r <- function(gtfs) {
   gtfs$stop_times     <- gtfs$stop_times %>% filter(trip_id %in% gtfs$trips$trip_id)
   kvarv_service       <- unique(gtfs$trips$service_id)
   if (!is.null(gtfs$calendar))
-    gtfs$calendar       <- gtfs$calendar %>% filter(service_id %in% kvarv_service)
+    gtfs$calendar     <- gtfs$calendar %>% filter(service_id %in% kvarv_service)
   gtfs$calendar_dates <- gtfs$calendar_dates %>% filter(service_id %in% kvarv_service)
 
-  # Ta bort parent stations + tillhörande stop_times
+  # Ta bort parent stations + stops med ogiltiga koordinater
   gtfs$stops <- gtfs$stops %>%
     filter(is.na(location_type) | location_type == 0) %>%
+    filter(between(stop_lat, 55, 70), between(stop_lon, 10, 25)) %>%
     select(-any_of(c("location_type", "parent_station", "platform_code", "hpl_id")))
   gtfs$stop_times <- gtfs$stop_times %>% filter(stop_id %in% gtfs$stops$stop_id)
 
@@ -567,18 +562,19 @@ gtfs_rensa_for_r5r <- function(gtfs) {
   if (!is.null(gtfs$shapes))
     gtfs$shapes <- gtfs$shapes %>% select(-any_of("shape_dist_traveled"))
 
-  # Ta bort oanvändbara filer och trips utan stop_times
+  # Ta bort oanvändbara tabeller och trips utan stop_times
   gtfs$attributions <- NULL
   gtfs$transfers    <- NULL
   gtfs$trips <- gtfs$trips %>% filter(trip_id %in% unique(gtfs$stop_times$trip_id))
 
   # Sätt feed_info-datum dynamiskt från datan
-  gtfs$feed_info$feed_start_date <- min(gtfs$calendar_dates$date, na.rm = TRUE)
-  gtfs$feed_info$feed_end_date   <- max(gtfs$calendar_dates$date, na.rm = TRUE)
+  if (!is.null(gtfs$feed_info)) {
+    gtfs$feed_info$feed_start_date <- min(gtfs$calendar_dates$date, na.rm = TRUE)
+    gtfs$feed_info$feed_end_date   <- max(gtfs$calendar_dates$date, na.rm = TRUE)
+  }
 
   gtfs
 }
-
 
 # Hämta GTFS från databas, förbered för r5r och spara körklar zip
 #
