@@ -650,9 +650,8 @@ gtfs_hamta_for_r5r <- function(con,
 }
 
 
-# Göra ett geografiskt avgränsat urval av GTFS data
 gtfs_filtrera_geografiskt <- function(gtfs_data, polygon, buffert_km = 0, gtfs_dataset = "regional",
-                                      fullstandiga_operatorer = "Dalatrafik") {
+                                      fullstandiga_operatorer = NULL) {
   # fullstandiga_operatorer: vektor med operatörsnamn (delsträng, case-okänsligt)
   # vars linjer ALLTID tas med i sin helhet, oavsett om de ligger inom
   # polygonen eller ej. Sätt till NULL eller character(0) för att stänga av
@@ -701,25 +700,46 @@ gtfs_filtrera_geografiskt <- function(gtfs_data, polygon, buffert_km = 0, gtfs_d
 
   # 2b. Hitta operatörer som ska tas med i sin helhet, oavsett geografi
   route_ids_fullstandiga <- integer(0)
-  if (length(fullstandiga_operatorer) > 0 && !is.null(gtfs_data$agency)) {
-    monster <- paste(fullstandiga_operatorer, collapse = "|")
-    agency_ids_fullstandiga <- gtfs_data$agency$agency_id[
-      grepl(monster, gtfs_data$agency$agency_name, ignore.case = TRUE)
-    ]
+  if (length(fullstandiga_operatorer) > 0) {
 
-    if (length(agency_ids_fullstandiga) == 0) {
+    if (is.null(gtfs_data$agency)) {
       warning(glue::glue(
-        "Ingen operatör matchande '{paste(fullstandiga_operatorer, collapse = ', ')}' ",
-        "hittades i gtfs_data$agency — inget undantag tillämpas."
+        "gtfs_data$agency saknas (NULL) — kan inte matcha operatörerna ",
+        "'{paste(fullstandiga_operatorer, collapse = ', ')}'. Inget undantag tillämpas, ",
+        "endast geografisk filtrering körs."
       ))
     } else {
-      route_ids_fullstandiga <- gtfs_data$routes[
-        agency_id %in% agency_ids_fullstandiga
-      ]$route_id
-      message(glue::glue(
-        "{length(route_ids_fullstandiga)} routes tas med i sin helhet för: ",
-        "{paste(unique(gtfs_data$agency$agency_name[gtfs_data$agency$agency_id %in% agency_ids_fullstandiga]), collapse = ', ')}"
-      ))
+      monster <- paste(fullstandiga_operatorer, collapse = "|")
+      agency_ids_fullstandiga <- as.character(gtfs_data$agency$agency_id[
+        grepl(monster, gtfs_data$agency$agency_name, ignore.case = TRUE)
+      ])
+
+      if (length(agency_ids_fullstandiga) == 0) {
+        warning(glue::glue(
+          "Ingen operatör matchande '{paste(fullstandiga_operatorer, collapse = ', ')}' ",
+          "hittades i gtfs_data$agency (tillgängliga namn: ",
+          "{paste(unique(gtfs_data$agency$agency_name), collapse = ', ')}) — inget undantag tillämpas."
+        ))
+      } else {
+        # Jämför som character för att undvika typmismatch (t.ex. '01' vs 1)
+        route_ids_fullstandiga <- gtfs_data$routes[
+          as.character(agency_id) %in% agency_ids_fullstandiga
+        ]$route_id
+
+        if (length(route_ids_fullstandiga) == 0) {
+          warning(glue::glue(
+            "Operatör(er) '{paste(fullstandiga_operatorer, collapse = ', ')}' hittades i agency-tabellen ",
+            "(agency_id: {paste(agency_ids_fullstandiga, collapse = ', ')}) men INGA routes matchade ",
+            "i gtfs_data$routes$agency_id. Kontrollera att agency_id-typerna stämmer överens ",
+            "mellan agency- och routes-tabellerna."
+          ))
+        } else {
+          message(glue::glue(
+            "{length(route_ids_fullstandiga)} routes tas med i sin helhet för: ",
+            "{paste(unique(gtfs_data$agency$agency_name[as.character(gtfs_data$agency$agency_id) %in% agency_ids_fullstandiga]), collapse = ', ')}"
+          ))
+        }
+      }
     }
   }
 
