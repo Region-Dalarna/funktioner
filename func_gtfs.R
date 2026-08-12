@@ -651,14 +651,18 @@ gtfs_hamta_for_r5r <- function(con,
 
 
 # Göra ett geografiskt avgränsat urval av GTFS data
-gtfs_filtrera_geografiskt <- function(gtfs_data, polygon, buffert_km = 0, gtfs_dataset = "regional") {
+gtfs_filtrera_geografiskt <- function(gtfs_data, polygon, buffert_km = 0, gtfs_dataset = "regional",
+                                      fullstandiga_operatorer = "Dalatrafik") {
+  # fullstandiga_operatorer: vektor med operatörsnamn (delsträng, case-okänsligt)
+  # vars linjer ALLTID tas med i sin helhet, oavsett om de ligger inom
+  # polygonen eller ej. Sätt till NULL eller character(0) för att stänga av
+  # och filtrera rent geografiskt för alla operatörer (som tidigare).
 
   # Validering
   if (!gtfs_dataset %in% c("regional", "sweden_3")) {
     stop("gtfs_dataset måste vara 'regional' eller 'sweden_3'")
   }
   sweden_3 <- gtfs_dataset == "sweden_3"
-
   if (!inherits(polygon, "sf") && !inherits(polygon, "sfc")) {
     stop("polygon måste vara ett sf- eller sfc-objekt")
   }
@@ -666,7 +670,6 @@ gtfs_filtrera_geografiskt <- function(gtfs_data, polygon, buffert_km = 0, gtfs_d
     message("gtfs_data är inte av typen dt_gtfs — konverterar med as_dt_gtfs()")
     gtfs_data <- gtfstools::as_dt_gtfs(gtfs_data)
   }
-
   # Buffra polygon om buffert_km > 0
   if (buffert_km > 0) {
     polygon <- polygon %>%
@@ -675,7 +678,6 @@ gtfs_filtrera_geografiskt <- function(gtfs_data, polygon, buffert_km = 0, gtfs_d
       sf::st_transform(4326)
     message(glue::glue("Polygon buffrad med {buffert_km} km"))
   }
-
   polygon_union <- sf::st_union(sf::st_transform(polygon, 4326))
 
   # 1. Stops inom polygon
@@ -685,29 +687,61 @@ gtfs_filtrera_geografiskt <- function(gtfs_data, polygon, buffert_km = 0, gtfs_d
     crs = 4326
   )
   inom_polygon <- sf::st_intersects(stops_sf, polygon_union, sparse = FALSE)[, 1]
-  stops_ids <- gtfs_data$stops$stop_id[inom_polygon]
-
-  if (length(stops_ids) == 0) {
+  stops_ids_geografi <- gtfs_data$stops$stop_id[inom_polygon]
+  if (length(stops_ids_geografi) == 0) {
     stop("Inga stops hittades inom angiven polygon — kontrollera CRS och polygonens utbredning")
   }
-  message(glue::glue("{length(stops_ids)} stops hittades inom polygon"))
+  message(glue::glue("{length(stops_ids_geografi)} stops hittades inom polygon"))
 
-  # 2. Filtrera nerifrån och upp
-  stop_times_filtrerade <- gtfs_data$stop_times[stop_id %in% stops_ids]
-  trips_ids             <- unique(stop_times_filtrerade$trip_id)
-  trips_filtrerade      <- gtfs_data$trips[trip_id %in% trips_ids]
+  # 2. Filtrera nerifrån och upp, geografiskt
+  stop_times_geografi <- gtfs_data$stop_times[stop_id %in% stops_ids_geografi]
+  trips_ids_geografi  <- unique(stop_times_geografi$trip_id)
+  trips_geografi      <- gtfs_data$trips[trip_id %in% trips_ids_geografi]
+  route_ids_geografi  <- unique(trips_geografi$route_id)
 
-  route_ids   <- unique(trips_filtrerade$route_id)
+  # 2b. Hitta operatörer som ska tas med i sin helhet, oavsett geografi
+  route_ids_fullstandiga <- integer(0)
+  if (length(fullstandiga_operatorer) > 0 && !is.null(gtfs_data$agency)) {
+    monster <- paste(fullstandiga_operatorer, collapse = "|")
+    agency_ids_fullstandiga <- gtfs_data$agency$agency_id[
+      grepl(monster, gtfs_data$agency$agency_name, ignore.case = TRUE)
+    ]
+
+    if (length(agency_ids_fullstandiga) == 0) {
+      warning(glue::glue(
+        "Ingen operatör matchande '{paste(fullstandiga_operatorer, collapse = ', ')}' ",
+        "hittades i gtfs_data$agency — inget undantag tillämpas."
+      ))
+    } else {
+      route_ids_fullstandiga <- gtfs_data$routes[
+        agency_id %in% agency_ids_fullstandiga
+      ]$route_id
+      message(glue::glue(
+        "{length(route_ids_fullstandiga)} routes tas med i sin helhet för: ",
+        "{paste(unique(gtfs_data$agency$agency_name[gtfs_data$agency$agency_id %in% agency_ids_fullstandiga]), collapse = ', ')}"
+      ))
+    }
+  }
+
+  # 3. Slå ihop geografisk filtrering med de fullständiga operatörernas hela nät
+  route_ids <- union(route_ids_geografi, route_ids_fullstandiga)
+  trips_filtrerade <- gtfs_data$trips[route_id %in% route_ids]
+  trips_ids        <- unique(trips_filtrerade$trip_id)
+
+  stop_times_filtrerade <- gtfs_data$stop_times[trip_id %in% trips_ids]
+  stops_ids <- union(stops_ids_geografi, unique(stop_times_filtrerade$stop_id))
+
   service_ids <- unique(trips_filtrerade$service_id)
   shape_ids   <- unique(trips_filtrerade$shape_id)
   agency_ids  <- unique(gtfs_data$routes[route_id %in% route_ids]$agency_id)
 
   message(glue::glue(
     "{length(trips_ids)} trips | {length(route_ids)} routes | ",
-    "{length(service_ids)} service_ids | {length(shape_ids)} shapes"
+    "{length(service_ids)} service_ids | {length(shape_ids)} shapes | ",
+    "{length(stops_ids)} stops totalt (inkl. fullständiga operatörer)"
   ))
 
-  # 3. Bygg filtrerat gtfs-objekt
+  # 4. Bygg filtrerat gtfs-objekt
   gtfs_filtrerat <- gtfs_data
   gtfs_filtrerat$stops      <- gtfs_data$stops[stop_id %in% stops_ids]
   gtfs_filtrerat$stop_times <- stop_times_filtrerade
@@ -719,7 +753,6 @@ gtfs_filtrera_geografiskt <- function(gtfs_data, polygon, buffert_km = 0, gtfs_d
   if (!is.null(gtfs_data$calendar_dates)) {
     gtfs_filtrerat$calendar_dates <- gtfs_data$calendar_dates[service_id %in% service_ids]
   }
-
   # shapes finns i båda men kan vara NULL efter as_dt_gtfs()
   if (!is.null(gtfs_data$shapes)) {
     gtfs_filtrerat$shapes <- gtfs_data$shapes[shape_id %in% shape_ids]
@@ -727,7 +760,6 @@ gtfs_filtrera_geografiskt <- function(gtfs_data, polygon, buffert_km = 0, gtfs_d
 
   # ── Endast sweden_3 ────────────────────────────────────────────────────
   if (sweden_3) {
-
     if (!is.null(gtfs_data$calendar)) {
       gtfs_filtrerat$calendar <- gtfs_data$calendar[service_id %in% service_ids]
     }
@@ -742,7 +774,6 @@ gtfs_filtrera_geografiskt <- function(gtfs_data, polygon, buffert_km = 0, gtfs_d
     if (!is.null(gtfs_data$feed_info)) {
       gtfs_filtrerat$feed_info <- gtfs_data$feed_info  # ingen filtrering, gäller hela feeden
     }
-
   }
 
   return(gtfs_filtrerat)
