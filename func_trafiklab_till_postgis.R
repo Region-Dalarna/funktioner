@@ -398,7 +398,12 @@ skapa_tabeller <- function(con, schema = schema_namn, gtfs_dataset = "regional")
 
 
 
-versionshantering <- function(con, gtfs_data, schema = schema_namn) {
+versionshantering <- function(con, gtfs_data, schema = schema_namn, vy_operatorer = NA) {
+  # vy_operatorer: vektor som styr vilka historiska vyer som byggs vid en
+  # versionsövergång. NA = vyer för samtliga operatörer samlade.
+  # Övriga element = operatörsnamn som ska få EGNA vyer, matchat via
+  # agency_namn (delsträng, case-okänsligt).
+
   tryCatch({
     dbExecute(con, glue::glue("
   CREATE TABLE IF NOT EXISTS {schema}_historisk.versions (
@@ -458,15 +463,6 @@ versionshantering <- function(con, gtfs_data, schema = schema_namn) {
         linjeklassificering_kolumner <- kolumn_namn %>% filter(table_name == "linjeklassificering") %>% dplyr::pull(column_name) %>% paste0(collapse = ", ")
 
         # Transfer data from schema schema to schema_historisk with version number
-        # dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.agency SELECT agency_id, agency_name, agency_url, agency_timezone, agency_lang, agency_phone, agency_fare_url, {senaste_version} FROM {schema}.agency;"))
-        # dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.routes SELECT route_id, agency_id, route_short_name, route_long_name, route_desc, route_type, route_url, route_color, route_text_color, {senaste_version} FROM {schema}.routes;"))
-        # dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.calendar_dates SELECT service_id, date, exception_type, {senaste_version} FROM {schema}.calendar_dates;"))
-        # dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.shapes_line SELECT shape_id, geometry, antal_punkter, max_dist, {senaste_version} FROM {schema}.shapes_line;"))
-        # dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.stops SELECT stop_id, hpl_id, stop_name, stop_lat, stop_lon, location_type, parent_station, platform_code, geometry, {senaste_version} FROM {schema}.stops;"))
-        # dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.trips SELECT trip_id, route_id, service_id, trip_headsign, direction_id, shape_id, {senaste_version} FROM {schema}.trips;"))
-        # dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.stop_times SELECT trip_id, arrival_time, departure_time, stop_id, stop_sequence, stop_headsign, pickup_type, drop_off_type, shape_dist_traveled, timepoint, {senaste_version} FROM {schema}.stop_times;"))
-        # dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.linjeklassificering SELECT route_short_name, klassificering, {senaste_version} FROM {schema}.linjeklassificering;"))
-
         dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.agency SELECT {agency_kolumner}, {senaste_version} FROM {schema}.agency;"))
         dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.routes SELECT {routes_kolumner}, {senaste_version} FROM {schema}.routes;"))
         dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.calendar_dates SELECT {calendar_dates_kolumner}, {senaste_version} FROM {schema}.calendar_dates;"))
@@ -476,9 +472,17 @@ versionshantering <- function(con, gtfs_data, schema = schema_namn) {
         dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.stop_times SELECT {stop_times_kolumner}, {senaste_version} FROM {schema}.stop_times;"))
         dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.linjeklassificering SELECT {linjeklassificering_kolumner}, {senaste_version} FROM {schema}.linjeklassificering;"))
 
-        # Create views for historical data - called in versionshantering()
-        skapa_vyer_historisk_hallplats(con, schema = schema_namn)
-        skapa_vyer_historisk_linjer(con, schema = schema_namn)
+        # Create views for historical data - en gång per operatör i vy_operatorer
+        # (NA/NULL = vyer för samtliga operatörer, annars operatörsspecifika vyer)
+        for (op in vy_operatorer) {
+          if (is.na(op) || is.null(op)) {
+            skapa_vyer_historisk_hallplats(con, schema = schema_namn)
+            skapa_vyer_historisk_linjer(con, schema = schema_namn)
+          } else {
+            skapa_vyer_historisk_hallplats(con, schema = schema_namn, agency_namn = op)
+            skapa_vyer_historisk_linjer(con, schema = schema_namn, agency_namn = op)
+          }
+        }
       }
 
       # Check if sista_datum_db is NA and set start_datum_gtfs_data correctly
