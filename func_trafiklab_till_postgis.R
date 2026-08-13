@@ -664,23 +664,83 @@ skapa_tabell_linjeklassificering <- function(con, schema = schema_namn) {
   })
 }
 
-skapa_vyer_hallplats <- function(con, schema = schema_namn) {
+hamta_agency_id <- function(con, schema = schema_namn, agency_namn) {
+  # Slår upp agency_id från agency_name i GTFS agency-tabellen.
+  # Matchar case-okänsligt och tillåter delsträng (ILIKE '%namn%').
+  # Kastar fel om ingen eller flera träffar hittas, så man inte
+  # råkar filtrera på fel/ingen operatör av misstag.
+
+  sql <- glue::glue("
+    SELECT agency_id::text AS agency_id, agency_name
+    FROM {schema}.agency
+    WHERE agency_name ILIKE {DBI::dbQuoteString(con, paste0('%', agency_namn, '%'))}
+  ")
+  traff <- dbGetQuery(con, sql)
+
+  if (nrow(traff) == 0) {
+    stop(glue::glue("Ingen operatör matchande '{agency_namn}' hittades i {schema}.agency."))
+  }
+  if (nrow(traff) > 1) {
+    stop(glue::glue(
+      "Flera operatörer matchar '{agency_namn}': {paste(traff$agency_name, collapse = ', ')}. ",
+      "Skriv en mer specifik del av namnet."
+    ))
+  }
+
+  message(glue::glue("Matchade '{agency_namn}' -> agency_id = '{traff$agency_id}' ({traff$agency_name})"))
+  traff$agency_id
+}
+
+skapa_vyer_hallplats <- function(con, schema = schema_namn, agency_id = NULL, agency_namn = NULL, vy_suffix = NULL) {
+  # Om agency_id (eller agency_namn) anges filtreras allt till den operatören,
+  # annars skapas vyerna för samtliga operatörer (samma beteende som tidigare).
+  #
+  # agency_namn är ett bekvämlighetsalternativ till agency_id - anges det
+  # slås agency_id upp automatiskt via hamta_agency_id(). Ange bara ett av dem.
+  #
+  # vy_suffix styr namnet på vyerna, t.ex. "_dt" för Dalatrafik.
+  # Om agency_id anges men vy_suffix inte anges, används agency_id som suffix.
+
+  if (!is.null(agency_namn)) {
+    if (!is.null(agency_id)) {
+      stop("Ange antingen agency_id eller agency_namn, inte båda.")
+    }
+    agency_id <- hamta_agency_id(con, schema, agency_namn)
+  }
+
+  if (!is.null(agency_id) && is.null(vy_suffix)) {
+    vy_suffix <- paste0("_", tolower(agency_id))
+  }
+  if (is.null(vy_suffix)) {
+    vy_suffix <- ""
+  }
+
+  vy_hallplatslage <- glue::glue("vy_hallplatslage_avgangar{vy_suffix}")
+  vy_hallplats <- glue::glue("vy_hallplats_avgangar{vy_suffix}")
+
+  # Bygg ett agency-filter som SQL-sträng, tomt om ingen agency_id angetts
+  agency_filter <- if (!is.null(agency_id)) {
+    glue::glue("AND r.agency_id = {DBI::dbQuoteString(con, agency_id)}")
+  } else {
+    ""
+  }
+
   # Error handling
   tryCatch({
     # Drop the materialized views if they exist
-    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_hallplats_avgangar CASCADE;"))
-    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_hallplatslage_avgangar CASCADE;"))
+    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.{vy_hallplats} CASCADE;"))
+    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.{vy_hallplatslage} CASCADE;"))
 
     # Create materialized view for stops with departures, routes, and classifications
     sql_hallplatslage_avgangar = glue::glue("
-      CREATE MATERIALIZED VIEW {schema}.vy_hallplatslage_avgangar AS
+      CREATE MATERIALIZED VIEW {schema}.{vy_hallplatslage} AS
       WITH senaste_version AS ( -- Fetches start date for the latest version so that only traffic from this date is included
           SELECT start_date
           FROM {schema}_historisk.versions
           ORDER BY start_date DESC
           LIMIT 1
       ),
-      dagliga_avgangar AS ( -- Calculate the number of departures/day and stop position
+      dagliga_avgangar AS ( -- Calculate the number of departures/day and stop position, filtered per operator if agency_id is set
           SELECT
               st.stop_id,
               cd.date,
@@ -690,11 +750,14 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn) {
           JOIN
               {schema}.trips t ON st.trip_id = t.trip_id
           JOIN
+              {schema}.routes r ON t.route_id = r.route_id
+          JOIN
               {schema}.calendar_dates cd ON t.service_id = cd.service_id
           JOIN
               senaste_version sv ON cd.date >= sv.start_date
           WHERE
               cd.exception_type = 1
+              {agency_filter}
           GROUP BY
               st.stop_id, cd.date
       ),
@@ -725,7 +788,7 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn) {
           ORDER BY
               stop_id, total_veckans_avgangar DESC
       ),
-      routes_per_stop AS ( -- Combines routes and their classifications that serve each stop
+      routes_per_stop AS ( -- Combines routes and their classifications that serve each stop, filtered per operator if agency_id is set
           SELECT
               st.stop_id,
               STRING_AGG(DISTINCT r.route_short_name::TEXT, ',') AS linjer,
@@ -738,6 +801,9 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn) {
               {schema}.routes r ON t.route_id = r.route_id
           JOIN
               {schema}.linjeklassificering lc ON r.route_short_name = lc.route_short_name
+          WHERE
+              1 = 1
+              {agency_filter}
           GROUP BY
               st.stop_id
       )
@@ -758,7 +824,7 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn) {
           normal_vecka nv
       JOIN
           {schema}.stops st ON nv.stop_id = st.stop_id
-      LEFT JOIN
+      JOIN -- inner join här ser till att bara hållplatser som operatören faktiskt trafikerar tas med
           routes_per_stop rs ON st.stop_id = rs.stop_id
       WHERE
           nv.rank = 1;
@@ -767,11 +833,11 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn) {
 
     # Create materialized view for stops
     sql_hallplats_avgangar = glue::glue("
-  CREATE MATERIALIZED VIEW {schema}.vy_hallplats_avgangar AS -- Combines information from all stop locations associated with a stop
+  CREATE MATERIALIZED VIEW {schema}.{vy_hallplats} AS -- Combines information from all stop locations associated with a stop
   SELECT
-      nva.parent_station AS stop_id,
-      h.hpl_id,
-      h.stop_name,
+      COALESCE(h.stop_id, nva.stop_id) AS stop_id, -- fall tillbaka på egna stop_id om parent_station saknas/inte matchar
+      COALESCE(h.hpl_id, nva.hpl_id) AS hpl_id,
+      COALESCE(h.stop_name, nva.stop_name) AS stop_name,
       SUM(nva.genomsnitt_veckodag_avgangar) AS genomsnitt_veckodag_avgangar,
       SUM(nva.antal_lordag_avgangar) AS antal_lordag_avgangar,
       SUM(nva.antal_sondag_avgangar) AS antal_sondag_avgangar,
@@ -788,18 +854,18 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn) {
         ORDER BY unnest
       ), ', '
       ) AS linjetyper,
-      h.geometry
+      COALESCE(h.geometry, nva.geometry) AS geometry
   FROM
-      {schema}.vy_hallplatslage_avgangar nva
-  JOIN
+      {schema}.{vy_hallplatslage} nva
+  LEFT JOIN -- LEFT JOIN istället för INNER JOIN: annars tappas hela hållplatsläget om
+            -- parent_station saknas ELLER om parent_station-värdet inte matchar något
+            -- riktigt stop_id i stops (t.ex. felformaterat/oprefixat id)
       {schema}.stops h ON nva.parent_station = h.stop_id
-  WHERE
-      nva.parent_station IS NOT NULL
   GROUP BY
-      nva.parent_station, h.hpl_id, h.stop_name, h.geometry;
+      COALESCE(h.stop_id, nva.stop_id), COALESCE(h.hpl_id, nva.hpl_id),
+      COALESCE(h.stop_name, nva.stop_name), COALESCE(h.geometry, nva.geometry);
 ")
     dbExecute(con, sql_hallplats_avgangar)
-
 
   }, error = function(e) {
     # Print error message
@@ -807,169 +873,51 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn) {
   })
 }
 
-skapa_vyer_linjer <- function(con, schema = schema_namn) {
-  tryCatch({
-    # Drop the materialized view if it exists
-    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_linjer_avgangar_alla CASCADE;"))
-    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_linjer_avgangar_vanligaste CASCADE;"))
 
-    # Create materialized view for all lines with routes, trips, and daily departures
-    sql_alla_linjer_avgangar = glue::glue("
-      CREATE MATERIALIZED VIEW {schema}.vy_linjer_avgangar_alla AS
-      WITH senaste_version AS ( -- Fetches the start date for the latest version so that only traffic from this date is included
-          SELECT start_date
-          FROM {schema}_historisk.versions
-          ORDER BY start_date DESC
-          LIMIT 1
-      ),
-      dagliga_avgangar AS ( -- Calculate the number of daily departures per line (shapes_line)
-          SELECT
-              t.shape_id,
-              t.route_id,
-              cd.date,
-              COUNT(DISTINCT t.trip_id) AS antal_avgangar
-          FROM
-              {schema}.trips t
-          JOIN
-              {schema}.calendar_dates cd ON t.service_id = cd.service_id
-          JOIN
-              senaste_version sv ON cd.date >= sv.start_date
-          WHERE
-              cd.exception_type = 1
-          GROUP BY
-              t.shape_id, t.route_id, cd.date
-      ),
-      avgangar_vecka AS ( -- Sum daily departures per weekday/Saturday/Sunday for each week
-          SELECT
-              shape_id,
-              route_id,
-              DATE_TRUNC('week', date) AS vecka_start,
-              SUM(CASE WHEN EXTRACT(DOW FROM date) BETWEEN 1 AND 5 THEN antal_avgangar ELSE 0 END) AS total_veckodag_avgangar,
-              SUM(CASE WHEN EXTRACT(DOW FROM date) = 6 THEN antal_avgangar ELSE 0 END) AS total_lordag_avgangar,
-              SUM(CASE WHEN EXTRACT(DOW FROM date) = 0 THEN antal_avgangar ELSE 0 END) AS total_sondag_avgangar,
-              SUM(antal_avgangar) AS total_veckans_avgangar
-          FROM
-              dagliga_avgangar
-          GROUP BY
-              shape_id, route_id, DATE_TRUNC('week', date)
-      ),
-      normal_vecka AS ( -- Rank weeks based on total departures to find the week with the most, considered a 'normal week'
-          SELECT
-              shape_id,
-              route_id,
-              vecka_start,
-              total_veckans_avgangar,
-              total_veckodag_avgangar,
-              total_lordag_avgangar,
-              total_sondag_avgangar,
-              ROW_NUMBER() OVER (PARTITION BY shape_id, route_id ORDER BY total_veckans_avgangar DESC) AS rank
-          FROM
-              avgangar_vecka
-          ORDER BY
-              shape_id, route_id, total_veckans_avgangar DESC
-      ),
-      shapes_info AS ( -- Join shapes_line and routes with their classifications via trips
-          SELECT
-              sl.shape_id,
-              sl.antal_punkter,
-              sl.max_dist,
-              sl.geometry,
-              r.route_id,
-              r.route_short_name,
-              r.route_long_name,
-              lc.klassificering
-          FROM
-              {schema}.shapes_line sl
-          JOIN
-              {schema}.trips t ON sl.shape_id = t.shape_id
-          JOIN
-              {schema}.routes r ON t.route_id = r.route_id
-          LEFT JOIN
-              {schema}.linjeklassificering lc ON r.route_short_name = lc.route_short_name
-      )
-      SELECT -- Summarize all information
-          si.shape_id,
-          si.route_short_name AS linjenummer,
-          si.route_long_name,
-          si.klassificering,
-          si.antal_punkter,
-          si.max_dist AS max_avstand_punkter,
-          si.geometry,
-          ROUND(nv.total_veckodag_avgangar / 5.0, 2) AS genomsnitt_veckodag_avgangar,
-          nv.total_lordag_avgangar AS antal_lordag_avgangar,
-          nv.total_sondag_avgangar AS antal_sondag_avgangar,
-          ROUND(nv.total_veckans_avgangar / 7.0, 2) AS genomsnitt_veckans_avgangar,
-          COUNT(DISTINCT t.trip_id) AS antal_turer
-      FROM
-          normal_vecka nv
-      JOIN
-          shapes_info si ON nv.shape_id = si.shape_id AND nv.route_id = si.route_id
-      LEFT JOIN
-          {schema}.trips t ON si.shape_id = t.shape_id
-      WHERE
-          nv.rank = 1
-      GROUP BY
-          si.shape_id, si.route_short_name, si.route_long_name, si.klassificering, si.antal_punkter, si.max_dist, si.geometry, nv.total_veckodag_avgangar, nv.total_lordag_avgangar, nv.total_sondag_avgangar, nv.total_veckans_avgangar;
-    ")
-    dbExecute(con, sql_alla_linjer_avgangar)
+skapa_vyer_historisk_hallplats <- function(con, schema = schema_namn, agency_id = NULL, agency_namn = NULL, vy_suffix = NULL) {
+  # Om agency_id (eller agency_namn) anges filtreras allt till den operatören,
+  # annars skapas vyerna för samtliga operatörer (samma beteende som tidigare).
+  #
+  # agency_namn slås upp mot agency-tabellen i grundschemat (INTE _historisk),
+  # eftersom det är där hamta_agency_id() letar. agency_id antas vara stabil
+  # över versioner.
+  #
+  # vy_suffix styr namnet på vyerna, t.ex. "_dt" för Dalatrafik.
 
-    # Create materialized view for the most common line for each route
-    sql_vanligaste_linjen = glue::glue("
-      CREATE MATERIALIZED VIEW {schema}.vy_linjer_avgangar_vanligaste AS
-      WITH vanligaste_linje_per_route AS (
-          SELECT
-              linjenummer,
-              klassificering,
-              shape_id,
-              antal_turer,
-              genomsnitt_veckodag_avgangar,
-              antal_lordag_avgangar,
-              antal_sondag_avgangar,
-              genomsnitt_veckans_avgangar,
-              antal_punkter,
-              max_avstand_punkter,
-              geometry,
-              ROW_NUMBER() OVER (PARTITION BY linjenummer ORDER BY antal_turer DESC) AS rank
-          FROM
-              {schema}.vy_linjer_avgangar_alla
-      )
-      SELECT
-          linjenummer,
-          klassificering,
-          shape_id,
-          antal_turer,
-          genomsnitt_veckodag_avgangar,
-          antal_lordag_avgangar,
-          antal_sondag_avgangar,
-          genomsnitt_veckans_avgangar,
-          antal_punkter,
-          max_avstand_punkter,
-          geometry
-      FROM
-          vanligaste_linje_per_route
-      WHERE
-          rank = 1;
-    ")
-    dbExecute(con, sql_vanligaste_linjen)
+  if (!is.null(agency_namn)) {
+    if (!is.null(agency_id)) {
+      stop("Ange antingen agency_id eller agency_namn, inte båda.")
+    }
+    agency_id <- hamta_agency_id(con, schema, agency_namn)
+  }
 
-    message(glue::glue("Materialiserad vy '{schema}.vy_alla_linjer_avgangar' skapad framgångsrikt."))
+  if (!is.null(agency_id) && is.null(vy_suffix)) {
+    vy_suffix <- paste0("_", tolower(agency_id))
+  }
+  if (is.null(vy_suffix)) {
+    vy_suffix <- ""
+  }
 
-  }, error = function(e) {
-    stop(paste("Ett fel inträffade vid skapandet av vyn:", e$message))
-  })
-}
+  vy_hallplatslage <- glue::glue("vy_historisk_hallplatslage_avgangar{vy_suffix}")
+  vy_hallplats <- glue::glue("vy_historisk_hallplats_avgangar{vy_suffix}")
 
-skapa_vyer_historisk_hallplats <- function(con, schema = schema_namn) {
+  # Bygg ett agency-filter som SQL-sträng, tomt om ingen agency_id angetts
+  agency_filter <- if (!is.null(agency_id)) {
+    glue::glue("AND r.agency_id = {DBI::dbQuoteString(con, agency_id)}")
+  } else {
+    ""
+  }
+
   tryCatch({
     schema <- glue::glue("{schema}_historisk")
     # Drop the materialized views if they exist
-    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_historisk_hallplatslage_avgangar CASCADE;"))
-    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_historisk_hallplats_avgangar CASCADE;"))
+    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.{vy_hallplatslage} CASCADE;"))
+    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.{vy_hallplats} CASCADE;"))
 
     # Create materialized view for stops
     sql_hallplats_avgangar = glue::glue("
-      CREATE MATERIALIZED VIEW {schema}.vy_historisk_hallplatslage_avgangar AS
-      WITH dagliga_avgangar AS (
+      CREATE MATERIALIZED VIEW {schema}.{vy_hallplatslage} AS
+      WITH dagliga_avgangar AS ( -- filtered per operator if agency_id is set
           SELECT
               st.stop_id,
               cd.date,
@@ -980,11 +928,14 @@ skapa_vyer_historisk_hallplats <- function(con, schema = schema_namn) {
           JOIN
               {schema}.trips t ON st.trip_id = t.trip_id AND st.version = t.version
           JOIN
+              {schema}.routes r ON t.route_id = r.route_id AND t.version = r.version
+          JOIN
               {schema}.calendar_dates cd ON t.service_id = cd.service_id AND t.version = cd.version
           JOIN
               {schema}.versions v ON t.version = v.version
           WHERE
               cd.exception_type = 1
+              {agency_filter}
           GROUP BY
               st.stop_id, cd.date, v.version
       ),
@@ -1015,7 +966,7 @@ skapa_vyer_historisk_hallplats <- function(con, schema = schema_namn) {
           FROM
               avgangar_vecka
       ),
-      routes_per_stop AS (
+      routes_per_stop AS ( -- filtered per operator if agency_id is set
           SELECT
               st.stop_id,
               v.version,
@@ -1031,6 +982,9 @@ skapa_vyer_historisk_hallplats <- function(con, schema = schema_namn) {
               {schema}.linjeklassificering lc ON r.route_short_name = lc.route_short_name AND r.version = lc.version
           JOIN
               {schema}.versions v ON t.version = v.version
+          WHERE
+              1 = 1
+              {agency_filter}
           GROUP BY
               st.stop_id, v.version
       )
@@ -1056,7 +1010,7 @@ skapa_vyer_historisk_hallplats <- function(con, schema = schema_namn) {
           normal_vecka nv
       JOIN
           {schema}.stops st ON nv.stop_id = st.stop_id AND nv.version = st.version
-      LEFT JOIN
+      JOIN -- inner join säkerställer att bara hållplatser operatören trafikerar tas med när agency_id är satt
           routes_per_stop rs ON st.stop_id = rs.stop_id AND nv.version = rs.version
       JOIN
           {schema}.versions v ON nv.version = v.version
@@ -1067,12 +1021,12 @@ skapa_vyer_historisk_hallplats <- function(con, schema = schema_namn) {
 
     # Create materialized view for historical stops
     sql_hallplats_avgangar = glue::glue("
-      CREATE MATERIALIZED VIEW {schema}.vy_historisk_hallplats_avgangar AS
+      CREATE MATERIALIZED VIEW {schema}.{vy_hallplats} AS
       SELECT
-          CONCAT(nva.parent_station, '_', nva.version) AS unique_id, -- Create a unique identifier
-          nva.parent_station AS stop_id,
-          h.hpl_id,
-          h.stop_name,
+          CONCAT(COALESCE(h.stop_id, nva.stop_id), '_', nva.version) AS unique_id, -- Create a unique identifier
+          COALESCE(h.stop_id, nva.stop_id) AS stop_id, -- fall tillbaka på egna stop_id om parent_station saknas/inte matchar
+          COALESCE(h.hpl_id, nva.hpl_id) AS hpl_id,
+          COALESCE(h.stop_name, nva.stop_name) AS stop_name,
           nva.startdatum,
           nva.slutdatum,
           nva.version,
@@ -1092,15 +1046,17 @@ skapa_vyer_historisk_hallplats <- function(con, schema = schema_namn) {
             ORDER BY unnest
           ), ', '
           ) AS linjetyper,
-          ST_SetSRID(h.geometry, 3006) AS geometry -- Ensure the SRID is correct
+          COALESCE(ST_SetSRID(h.geometry, 3006), nva.geometry) AS geometry -- Ensure the SRID is correct
       FROM
-          {schema}.vy_historisk_hallplatslage_avgangar nva
-      JOIN
+          {schema}.{vy_hallplatslage} nva
+      LEFT JOIN -- LEFT JOIN istället för INNER JOIN: annars tappas hela hållplatsläget om
+                -- parent_station saknas ELLER inte matchar något riktigt stop_id i stops
+                -- (t.ex. felformaterat/oprefixat id)
           {schema}.stops h ON nva.parent_station = h.stop_id AND nva.version = h.version
-      WHERE
-          nva.parent_station IS NOT NULL
       GROUP BY
-          nva.parent_station, h.hpl_id, h.stop_name, nva.startdatum, nva.slutdatum, h.geometry, nva.version;
+          COALESCE(h.stop_id, nva.stop_id), COALESCE(h.hpl_id, nva.hpl_id),
+          COALESCE(h.stop_name, nva.stop_name), nva.startdatum, nva.slutdatum,
+          COALESCE(ST_SetSRID(h.geometry, 3006), nva.geometry), nva.version;
     ")
     dbExecute(con, sql_hallplats_avgangar)
 
@@ -1111,17 +1067,49 @@ skapa_vyer_historisk_hallplats <- function(con, schema = schema_namn) {
   })
 }
 
-skapa_vyer_historisk_linjer <- function(con, schema = schema_namn) {
+
+skapa_vyer_historisk_linjer <- function(con, schema = schema_namn, agency_id = NULL, agency_namn = NULL, vy_suffix = NULL) {
+  # Om agency_id (eller agency_namn) anges filtreras allt till den operatören,
+  # annars skapas vyerna för samtliga operatörer (samma beteende som tidigare).
+  #
+  # agency_namn slås upp mot agency-tabellen i grundschemat (INTE _historisk).
+  #
+  # vy_suffix styr namnet på vyerna, t.ex. "_dt" för Dalatrafik.
+
+  if (!is.null(agency_namn)) {
+    if (!is.null(agency_id)) {
+      stop("Ange antingen agency_id eller agency_namn, inte båda.")
+    }
+    agency_id <- hamta_agency_id(con, schema, agency_namn)
+  }
+
+  if (!is.null(agency_id) && is.null(vy_suffix)) {
+    vy_suffix <- paste0("_", tolower(agency_id))
+  }
+  if (is.null(vy_suffix)) {
+    vy_suffix <- ""
+  }
+
+  vy_alla <- glue::glue("vy_historisk_linjer_avgangar_alla{vy_suffix}")
+  vy_vanligaste <- glue::glue("vy_historisk_linjer_avgangar_vanligaste{vy_suffix}")
+
+  # Bygg ett agency-filter som SQL-sträng, tomt om ingen agency_id angetts
+  agency_filter <- if (!is.null(agency_id)) {
+    glue::glue("AND r.agency_id = {DBI::dbQuoteString(con, agency_id)}")
+  } else {
+    ""
+  }
+
   tryCatch({
     schema <- glue::glue("{schema}_historisk")
     # Drop the materialized views if they exist
-    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_historisk_linjer_avgangar_alla CASCADE;"))
-    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.vy_historisk_linjer_avgangar_vanligaste CASCADE;"))
+    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.{vy_alla} CASCADE;"))
+    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.{vy_vanligaste} CASCADE;"))
 
     # Create materialized view for all lines with routes, trips, and daily departures
     sql_alla_linjer_avgangar = glue::glue("
-      CREATE MATERIALIZED VIEW {schema}.vy_historisk_linjer_avgangar_alla AS
-      WITH dagliga_avgangar AS (
+      CREATE MATERIALIZED VIEW {schema}.{vy_alla} AS
+      WITH dagliga_avgangar AS ( -- filtered per operator if agency_id is set
           SELECT
               t.shape_id,
               t.route_id,
@@ -1131,9 +1119,12 @@ skapa_vyer_historisk_linjer <- function(con, schema = schema_namn) {
           FROM
               {schema}.trips t
           JOIN
+              {schema}.routes r ON t.route_id = r.route_id AND t.version = r.version
+          JOIN
               {schema}.calendar_dates cd ON t.service_id = cd.service_id AND t.version = cd.version
           WHERE
               cd.exception_type = 1
+              {agency_filter}
           GROUP BY
               t.shape_id, t.route_id, cd.date, t.version
       ),
@@ -1166,7 +1157,7 @@ skapa_vyer_historisk_linjer <- function(con, schema = schema_namn) {
           FROM
               avgangar_vecka
       ),
-      shapes_info AS (
+      shapes_info AS ( -- filtered per operator if agency_id is set
           SELECT
               sl.shape_id,
               sl.antal_punkter,
@@ -1185,6 +1176,9 @@ skapa_vyer_historisk_linjer <- function(con, schema = schema_namn) {
               {schema}.routes r ON t.route_id = r.route_id AND t.version = r.version
           LEFT JOIN
               {schema}.linjeklassificering lc ON r.route_short_name = lc.route_short_name AND r.version = lc.version
+          WHERE
+              1 = 1
+              {agency_filter}
       )
       SELECT
           CONCAT(si.shape_id, '_', si.version) AS unique_id,
@@ -1220,7 +1214,7 @@ skapa_vyer_historisk_linjer <- function(con, schema = schema_namn) {
 
     # Create materialized view for the most common line per route
     sql_vanligaste_linjen = glue::glue("
-      CREATE MATERIALIZED VIEW {schema}.vy_historisk_linjer_avgangar_vanligaste AS
+      CREATE MATERIALIZED VIEW {schema}.{vy_vanligaste} AS
       WITH vanligaste_linje_per_route AS (
           SELECT
               unique_id,
@@ -1240,7 +1234,7 @@ skapa_vyer_historisk_linjer <- function(con, schema = schema_namn) {
               slutdatum,
               ROW_NUMBER() OVER (PARTITION BY linjenummer, version ORDER BY antal_turer DESC) AS rank
           FROM
-              {schema}.vy_historisk_linjer_avgangar_alla
+              {schema}.{vy_alla}
       )
       SELECT
           unique_id,
@@ -1269,5 +1263,197 @@ skapa_vyer_historisk_linjer <- function(con, schema = schema_namn) {
 
   }, error = function(e) {
     stop(glue::glue("Ett fel inträffade vid skapandet av materialiserade vyer: {e$message}"))
+  })
+}
+
+
+skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agency_namn = NULL, vy_suffix = NULL) {
+  # Om agency_id (eller agency_namn) anges filtreras allt till den operatören,
+  # annars skapas vyerna för samtliga operatörer (samma beteende som tidigare).
+  #
+  # agency_namn är ett bekvämlighetsalternativ till agency_id - anges det
+  # slås agency_id upp automatiskt via hamta_agency_id(). Ange bara ett av dem.
+  #
+  # vy_suffix styr namnet på vyerna, t.ex. "_dt" för Dalatrafik.
+  # Om agency_id anges men vy_suffix inte anges, används agency_id som suffix.
+
+  if (!is.null(agency_namn)) {
+    if (!is.null(agency_id)) {
+      stop("Ange antingen agency_id eller agency_namn, inte båda.")
+    }
+    agency_id <- hamta_agency_id(con, schema, agency_namn)
+  }
+
+  if (!is.null(agency_id) && is.null(vy_suffix)) {
+    vy_suffix <- paste0("_", tolower(agency_id))
+  }
+  if (is.null(vy_suffix)) {
+    vy_suffix <- ""
+  }
+
+  vy_alla <- glue::glue("vy_linjer_avgangar_alla{vy_suffix}")
+  vy_vanligaste <- glue::glue("vy_linjer_avgangar_vanligaste{vy_suffix}")
+
+  # Bygg ett agency-filter som SQL-sträng, tomt om ingen agency_id angetts
+  agency_filter <- if (!is.null(agency_id)) {
+    glue::glue("AND r.agency_id = {DBI::dbQuoteString(con, agency_id)}")
+  } else {
+    ""
+  }
+
+  tryCatch({
+    # Drop the materialized view if it exists
+    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.{vy_alla} CASCADE;"))
+    dbExecute(con, glue::glue("DROP MATERIALIZED VIEW IF EXISTS {schema}.{vy_vanligaste} CASCADE;"))
+
+    # Create materialized view for all lines with routes, trips, and daily departures
+    sql_alla_linjer_avgangar = glue::glue("
+      CREATE MATERIALIZED VIEW {schema}.{vy_alla} AS
+      WITH senaste_version AS ( -- Fetches the start date for the latest version so that only traffic from this date is included
+          SELECT start_date
+          FROM {schema}_historisk.versions
+          ORDER BY start_date DESC
+          LIMIT 1
+      ),
+      dagliga_avgangar AS ( -- Calculate the number of daily departures per line (shapes_line), filtered per operator if agency_id is set
+          SELECT
+              t.shape_id,
+              t.route_id,
+              cd.date,
+              COUNT(DISTINCT t.trip_id) AS antal_avgangar
+          FROM
+              {schema}.trips t
+          JOIN
+              {schema}.routes r ON t.route_id = r.route_id
+          JOIN
+              {schema}.calendar_dates cd ON t.service_id = cd.service_id
+          JOIN
+              senaste_version sv ON cd.date >= sv.start_date
+          WHERE
+              cd.exception_type = 1
+              {agency_filter}
+          GROUP BY
+              t.shape_id, t.route_id, cd.date
+      ),
+      avgangar_vecka AS ( -- Sum daily departures per weekday/Saturday/Sunday for each week
+          SELECT
+              shape_id,
+              route_id,
+              DATE_TRUNC('week', date) AS vecka_start,
+              SUM(CASE WHEN EXTRACT(DOW FROM date) BETWEEN 1 AND 5 THEN antal_avgangar ELSE 0 END) AS total_veckodag_avgangar,
+              SUM(CASE WHEN EXTRACT(DOW FROM date) = 6 THEN antal_avgangar ELSE 0 END) AS total_lordag_avgangar,
+              SUM(CASE WHEN EXTRACT(DOW FROM date) = 0 THEN antal_avgangar ELSE 0 END) AS total_sondag_avgangar,
+              SUM(antal_avgangar) AS total_veckans_avgangar
+          FROM
+              dagliga_avgangar
+          GROUP BY
+              shape_id, route_id, DATE_TRUNC('week', date)
+      ),
+      normal_vecka AS ( -- Rank weeks based on total departures to find the week with the most, considered a 'normal week'
+          SELECT
+              shape_id,
+              route_id,
+              vecka_start,
+              total_veckans_avgangar,
+              total_veckodag_avgangar,
+              total_lordag_avgangar,
+              total_sondag_avgangar,
+              ROW_NUMBER() OVER (PARTITION BY shape_id, route_id ORDER BY total_veckans_avgangar DESC) AS rank
+          FROM
+              avgangar_vecka
+          ORDER BY
+              shape_id, route_id, total_veckans_avgangar DESC
+      ),
+      shapes_info AS ( -- Join shapes_line and routes with their classifications via trips, filtered per operator if agency_id is set
+          SELECT
+              sl.shape_id,
+              sl.antal_punkter,
+              sl.max_dist,
+              sl.geometry,
+              r.route_id,
+              r.route_short_name,
+              r.route_long_name,
+              lc.klassificering
+          FROM
+              {schema}.shapes_line sl
+          JOIN
+              {schema}.trips t ON sl.shape_id = t.shape_id
+          JOIN
+              {schema}.routes r ON t.route_id = r.route_id
+          LEFT JOIN
+              {schema}.linjeklassificering lc ON r.route_short_name = lc.route_short_name
+          WHERE
+              1 = 1
+              {agency_filter}
+      )
+      SELECT -- Summarize all information
+          si.shape_id,
+          si.route_short_name AS linjenummer,
+          si.route_long_name,
+          si.klassificering,
+          si.antal_punkter,
+          si.max_dist AS max_avstand_punkter,
+          si.geometry,
+          ROUND(nv.total_veckodag_avgangar / 5.0, 2) AS genomsnitt_veckodag_avgangar,
+          nv.total_lordag_avgangar AS antal_lordag_avgangar,
+          nv.total_sondag_avgangar AS antal_sondag_avgangar,
+          ROUND(nv.total_veckans_avgangar / 7.0, 2) AS genomsnitt_veckans_avgangar,
+          COUNT(DISTINCT t.trip_id) AS antal_turer
+      FROM
+          normal_vecka nv
+      JOIN
+          shapes_info si ON nv.shape_id = si.shape_id AND nv.route_id = si.route_id
+      LEFT JOIN
+          {schema}.trips t ON si.shape_id = t.shape_id
+      WHERE
+          nv.rank = 1
+      GROUP BY
+          si.shape_id, si.route_short_name, si.route_long_name, si.klassificering, si.antal_punkter, si.max_dist, si.geometry, nv.total_veckodag_avgangar, nv.total_lordag_avgangar, nv.total_sondag_avgangar, nv.total_veckans_avgangar;
+    ")
+    dbExecute(con, sql_alla_linjer_avgangar)
+
+    # Create materialized view for the most common line for each route
+    sql_vanligaste_linjen = glue::glue("
+      CREATE MATERIALIZED VIEW {schema}.{vy_vanligaste} AS
+      WITH vanligaste_linje_per_route AS (
+          SELECT
+              linjenummer,
+              klassificering,
+              shape_id,
+              antal_turer,
+              genomsnitt_veckodag_avgangar,
+              antal_lordag_avgangar,
+              antal_sondag_avgangar,
+              genomsnitt_veckans_avgangar,
+              antal_punkter,
+              max_avstand_punkter,
+              geometry,
+              ROW_NUMBER() OVER (PARTITION BY linjenummer ORDER BY antal_turer DESC) AS rank
+          FROM
+              {schema}.{vy_alla}
+      )
+      SELECT
+          linjenummer,
+          klassificering,
+          shape_id,
+          antal_turer,
+          genomsnitt_veckodag_avgangar,
+          antal_lordag_avgangar,
+          antal_sondag_avgangar,
+          genomsnitt_veckans_avgangar,
+          antal_punkter,
+          max_avstand_punkter,
+          geometry
+      FROM
+          vanligaste_linje_per_route
+      WHERE
+          rank = 1;
+    ")
+    dbExecute(con, sql_vanligaste_linjen)
+
+    message(glue::glue("Materialiserad vy '{schema}.{vy_alla}' skapad framgångsrikt."))
+
+  }, error = function(e) {
+    stop(paste("Ett fel inträffade vid skapandet av vyn:", e$message))
   })
 }
