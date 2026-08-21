@@ -1348,20 +1348,20 @@ postgres_alla_rattigheter <- function(con = "default",
                                       anvandarnamn = NULL,
                                       meddelande_tid = FALSE) {
   starttid <- Sys.time()
-  
+
   if (is.character(con) && con == "default") {
     con <- uppkoppling_db()
     default_flagga <- TRUE
   } else {
     default_flagga <- FALSE
   }
-  
+
   filter_anvandare <- if (!is.null(anvandarnamn)) {
     glue::glue_sql("WHERE role_or_user = {anvandarnamn}", .con = con)
   } else {
     ""
   }
-  
+
   query <- glue::glue("
     WITH RECURSIVE role_closure AS (
       -- Varje roll/användare får först sina egna direkta rättigheter
@@ -1479,17 +1479,17 @@ postgres_alla_rattigheter <- function(con = "default",
     {filter_anvandare}
     ORDER BY role_or_user, schema_name;
   ")
-  
+
   resultat <- DBI::dbGetQuery(con, query)
-  
+
   if (default_flagga) DBI::dbDisconnect(con)
-  
+
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") |> round(1)
-  
+
   if (meddelande_tid) {
     cat(glue::glue("Processen tog {berakningstid} sekunder att köra"))
   }
-  
+
   return(resultat)
 }
 
@@ -1501,11 +1501,11 @@ postgres_alla_rattigheter_server <- function(anvandarnamn,
                                              visa_alla_scheman = FALSE,
                                              meddelande_tid = FALSE) {
   starttid <- Sys.time()
-  
+
   if (missing(anvandarnamn) || is.null(anvandarnamn) || !nzchar(anvandarnamn)) {
     stop("Parametern 'anvandarnamn' måste anges.", call. = FALSE)
   }
-  
+
   if (is.character(con) && con == "default") {
     con_server <- uppkoppling_adm("postgres")
     default_flagga <- TRUE
@@ -1513,11 +1513,11 @@ postgres_alla_rattigheter_server <- function(anvandarnamn,
     con_server <- con
     default_flagga <- FALSE
   }
-  
+
   if (is.null(con_server)) {
     stop("Kunde inte skapa serveruppkoppling.", call. = FALSE)
   }
-  
+
   if (default_flagga) {
     on.exit({
       if (DBI::dbIsValid(con_server)) {
@@ -1525,7 +1525,7 @@ postgres_alla_rattigheter_server <- function(anvandarnamn,
       }
     }, add = TRUE)
   }
-  
+
   databas_connect <- DBI::dbGetQuery(
     con_server,
     glue::glue_sql("
@@ -1539,25 +1539,25 @@ postgres_alla_rattigheter_server <- function(anvandarnamn,
       ORDER BY datname;
     ", .con = con_server)
   )
-  
+
   if (!is.null(databaser)) {
     databas_connect <- databas_connect |>
       dplyr::filter(databas %in% databaser)
   }
-  
+
   resultat <- purrr::map_dfr(
     seq_len(nrow(databas_connect)),
     function(i) {
-      
+
       db <- databas_connect$databas[i]
       har_connect <- databas_connect$connect[i]
-      
+
       if (!isTRUE(har_connect)) {
-        
+
         if (!visa_databaser_utan_connect) {
           return(tibble::tibble())
         }
-        
+
         return(
           tibble::tibble(
             databas = db,
@@ -1571,42 +1571,42 @@ postgres_alla_rattigheter_server <- function(anvandarnamn,
           )
         )
       }
-      
+
       con_db <- NULL
-      
+
       rattigheter <- tryCatch({
-        
+
         con_db <- uppkoppling_adm(db)
-        
+
         if (is.null(con_db)) {
           stop("Kunde inte ansluta till databasen med uppkoppling_adm().")
         }
-        
+
         postgres_alla_rattigheter(
           con = con_db,
           anvandarnamn = anvandarnamn
         )
-        
+
       }, error = function(e) {
-        
+
         tibble::tibble(
           role_or_user = anvandarnamn,
           schema_name = NA_character_,
           access_level = NA_character_,
           felmeddelande = e$message
         )
-        
+
       }, finally = {
-        
+
         if (!is.null(con_db) && DBI::dbIsValid(con_db)) {
           DBI::dbDisconnect(con_db)
         }
       })
-      
+
       if (!"felmeddelande" %in% names(rattigheter)) {
         rattigheter$felmeddelande <- NA_character_
       }
-      
+
       if (nrow(rattigheter) == 0) {
         rattigheter <- tibble::tibble(
           role_or_user = anvandarnamn,
@@ -1615,7 +1615,7 @@ postgres_alla_rattigheter_server <- function(anvandarnamn,
           felmeddelande = NA_character_
         )
       }
-      
+
       rattigheter |>
         dplyr::mutate(
           databas = db,
@@ -1626,25 +1626,25 @@ postgres_alla_rattigheter_server <- function(anvandarnamn,
         )
     }
   )
-  
+
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") |>
     round(1)
-  
+
   if (meddelande_tid) {
     cat(glue::glue("Processen tog {berakningstid} sekunder att köra"))
   }
-  
+
   retur_df <- resultat |>
     dplyr::arrange(databas, schema_name)
-  
-  
+
+
   if (visa_alla_scheman) {
     return(retur_df)
   } else {
     return(retur_df |>
              dplyr::count(databas, connect, access_level))
   }
-  
+
 }
 
 
@@ -1720,16 +1720,16 @@ postgres_roll_lagg_till <- function(
     rollnamn,
     meddelande_tid = FALSE
 ) {
-  
+
   starttid <- Sys.time()
-  
+
   if (is.character(con) && con == "default") {
     con <- uppkoppling_db()
     default_flagga <- TRUE
   } else {
     default_flagga <- FALSE
   }
-  
+
   query <- glue::glue("
     DO $$
     BEGIN
@@ -1743,13 +1743,13 @@ postgres_roll_lagg_till <- function(
     END
     $$;
   ")
-  
+
   DBI::dbExecute(con, query)
-  
+
   if (default_flagga) DBI::dbDisconnect(con)
-  
+
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") |> round(1)
-  
+
   if (meddelande_tid) {
     cat(glue::glue('Processen tog {berakningstid} sekunder att köra'))
   }
@@ -1760,40 +1760,40 @@ postgres_roll_ta_bort <- function(
     rollnamn,
     meddelande_tid = FALSE
 ) {
-  
+
   starttid <- Sys.time()
-  
+
   if (is.character(con) && con == "default") {
     con <- uppkoppling_db()
     default_flagga <- TRUE
   } else {
     default_flagga <- FALSE
   }
-  
+
   tryCatch({
-    
+
     DBI::dbExecute(
       con,
       glue::glue("DROP ROLE {rollnamn};")
     )
-    
+
     message("Rollen ", rollnamn, " har tagits bort.")
-    
+
   }, error = function(e) {
-    
+
     message(
       "Kunde inte ta bort rollen ",
       rollnamn,
       ": ",
       e$message
     )
-    
+
   })
-  
+
   if (default_flagga) DBI::dbDisconnect(con)
-  
+
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") |> round(1)
-  
+
   if (meddelande_tid) {
     cat(glue::glue('Processen tog {berakningstid} sekunder att köra'))
   }
@@ -1806,30 +1806,30 @@ postgres_roll_tilldela_till_anvandare <- function(
     anvandarnamn,
     meddelande_tid = FALSE
 ) {
-  
+
   starttid <- Sys.time()
-  
+
   if (missing(rollnamn) || !nzchar(rollnamn)) {
     stop("Parametern 'rollnamn' måste anges.", call. = FALSE)
   }
-  
+
   if (missing(anvandarnamn) || !nzchar(anvandarnamn)) {
     stop("Parametern 'anvandarnamn' måste anges.", call. = FALSE)
   }
-  
+
   if (is.character(con) && con == "default") {
     con <- uppkoppling_db()
     default_flagga <- TRUE
   } else {
     default_flagga <- FALSE
   }
-  
+
   if (is.null(con)) {
     stop("Kunde inte skapa uppkoppling.", call. = FALSE)
   }
-  
+
   tryCatch({
-    
+
     DBI::dbExecute(
       con,
       glue::glue_sql(
@@ -1837,7 +1837,7 @@ postgres_roll_tilldela_till_anvandare <- function(
         .con = con
       )
     )
-    
+
     message(
       "✅ Rollen ",
       rollnamn,
@@ -1845,9 +1845,9 @@ postgres_roll_tilldela_till_anvandare <- function(
       anvandarnamn,
       "."
     )
-    
+
   }, error = function(e) {
-    
+
     message(
       postgres_felmeddelande(
         e = e,
@@ -1856,20 +1856,20 @@ postgres_roll_tilldela_till_anvandare <- function(
         )
       )
     )
-    
+
   })
-  
+
   if (default_flagga) {
     DBI::dbDisconnect(con)
   }
-  
+
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") |>
     round(1)
-  
+
   if (meddelande_tid) {
     cat(glue::glue("Processen tog {berakningstid} sekunder att köra"))
   }
-  
+
   invisible(TRUE)
 }
 
@@ -1879,30 +1879,30 @@ postgres_roll_ta_bort_fran_anvandare <- function(
     anvandarnamn,
     meddelande_tid = FALSE
 ) {
-  
+
   starttid <- Sys.time()
-  
+
   if (missing(rollnamn) || is.null(rollnamn) || !nzchar(rollnamn)) {
     stop("Parametern 'rollnamn' måste anges.", call. = FALSE)
   }
-  
+
   if (missing(anvandarnamn) || is.null(anvandarnamn) || !nzchar(anvandarnamn)) {
     stop("Parametern 'anvandarnamn' måste anges.", call. = FALSE)
   }
-  
+
   if (is.character(con) && con == "default") {
     con <- uppkoppling_db()
     default_flagga <- TRUE
   } else {
     default_flagga <- FALSE
   }
-  
+
   if (is.null(con)) {
     stop("Kunde inte skapa uppkoppling.", call. = FALSE)
   }
-  
+
   tryCatch({
-    
+
     DBI::dbExecute(
       con,
       glue::glue_sql(
@@ -1910,7 +1910,7 @@ postgres_roll_ta_bort_fran_anvandare <- function(
         .con = con
       )
     )
-    
+
     message(
       "✅ Rollen ",
       rollnamn,
@@ -1918,9 +1918,9 @@ postgres_roll_ta_bort_fran_anvandare <- function(
       anvandarnamn,
       "."
     )
-    
+
   }, error = function(e) {
-    
+
     message(
       postgres_felmeddelande(
         e = e,
@@ -1929,22 +1929,22 @@ postgres_roll_ta_bort_fran_anvandare <- function(
         )
       )
     )
-    
+
   }, finally = {
-    
+
     if (default_flagga && !is.null(con) && DBI::dbIsValid(con)) {
       DBI::dbDisconnect(con)
     }
-    
+
   })
-  
+
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") |>
     round(1)
-  
+
   if (meddelande_tid) {
     cat(glue::glue("Processen tog {berakningstid} sekunder att köra"))
   }
-  
+
   invisible(TRUE)
 }
 
@@ -2307,7 +2307,7 @@ postgres_df_till_postgrestabell <- function(con = "default",
         })
       }
     }
-    
+
     # gör id_kol till id-kolumn i tabellen
     if (!is.na(id_kol)) {
       DBI::dbExecute(con, glue::glue_sql("ALTER TABLE {`schema`}.{`tabell`} ADD PRIMARY KEY ({`id_kol`});", .con = con))
@@ -2853,21 +2853,21 @@ fil_dataset_uppdaterades <- function(
 ) {
   # funktion för att hämta datum + tid för en fil som innehåller ett dataset, och kunna jämföra med när en tabell i en databas
   # är uppdaterad (behöver vi uppdatera tabellen i databasen?
-  
+
   starttid <- Sys.time()  # Starta tidstagning
-  
+
   # Bygg ISO 8601-sträng på formatet "2024-04-12T06:00:00Z"
   # OBS: Z anger UTC. version_tid lagras i lokal tid och konverteras INTE här (se not nedan).
   datum_txt <- format(as.Date(file.info(filnamn_med_sokvag)$mtime), "%Y-%m-%d")
   tid_txt   <- substr(as.character(file.info(filnamn_med_sokvag)$mtime), 12, 19)
   iso_tid   <- paste0(datum_txt, "T", tid_txt, "Z")
-  
+
   # Beräkna och skriv ut tidsåtgång
   berakningstid <- as.numeric(Sys.time() - starttid, units = "secs") %>% round(1)
   if (meddelande_tid) cat(glue::glue("Processen tog {berakningstid} sekunder att köra"))
-  
+
   return(iso_tid)
-  
+
 }
 
 tidformat_uppdaterad_till_text_datum_tid <- function(datum_tid_txt) {
@@ -2877,7 +2877,7 @@ tidformat_uppdaterad_till_text_datum_tid <- function(datum_tid_txt) {
 
 pxweb2_uppdaterad_till_text_datum_tid <- function(datum_tid_txt){
   # läs in datum från när en tabell är uppdaterad i pxweb2, returnera en lista med två element, ett för datum och ett för tid
-  
+
   datum_txt <- datum_tid_txt %>% as.Date() %>% as.character()
   tid_txt <- datum_tid_txt %>% as.POSIXct(format = "%Y-%m-%dT%H:%M:%SZ") %>% format("%H:%M:%S") %>% as.character()
   retur_lista <- list(datum = datum_txt,
@@ -2887,14 +2887,14 @@ pxweb2_uppdaterad_till_text_datum_tid <- function(datum_tid_txt){
 }
 
 
-# skript för att hämta data från pxweb2 och skriva till en tabell i en postgresdatabas, denna funktion kräver att man har 
+# skript för att hämta data från pxweb2 och skriva till en tabell i en postgresdatabas, denna funktion kräver att man har
 # konfigurerat uppkoppling_adm() med läsrättigheter på den databas man skickar med som argument
 postgres_pxweb2_uppdatera_tabell <- function(
     tabell_id_pxweb2,                                    # tabell_id för en pxweb2-tabell
     db_namn,                                             # databasnamn i en postgres-databas dit datasetet ska skrivas
     schema_db,                                           # schema i postgres-databasen där tabellen ska skrivas
     tabell_db,                                           # tabellnamn i postgres-databasen där tabellen ska skrivas
-    hamta_data_funktion,                                 # en funktion som hämtar data från pxweb2, ska skrivas typ så här: 
+    hamta_data_funktion,                                 # en funktion som hämtar data från pxweb2, ska skrivas typ så här:
                                         # hamta_data_funktion = function(tabell_id_pxweb2) {
                                         #   pxweb2_hamta_data(
                                         #     tabell = tabell_id_pxweb2,
@@ -2913,19 +2913,19 @@ postgres_pxweb2_uppdatera_tabell <- function(
     uppdatering_tvinga = FALSE,         # om TRUE så kommer tabellen att uppdateras även om den inte behöver det, dvs även om tabellen i pxweb2 inte har uppdaterats sedan senaste uppdateringen av tabellen i postgres-databasen
     verbose = TRUE                      # TRUE = skriv ut meddelanden om vad som händer, FALSE = inga meddelanden skrivs ut
 ) {
-  
+
   source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_pxweb2.R")
-  
+
   con <- uppkoppling_adm(db_namn)
-  
+
   if (postgres_tabell_finns(con, schema_db, tabell_db)) {
-  
+
     tabell_db_uppdaterad <- postgres_tabell_uppdaterades(
       con = con,
       schema = schema_db,
       tabell = tabell_db
     )
-    
+
     behover_uppdateras <- pxweb2_tabell_behover_uppdateras(
       tabell_id_pxweb2,
       tabell_db_uppdaterad
@@ -2936,13 +2936,13 @@ postgres_pxweb2_uppdatera_tabell <- function(
       schema_db, ".", tabell_db,
       " finns inte i databasen och skapas nu för att lagra data från tabellen ", tabell_id_pxweb2, "."
       )
-    
+
     if (verbose) {
       message(msg)
     }
   }
-    
-    
+
+
   if (!behover_uppdateras && !uppdatering_tvinga) {
     msg <- paste0(
       "Tabell ", tabell_id_pxweb2,
@@ -2950,11 +2950,11 @@ postgres_pxweb2_uppdatera_tabell <- function(
       schema_db, ".", tabell_db,
       " i databasen. Ingen uppdatering behövs."
     )
-    
+
     if (verbose) {
       message(msg)
     }
-    
+
     return(invisible(list(
       uppdaterad = FALSE,
       tabell_id = tabell_id_pxweb2,
@@ -2963,21 +2963,21 @@ postgres_pxweb2_uppdatera_tabell <- function(
       meddelande = msg
     )))
   }
-  
+
   if (verbose) {
     message("Hämtar data för tabell ", tabell_id_pxweb2, "...")
   }
-  
+
   inlas_df <- hamta_data_funktion(tabell_id_pxweb2)
-  
+
   datum_tid_lista <- pxweb2_uppdaterad_till_text_datum_tid(
     pxweb2_tabell_uppdaterades(tabell_id_pxweb2)
   )
-  
+
   if (verbose) {
     message("Skriver data till ", schema_db, ".", tabell_db, "...")
   }
-  
+
   postgres_databas_skriv_med_metadata(
     con = con,
     inlas_df = inlas_df,
@@ -2988,7 +2988,7 @@ postgres_pxweb2_uppdatera_tabell <- function(
     version_datum = datum_tid_lista$datum,
     version_tid = datum_tid_lista$tid
   )
-  
+
   invisible(list(
     uppdaterad = TRUE,
     tabell_id = tabell_id_pxweb2,
@@ -3009,17 +3009,17 @@ postgres_pxweb2_uppdatera_tabell_skapa_skript <- function(
     db_namn = "oppna_data",
     till_urklippshanteraren = TRUE
 ) {
-  
+
   if (missing(tabell_id_pxweb2) || !nzchar(tabell_id_pxweb2)) {
     stop("Du måste ange tabell_id_pxweb2.", call. = FALSE)
   }
-  
+
   if (missing(tabell_db) || !nzchar(tabell_db)) {
     stop("Du måste ange tabell_db.", call. = FALSE)
   }
-  
+
   source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_pxweb2.R")
-  
+
   if (!exists("pxweb2_get_data_script_create", mode = "function")) {
     stop(
       "Funktionen pxweb2_get_data_script_create() finns inte laddad. ",
@@ -3027,17 +3027,17 @@ postgres_pxweb2_uppdatera_tabell_skapa_skript <- function(
       call. = FALSE
     )
   }
-  
+
   r_string <- function(x) {
     encodeString(enc2utf8(as.character(x)), quote = "\"")
   }
-  
+
   pxweb2_script_obj <- NULL
-  
+
   pxweb2_script_stdout <- capture.output({
     pxweb2_script_obj <- pxweb2_get_data_script_create(tabell_id_pxweb2)
   })
-  
+
   if (is.character(pxweb2_script_obj) && length(pxweb2_script_obj) > 0) {
     hamta_text <- paste(pxweb2_script_obj, collapse = "\n")
   } else if (length(pxweb2_script_stdout) > 0) {
@@ -3048,12 +3048,12 @@ postgres_pxweb2_uppdatera_tabell_skapa_skript <- function(
       call. = FALSE
     )
   }
-  
+
   hamta_rader <- strsplit(hamta_text, "\n", fixed = TRUE)[[1]]
   hamta_rader <- hamta_rader[nzchar(trimws(hamta_rader))]
-  
+
   hamta_text <- paste(hamta_rader, collapse = "\n")
-  
+
   # Om pxweb2_get_data_script_create() skapar t.ex.
   # data <- pxweb2_hamta_data(...)
   # så tar vi bort tilldelningen, eftersom detta ska ligga inuti en funktion.
@@ -3063,7 +3063,7 @@ postgres_pxweb2_uppdatera_tabell_skapa_skript <- function(
     hamta_text,
     perl = TRUE
   )
-  
+
   # Byt ut hårdkodat tabell-id mot funktionsargumentet inne i hamta_data_funktion.
   hamta_text <- gsub(
     "tabell\\s*=\\s*['\"][^'\"]+['\"]",
@@ -3071,10 +3071,10 @@ postgres_pxweb2_uppdatera_tabell_skapa_skript <- function(
     hamta_text,
     perl = TRUE
   )
-  
+
   hamta_rader <- strsplit(hamta_text, "\n", fixed = TRUE)[[1]]
   hamta_rader <- paste0("    ", hamta_rader)
-  
+
   skript <- paste0(
     "postgres_pxweb2_uppdatera_tabell(\n",
     "  tabell_id_pxweb2 = ", r_string(tabell_id_pxweb2), ",\n",
@@ -3088,11 +3088,11 @@ postgres_pxweb2_uppdatera_tabell_skapa_skript <- function(
     "  }\n",
     ")"
   )
-  
+
   if (till_urklippshanteraren) {
     writeLines(text = skript, con = "clipboard", sep = "")
   }
-  
+
   invisible(cat(skript))
 }
 
@@ -3104,27 +3104,27 @@ postgres_grants_auto_skapa <- function(con,
                                        skrivroller = "skrivroll",
                                        lasroll_tilldela = NULL,
                                        skrivroll_tilldela = NULL) {
-  
+
   # Säkerställ vektorer
   lasroller <- unique(lasroller)
   skrivroller <- unique(skrivroller)
-  
+
   if (length(lasroller) < 1 && length(skrivroller) < 1) {
     stop("Minst en läsroll eller skrivroll måste anges.", call. = FALSE)
   }
-  
+
   message("🔍 Kontrollerar befintliga event triggers...")
-  
+
   old_triggers <- DBI::dbGetQuery(con, "
     SELECT evtname, evtevent, evtenabled, evtowner::regrole
     FROM pg_event_trigger
     ORDER BY evtname;
   ")
-  
+
   if (nrow(old_triggers) > 0) {
     message("⚠️  Befintliga triggers hittades:\n")
     print(old_triggers)
-    
+
     if (remove_old) {
       message("🧹 Tar bort gamla triggers...")
       DBI::dbExecute(con, "DROP EVENT TRIGGER IF EXISTS auto_grant_tables;")
@@ -3133,20 +3133,20 @@ postgres_grants_auto_skapa <- function(con,
   } else {
     message("✅ Inga gamla triggers hittades.")
   }
-  
+
   message("📦 Installerar ny universal auto_grant-funktion...")
-  
+
   # SQL-litteraler för arrayer i PL/pgSQL
   lasroller_sql <- paste(
     DBI::dbQuoteString(con, lasroller),
     collapse = ", "
   )
-  
+
   skrivroller_sql <- paste(
     DBI::dbQuoteString(con, skrivroller),
     collapse = ", "
   )
-  
+
   auto_grant_sql <- glue::glue("
     CREATE OR REPLACE FUNCTION public.auto_grant()
     RETURNS event_trigger
@@ -3167,7 +3167,7 @@ postgres_grants_auto_skapa <- function(con,
                 -- Tabeller, vyer och materialiserade vyer
                 IF obj.object_type IN ('table', 'view', 'materialized view') THEN
                     RAISE NOTICE 'Ger rättigheter på %: %', obj.object_type, obj.object_identity;
-                    
+
                     FOREACH lasroll IN ARRAY lasroller LOOP
                         EXECUTE format(
                             'GRANT SELECT ON %s TO %I;',
@@ -3175,7 +3175,7 @@ postgres_grants_auto_skapa <- function(con,
                             lasroll
                         );
                     END LOOP;
-                    
+
                     FOREACH skrivroll IN ARRAY skrivroller LOOP
                         EXECUTE format(
                             'GRANT SELECT, INSERT, UPDATE, DELETE ON %s TO %I;',
@@ -3183,33 +3183,33 @@ postgres_grants_auto_skapa <- function(con,
                             skrivroll
                         );
                     END LOOP;
-                
+
                 -- Scheman
                 ELSIF obj.object_type = 'schema' THEN
                     schema_name := obj.object_identity;
                     RAISE NOTICE 'Ger rättigheter på schema: %', schema_name;
-                    
+
                     FOREACH lasroll IN ARRAY lasroller LOOP
                         EXECUTE format(
                             'GRANT USAGE ON SCHEMA %I TO %I;',
                             schema_name,
                             lasroll
                         );
-                        
+
                         EXECUTE format(
                             'ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT ON TABLES TO %I;',
                             schema_name,
                             lasroll
                         );
                     END LOOP;
-                    
+
                     FOREACH skrivroll IN ARRAY skrivroller LOOP
                         EXECUTE format(
                             'GRANT USAGE, CREATE ON SCHEMA %I TO %I;',
                             schema_name,
                             skrivroll
                         );
-                        
+
                         EXECUTE format(
                             'ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I;',
                             schema_name,
@@ -3217,7 +3217,7 @@ postgres_grants_auto_skapa <- function(con,
                         );
                     END LOOP;
                 END IF;
-                
+
             EXCEPTION
                 WHEN OTHERS THEN
                     RAISE WARNING 'Fel vid grant för % (type: %): %',
@@ -3229,41 +3229,41 @@ postgres_grants_auto_skapa <- function(con,
     END;
     $$;
   ")
-  
+
   DBI::dbExecute(con, auto_grant_sql)
-  
+
   message("⚙️ Skapar nya event triggers...")
-  
+
   DBI::dbExecute(con, "DROP EVENT TRIGGER IF EXISTS auto_grant_tables;")
-  
+
   DBI::dbExecute(con, "
     CREATE EVENT TRIGGER auto_grant_tables
       ON ddl_command_end
       WHEN TAG IN ('CREATE TABLE', 'CREATE VIEW', 'CREATE MATERIALIZED VIEW')
       EXECUTE FUNCTION public.auto_grant();
   ")
-  
+
   DBI::dbExecute(con, "DROP EVENT TRIGGER IF EXISTS auto_grant_schemas;")
-  
+
   DBI::dbExecute(con, "
     CREATE EVENT TRIGGER auto_grant_schemas
       ON ddl_command_end
       WHEN TAG IN ('CREATE SCHEMA')
       EXECUTE FUNCTION public.auto_grant();
   ")
-  
+
   message("✅ Klart! Nya triggers och funktion är installerade.")
-  
+
   if (rattigheter_pa_befintliga == TRUE) {
     message("🔄 Uppdaterar även rättigheter på befintliga objekt...")
-    
+
     postgres_grants_pa_befintliga_objekt(
       con = con,
       lasroller = lasroller,
       skrivroller = skrivroller
     )
   }
-  
+
   # --- Tilldela användare till läsroller ---
   if (!is.null(lasroll_tilldela) && length(lasroll_tilldela) > 0) {
     purrr::walk(lasroll_tilldela, \(anvandare) {
@@ -3283,7 +3283,7 @@ postgres_grants_auto_skapa <- function(con,
       })
     })
   }
-  
+
   # --- Tilldela användare till skrivroller ---
   if (!is.null(skrivroll_tilldela) && length(skrivroll_tilldela) > 0) {
     purrr::walk(skrivroll_tilldela, \(anvandare) {
@@ -3303,19 +3303,19 @@ postgres_grants_auto_skapa <- function(con,
       })
     })
   }
-  
+
   invisible(TRUE)
 }
 
 postgres_grants_pa_befintliga_objekt <- function(con,
                                                  lasroller = "lasroll",
                                                  skrivroller = "skrivroll") {
-  
+
   lasroller <- unique(lasroller)
   skrivroller <- unique(skrivroller)
-  
+
   message("📦 Ger rättigheter till befintliga scheman, tabeller, vyer och materialiserade vyer...")
-  
+
   scheman <- DBI::dbGetQuery(con, "
     SELECT schema_name
     FROM information_schema.schemata
@@ -3323,7 +3323,7 @@ postgres_grants_pa_befintliga_objekt <- function(con,
       AND schema_name NOT LIKE 'pg_%'
     ORDER BY schema_name;
   ")
-  
+
   tabeller_och_vyer <- DBI::dbGetQuery(con, "
     SELECT table_schema, table_name
     FROM information_schema.tables
@@ -3331,7 +3331,7 @@ postgres_grants_pa_befintliga_objekt <- function(con,
       AND table_schema NOT LIKE 'pg_%'
     ORDER BY table_schema, table_name;
   ")
-  
+
   matviews <- DBI::dbGetQuery(con, "
     SELECT schemaname, matviewname
     FROM pg_matviews
@@ -3339,9 +3339,9 @@ postgres_grants_pa_befintliga_objekt <- function(con,
       AND schemaname NOT LIKE 'pg_%'
     ORDER BY schemaname, matviewname;
   ")
-  
+
   for (schema_namn in scheman$schema_name) {
-    
+
     for (lasroll in lasroller) {
       DBI::dbExecute(
         con,
@@ -3350,7 +3350,7 @@ postgres_grants_pa_befintliga_objekt <- function(con,
           .con = con
         )
       )
-      
+
       DBI::dbExecute(
         con,
         glue::glue_sql(
@@ -3360,7 +3360,7 @@ postgres_grants_pa_befintliga_objekt <- function(con,
         )
       )
     }
-    
+
     for (skrivroll in skrivroller) {
       DBI::dbExecute(
         con,
@@ -3369,7 +3369,7 @@ postgres_grants_pa_befintliga_objekt <- function(con,
           .con = con
         )
       )
-      
+
       DBI::dbExecute(
         con,
         glue::glue_sql(
@@ -3380,12 +3380,12 @@ postgres_grants_pa_befintliga_objekt <- function(con,
       )
     }
   }
-  
+
   for (i in seq_len(nrow(tabeller_och_vyer))) {
-    
+
     schema_namn <- tabeller_och_vyer$table_schema[i]
     tabell_namn <- tabeller_och_vyer$table_name[i]
-    
+
     for (lasroll in lasroller) {
       DBI::dbExecute(
         con,
@@ -3395,7 +3395,7 @@ postgres_grants_pa_befintliga_objekt <- function(con,
         )
       )
     }
-    
+
     for (skrivroll in skrivroller) {
       DBI::dbExecute(
         con,
@@ -3406,12 +3406,12 @@ postgres_grants_pa_befintliga_objekt <- function(con,
       )
     }
   }
-  
+
   for (i in seq_len(nrow(matviews))) {
-    
+
     schema_namn <- matviews$schemaname[i]
     matview_namn <- matviews$matviewname[i]
-    
+
     for (lasroll in lasroller) {
       DBI::dbExecute(
         con,
@@ -3421,7 +3421,7 @@ postgres_grants_pa_befintliga_objekt <- function(con,
         )
       )
     }
-    
+
     for (skrivroll in skrivroller) {
       DBI::dbExecute(
         con,
@@ -3432,9 +3432,9 @@ postgres_grants_pa_befintliga_objekt <- function(con,
       )
     }
   }
-  
+
   message("✅ Rättigheter till befintliga objekt har uppdaterats.")
-  
+
   invisible(TRUE)
 }
 
@@ -3614,9 +3614,9 @@ postgres_grants_auto_testa <- function(con) {
 }
 
 postgres_felmeddelande <- function(e, atgard) {
-  
+
   feltext <- conditionMessage(e)
-  
+
   if (
     stringr::str_detect(feltext, stringr::regex("permission denied", ignore_case = TRUE)) ||
     stringr::str_detect(feltext, stringr::regex("must have admin option", ignore_case = TRUE)) ||
@@ -3626,7 +3626,7 @@ postgres_felmeddelande <- function(e, atgard) {
     stringr::str_detect(feltext, stringr::regex("åtkomst nekas", ignore_case = TRUE)) ||
     stringr::str_detect(feltext, stringr::regex("måste vara medlem", ignore_case = TRUE))
   ) {
-    
+
     return(
       paste0(
         "Uppkopplingen saknar sannolikt behörighet för att ",
@@ -3638,9 +3638,9 @@ postgres_felmeddelande <- function(e, atgard) {
         "Prova att använda en administrativ uppkoppling, t.ex. uppkoppling_adm()."
       )
     )
-    
+
   }
-  
+
   paste0(
     "Ett fel uppstod vid försök att ",
     atgard,
@@ -5542,6 +5542,11 @@ pgrouting_punkttabell_koppla_till_pgr_graf <- function(
   } # slut kontroll om kolumnnamn finns
 
   if (id_kol_finns & geom_kol_finns) {
+    meta_punkter <- list(version_datum = NA, version_tid = NA)
+    meta_pgr_graf <- list(version_datum = NA, version_tid = NA)
+    tabell_ver_db <- NA
+    lyckad_uppdatering <- FALSE
+
     tryCatch({
       dbBegin(con)
       # vi börjar med att skapa en ny kolumn i den nya tabellen
@@ -5761,7 +5766,7 @@ pgrouting_kostnadskolumner_transporttyp_graf <- function(
     # skapa variabler för att fylla på metadata-tabellen
     meta_kostnader <- postgres_meta(
       con = con,
-      query = glue("WHERE schema = '{schema_natverk}' AND tabell = 'nvdb_{natverkstyp}_{punkter_till_tabell}'")
+      query = glue("WHERE schema = '{schema_natverk}' AND tabell = '{tabell_natverk}'")
     ) %>%
       select(version_datum, version_tid, kommentar)
 
