@@ -5857,8 +5857,7 @@ shinyUI(
         class  = 'rd-header__right',
         href   = 'https://www.regiondalarna.se',
         target = '_blank',
-        tags$img(src = 'logo_liggande_fri_vit.png', alt = 'Region Dalarna'),
-        tags$span('Samhällsanalys')
+        tags$img(src = 'logo_liggande_fri_vit.png', alt = 'Region Dalarna')
       )
     ),
 
