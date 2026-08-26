@@ -2756,6 +2756,40 @@ las_b64 <- function(sokvag_filnamn) {
   rawToChar(raw)
 }
 
+copilot_konvertera <- function(appnamn = NULL, mapp = "c:/Lokalt/till_copilot") {
+  
+  # en funktion för att konvertera alla R-skript i en mapp till textfiler som kan användas i Copilot. Om man
+  # vill kan man ange ett namn på appen som filerna tillhör och få med det i filnamnen. 
+  
+  if (!dir.exists(mapp)) {
+    stop(paste("Mappen finns inte:", mapp))
+  }
+  
+  filer <- list.files(
+    path = mapp,
+    pattern = "\\.[Rr]$",
+    full.names = TRUE
+  )
+  
+  purrr::walk(filer, function(fil) {
+    
+    filnamn <- tools::file_path_sans_ext(basename(fil))
+    
+    nytt_namn <- if (is.null(appnamn)) {
+      paste0(filnamn, ".txt")
+    } else {
+      paste0(filnamn, "_", appnamn, ".txt")
+    }
+    
+    file.rename(
+      from = fil,
+      to = file.path(dirname(fil), nytt_namn)
+    )
+  })
+  
+  invisible(NULL)
+}
+
 
 # ================================================= Ladda ner data utan API ==============================================
 
