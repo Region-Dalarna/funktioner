@@ -5675,7 +5675,8 @@ shinyapp_skapa_med_github_repo <- function(
   
   # ==== Beroenden ==============================================================
   
-  pkg_needed <- c("usethis", "gert", "glue", "stringr", "purrr", "httr", "keyring", "renv", "callr")
+  pkg_needed <- c("usethis", "gert", "glue", "stringr", "purrr", 
+                  "httr", "keyring", "renv", "callr", "rstudioapi")
   miss <- pkg_needed[!vapply(pkg_needed, requireNamespace, logical(1), quietly = TRUE)]
   if (length(miss) > 0) {
     stop(
@@ -5694,6 +5695,19 @@ shinyapp_skapa_med_github_repo <- function(
     if (!dir.exists(path)) dir.create(path, recursive = TRUE)
   }
   
+  
+  # ==== Kontrollera att vi INTE står i ett öppet RStudio-projekt =============
+  
+  if (rstudioapi::isAvailable() && !is.null(rstudioapi::getActiveProject())) {
+    stop(
+      "Du verkar stå i ett öppet RStudio-projekt (\"",
+      rstudioapi::getActiveProject(),
+      "\").\n",
+      "Stäng projektet (File \u2192 Close Project) och kör funktionen från en session ",
+      "utan aktivt projekt, annars kan usethis blanda ihop projektkontexter.",
+      call. = FALSE
+    )
+  }
   
   # ==== Normalisera sökvägar ===================================================
   
@@ -5717,6 +5731,18 @@ shinyapp_skapa_med_github_repo <- function(
     stringr::str_sub(sokvag_proj, 1, -2)
   } else {
     sokvag_proj
+  }
+  
+  # kontrollera om det redan finns ett git-repo i mappen (t.ex. från tidigare körning)
+  git_dir <- file.path(sokvag_proj, ".git")
+  if (dir.exists(git_dir)) {
+    stop(
+      "Mappen '", sokvag_proj, "' innehåller redan ett git-repo (.git). ",
+      "Detta är troligen kvarlevor från en tidigare körning. ",
+      "Radera mappen (unlink(..., recursive = TRUE)) och kör om, ",
+      "eller granska manuellt med gert::git_remote_list().",
+      call. = FALSE
+    )
   }
   
   usethis::create_project(gitprojekt_sokvag, open = FALSE)
