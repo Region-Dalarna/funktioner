@@ -1042,7 +1042,7 @@ intern_pxweb2_hamta_flera_tabeller <- function(
           variabelnamn_harmonisera = variabelnamn_harmonisera
         )
       
-      pxweb2_hamta_data(
+      df_tabell <- pxweb2_hamta_data(
         tabell = metadata_tabell,
         query = query_tabell,
         lang = lang,
@@ -1057,7 +1057,12 @@ intern_pxweb2_hamta_flera_tabeller <- function(
         deso_regso_splitta_kommun = deso_regso_splitta_kommun,
         include_aggregations = include_aggregations,
         auto_limit = auto_limit
-      ) |>
+      ) 
+      
+      # Om tabellen gav NULL (t.ex. pga "null"-läget) -> hoppa över harmonisering/mutate
+      if (is.null(df_tabell)) return(NULL)
+      
+      df_tabell |>
         intern_pxweb2_harmonisera_resultatnamn(
           variabelnamn_harmonisera = variabelnamn_harmonisera
         ) |>
@@ -1065,6 +1070,8 @@ intern_pxweb2_hamta_flera_tabeller <- function(
           tabell_id = tabell_id,
           .before = 1
         )
+      
+      
     })
   
   names(resultat_lista) <- tabeller_att_hamta
