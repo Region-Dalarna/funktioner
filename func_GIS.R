@@ -2295,18 +2295,18 @@ postgres_df_till_postgrestabell <- function(con = "default",
       }
     })
 
-    # Konvertera text-kolumner tillbaka till TIMESTAMP om de innehåller datum
-    datetime_text_cols <- names(inlas_df)[datetime_cols]
-    if (length(datetime_text_cols) > 0) {
-      for (col in datetime_text_cols) {
-        tryCatch({
-          dbExecute(con, sprintf('ALTER TABLE "%s"."%s" ALTER COLUMN "%s" TYPE TIMESTAMP USING "%s"::timestamp;',
-                                 schema, tabell, col, col))
-        }, error = function(e) {
-          warning(paste("Kunde inte konvertera", col, "till TIMESTAMP:", e$message))
-        })
-      }
-    }
+    # # Konvertera text-kolumner tillbaka till TIMESTAMP om de innehåller datum
+    # datetime_text_cols <- names(inlas_df)[datetime_cols]
+    # if (length(datetime_text_cols) > 0) {
+    #   for (col in datetime_text_cols) {
+    #     tryCatch({
+    #       dbExecute(con, sprintf('ALTER TABLE "%s"."%s" ALTER COLUMN "%s" TYPE TIMESTAMP USING "%s"::timestamp;',
+    #                              schema, tabell, col, col))
+    #     }, error = function(e) {
+    #       warning(paste("Kunde inte konvertera", col, "till TIMESTAMP:", e$message))
+    #     })
+    #   }
+    # }
 
     # gör id_kol till id-kolumn i tabellen
     if (!is.na(id_kol)) {
