@@ -985,6 +985,58 @@ valj_option_utan_event <- function(skrap, css, value, iframe = NULL) {
   invisible(TRUE)
 }
 
+#' Sätt värde i en select-lista och trigga change/input-event
+#'
+#' Som valj_option_utan_event(), men triggar även change- och input-event
+#' efter att värdet satts. Använd den här när sidan (t.ex. Vue/Vuetify-
+#' baserade formulär) inte reagerar på att bara value/selected sätts, utan
+#' kräver ett riktigt change-event för att uppdatera sitt interna state.
+#' Förstahandsvalet är annars selenider::elem_select(), men den kan i vissa
+#' fall krascha internt (SyntaxError) beroende på hur selectorn ser ut -
+#' då är den här funktionen ett fungerande alternativ.
+#'
+#' @param skrap Ett objekt skapat av starta_skrapsession().
+#' @param css CSS-selektor för `<select>`-elementet, t.ex. "select#AR"
+#'   eller "select[name='categories']".
+#' @param value Value-attributet för det alternativ som ska väljas (se
+#'   hamta_select_options()/hamta_select_varden() för att lista värden).
+#' @param iframe Valfri CSS-selektor till ett iframe elementet ligger i.
+#'
+#' @return Inget (osynligt TRUE). Kastar fel om ingen match hittas.
+#'
+#' @examples
+#' \dontrun{
+#' valj_i_lista(skrap, "select[name='categories']", "19.4665efe718412b3921e1d45")
+#' }
+valj_i_lista <- function(skrap, css, value, iframe = NULL) {
+  if (!inherits(skrap, "skrapsession")) {
+    stop("Objektet ar inte skapat av starta_skrapsession().")
+  }
+  rlang::check_installed("jsonlite")
+  
+  js <- sprintf(
+    "(function(){
+       %s
+       var sel = dok.querySelector(%s);
+       if (!sel) return false;
+       sel.value = %s;
+       sel.dispatchEvent(new Event('change', { bubbles: true }));
+       sel.dispatchEvent(new Event('input', { bubbles: true }));
+       return true;
+     })()",
+    bygg_dokument_js(iframe),
+    jsonlite::toJSON(css, auto_unbox = TRUE),
+    jsonlite::toJSON(value, auto_unbox = TRUE)
+  )
+  
+  hittad <- kor_js(skrap, js)
+  kontrollera_iframe_svar(hittad)
+  if (!isTRUE(hittad)) {
+    stop("Hittade ingen select-lista som matchar: ", css)
+  }
+  invisible(TRUE)
+}
+
 #' Fyll i text i en textruta, direkt via JavaScript
 #'
 #' Som valj_option_utan_event(), fast för `input[type=text]`/`textarea`
