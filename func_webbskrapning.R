@@ -539,12 +539,19 @@ inspektera_kontroller <- function(skrap) {
       }))
     ),
     klickbara: [...document.querySelectorAll(
-      'a, button, input[type=button], input[type=submit]'
-    )].map(e => ({
+      'a, button, input[type=button], input[type=submit], [onclick], div, span'
+    )].filter(e => {
+      if (['A','BUTTON','INPUT'].includes(e.tagName)) return true;
+      // för div/span/generiska element: bara ta med om de verkar klickbara
+      // (cursor: pointer är den vanligaste signalen på en icke-semantisk knapp)
+      return e.hasAttribute('onclick') || getComputedStyle(e).cursor === 'pointer';
+    }).map(e => ({
       id: e.id || '',
       tag: e.tagName.toLowerCase(),
+      class: e.className || '',
+      href: e.getAttribute('href') || '',
       text: (e.innerText || e.value || '').trim().slice(0, 60)
-    })).filter(e => e.id !== '' || e.text !== ''),
+    })).filter(e => (e.id !== '' || e.href !== '' || e.class !== '') && e.text !== ''),
     inmatning: [...document.querySelectorAll(
       'input[type=text], input[type=checkbox], input[type=radio], textarea'
     )].map(e => ({
@@ -585,10 +592,27 @@ visa_kontroller <- function(skrap, max_options = 10) {
     }
   }
   
-  cat("\n=== KLICKBARA ELEMENT (med id) ===\n")
+  cat("\n=== KLICKBARA ELEMENT (med id, href eller klass) ===\n")
   if (length(k$klickbara) && nrow(k$klickbara)) {
-    med_id <- k$klickbara[k$klickbara$id != "", ]
-    cat(sprintf("#%-40s %s\n", med_id$id, med_id$text), sep = "")
+    med_ankare <- k$klickbara[k$klickbara$id != "" | k$klickbara$href != "" | k$klickbara$class != "", ]
+    cat(sprintf("<%s> #%-15s href=%-25s class=%-25s %s\n",
+                med_ankare$tag, med_ankare$id, med_ankare$href, med_ankare$class, med_ankare$text), sep = "")
+    
+    saknar_id <- sum(med_ankare$id == "" & med_ankare$href != "")
+    if (saknar_id > 0) {
+      cat(sprintf(
+        "\nTips: %d element saknar id men har href. Klicka via CSS-attributselektor, t.ex.\n     klicka_via_id(skrap, \"a[href='%s']\")\n",
+        saknar_id, med_ankare$href[med_ankare$id == "" & med_ankare$href != ""][1]
+      ))
+    }
+    
+    saknar_id_och_href <- med_ankare[med_ankare$id == "" & med_ankare$href == "" & med_ankare$class != "", ]
+    if (nrow(saknar_id_och_href) > 0) {
+      cat(sprintf(
+        "\nTips: %d element saknar både id och href, men har en klass (typiskt en div/span-\"knapp\" i en SPA). Klicka via klass + exakt text, t.ex.\n     klicka_via_klass_och_text(skrap, \"%s\", \"%s\", tag = \"%s\")\n",
+        nrow(saknar_id_och_href), saknar_id_och_href$class[1], saknar_id_och_href$text[1], saknar_id_och_href$tag[1]
+      ))
+    }
   }
   
   invisible(k)
@@ -657,6 +681,91 @@ klicka_via_text <- function(skrap, text, selector = "a, button, input[type=butto
   kontrollera_iframe_svar(hittad)
   if (!isTRUE(hittad)) {
     stop("Hittade inget klickbart element med texten: '", text, "'")
+  }
+  
+  if (isTRUE(vanta)) {
+    vanta_pa_sidladdning(skrap, grace = grace, timeout = timeout)
+  }
+  invisible(TRUE)
+}
+
+#' Klicka på ett element via CSS-klass OCH exakt text, direkt via JavaScript
+#'
+#' Som klicka_via_text(), men matchar bara element som HAR en given CSS-klass
+#' och vars trimmade text är exakt lika med `text`. Användbart på sidor där
+#' flera element delar samma klass (t.ex. flera "kort" i ett kortgränssnitt)
+#' och en ren klass- eller textmatchning därför skulle vara tvetydig eller
+#' matcha fel element.
+#'
+#' Kringgår, precis som klicka_via_text()/klicka_via_id(), seleniders
+#' elem_expect(is_visible) helt - användbart på sidor/element där den
+#' kontrollen av någon anledning ger falska negativ trots att elementet
+#' faktiskt syns och går att klicka (setts i praktiken på div-baserade
+#' "knappar" i vissa SPA:er).
+#'
+#' Hur man vet att den här funktionen behövs: `inspektera_kontroller()`/
+#' `visa_kontroller()` listar bara riktiga `a`/`button`/`input`-element samt
+#' element som har `onclick` eller `cursor: pointer` i sin beräknade stil.
+#' Om `visa_kontroller()` visar ett element utan `id` och utan `href`, men
+#' med en `class`, är det en stark signal att det är en sådan "div-knapp" -
+#' funktionen skriver då ut ett färdigt exempelanrop att använda. Om
+#' elementet inte dyker upp i `visa_kontroller()` alls, kan man hitta det
+#' manuellt med en JS-sökning, t.ex.:
+#' \preformatted{
+#' kor_js(skrap, "JSON.stringify([...document.querySelectorAll('div,span,li')]
+#'   .filter(e => e.children.length === 0 && e.textContent.trim() === 'Din text')
+#'   .map(e => ({tag: e.tagName.toLowerCase(), class: e.className})))")
+#' }
+#'
+#' @param skrap Ett objekt skapat av starta_skrapsession().
+#' @param klass CSS-klassnamn (utan inledande punkt), t.ex. "big-button".
+#' @param text Den synliga text som ska matchas exakt (efter trimning).
+#' @param tag Vilken HTML-tagg elementet ska vara, t.ex. "div", "span",
+#'   "li". Default "div".
+#' @param vanta Om en eventuell sidladdning ska väntas in. Default TRUE.
+#' @param grace Respitperiod i sekunder, se klicka_via_id().
+#' @param timeout Max antal sekunder att vänta på att en sidladdning blir
+#'   klar.
+#' @param iframe Valfri CSS-selektor till ett iframe elementet ligger i.
+#'
+#' @return Inget (osynligt TRUE). Kastar fel om ingen match hittas.
+#'
+#' @examples
+#' \dontrun{
+#' klicka_via_klass_och_text(skrap, "big-button", "Servicetabell")
+#' }
+klicka_via_klass_och_text <- function(skrap, klass, text, tag = "div",
+                                      vanta = TRUE, grace = 0.3, timeout = 30,
+                                      iframe = NULL) {
+  if (!inherits(skrap, "skrapsession")) {
+    stop("Objektet ar inte skapat av starta_skrapsession().")
+  }
+  rlang::check_installed("jsonlite")
+  
+  js <- sprintf(
+    "(function(){
+       %s
+       var els = dok.querySelectorAll(%s);
+       for (var i = 0; i < els.length; i++) {
+         if (els[i].classList.contains(%s) && els[i].textContent.trim() === %s) {
+           window.__skrapKlickMarkering = true;
+           els[i].click();
+           return true;
+         }
+       }
+       return false;
+     })()",
+    bygg_dokument_js(iframe),
+    jsonlite::toJSON(tag, auto_unbox = TRUE),
+    jsonlite::toJSON(klass, auto_unbox = TRUE),
+    jsonlite::toJSON(text, auto_unbox = TRUE)
+  )
+  
+  hittad <- kor_js(skrap, js)
+  kontrollera_iframe_svar(hittad)
+  if (!isTRUE(hittad)) {
+    stop("Hittade inget element med tagg '", tag, "', klass '", klass,
+         "' och texten: '", text, "'")
   }
   
   if (isTRUE(vanta)) {
