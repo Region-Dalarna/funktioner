@@ -2739,7 +2739,19 @@ spara_som_csv_i_zip <- function(df_list,
   if (meddelande) print(paste0("Filen ", zipfilnamn, " har sparats i mappen ", output_mapp))
 }
 
-csv_fran_zipfiler_inlasning <- function(zip_sokvagar) {
+library(tidyverse)
+
+gissa_separator <- function(fil) {
+  # gissar separator i en csv-fil
+  
+  forsta_raden <- read_lines(fil, n_max = 1)
+  antal_semikolon <- str_count(forsta_raden, ";")
+  antal_komma <- str_count(forsta_raden, ",")
+  
+  if (antal_semikolon > antal_komma) ";" else ","
+}
+
+läs_csv_fran_zip <- function(zip_sokvagar) {
   # skicka en eller fler zipfiler som innehåller csv-filer, läs in till 
   # en och samma dataframe
   
@@ -2756,7 +2768,11 @@ csv_fran_zipfiler_inlasning <- function(zip_sokvagar) {
       
       filnamn %>%
         set_names() %>%
-        map(~ read_csv(file.path(tmp_dir, .x), show_col_types = FALSE)) %>%
+        map(function(f) {
+          full_path <- file.path(tmp_dir, f)
+          sep <- gissa_separator(full_path)
+          read_delim(full_path, delim = sep, show_col_types = FALSE)
+        }) %>%
         list_rbind(names_to = "csv_fil")
     }) %>%
     list_rbind(names_to = "zip_fil")
