@@ -2751,7 +2751,10 @@ separator_gissa <- function(fil) {
   if (antal_semikolon > antal_komma) ";" else ","
 }
 
-csv_fran_zipfiler_inlasning <- function(zip_sokvagar) {
+csv_fran_zipfiler_inlasning <- function(
+    zip_sokvagar,                            # sökvägar med filnamn till en eller flera zip-filer som innehåller en eller flera csv-filer
+    kalla_som_kolumn = FALSE                 # TRUE = lägg till kolumn med filnamn för varje zip-fil och csv-fil ur vilken data har hämtats, FALSE = lägg inte till kolumn med filnamn
+    ) {
   # skicka en eller fler zipfiler som innehåller csv-filer, läs in till 
   # en och samma dataframe
   
@@ -2773,9 +2776,11 @@ csv_fran_zipfiler_inlasning <- function(zip_sokvagar) {
           sep <- separator_gissa(full_path)
           read_delim(full_path, delim = sep, show_col_types = FALSE)
         }) %>%
-        list_rbind(names_to = "csv_fil")
+        {if (kalla_som_kolumn) . else unname(.)} %>%
+        list_rbind(names_to = if (kalla_som_kolumn) "csv_fil" else NULL)
     }) %>%
-    list_rbind(names_to = "zip_fil")
+    {if (kalla_som_kolumn) . else unname(.)} %>%
+    list_rbind(names_to = if (kalla_som_kolumn) "zip_fil" else NULL)
 }
 
 
