@@ -2741,7 +2741,7 @@ spara_som_csv_i_zip <- function(df_list,
 
 library(tidyverse)
 
-gissa_separator <- function(fil) {
+separator_gissa <- function(fil) {
   # gissar separator i en csv-fil
   
   forsta_raden <- read_lines(fil, n_max = 1)
@@ -2751,7 +2751,7 @@ gissa_separator <- function(fil) {
   if (antal_semikolon > antal_komma) ";" else ","
 }
 
-läs_csv_fran_zip <- function(zip_sokvagar) {
+csv_fran_zipfiler_inlasning <- function(zip_sokvagar) {
   # skicka en eller fler zipfiler som innehåller csv-filer, läs in till 
   # en och samma dataframe
   
@@ -2770,7 +2770,7 @@ läs_csv_fran_zip <- function(zip_sokvagar) {
         set_names() %>%
         map(function(f) {
           full_path <- file.path(tmp_dir, f)
-          sep <- gissa_separator(full_path)
+          sep <- separator_gissa(full_path)
           read_delim(full_path, delim = sep, show_col_types = FALSE)
         }) %>%
         list_rbind(names_to = "csv_fil")
