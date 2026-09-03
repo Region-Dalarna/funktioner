@@ -2739,6 +2739,30 @@ spara_som_csv_i_zip <- function(df_list,
   if (meddelande) print(paste0("Filen ", zipfilnamn, " har sparats i mappen ", output_mapp))
 }
 
+csv_fran_zipfiler_inlasning <- function(zip_sokvagar) {
+  # skicka en eller fler zipfiler som innehåller csv-filer, läs in till 
+  # en och samma dataframe
+  
+  zip_sokvagar %>%
+    set_names(basename) %>%
+    map(function(zip_path) {
+      tmp_dir <- tempfile()
+      dir.create(tmp_dir)
+      
+      filnamn <- unzip(zip_path, list = TRUE)$Name %>%
+        keep(~ str_detect(.x, "\\.csv$"))
+      
+      unzip(zip_path, files = filnamn, exdir = tmp_dir)
+      
+      filnamn %>%
+        set_names() %>%
+        map(~ read_csv(file.path(tmp_dir, .x), show_col_types = FALSE)) %>%
+        list_rbind(names_to = "csv_fil")
+    }) %>%
+    list_rbind(names_to = "zip_fil")
+}
+
+
 las_b64 <- function(sokvag_filnamn) {
   if (!file.exists(sokvag_filnamn)) {
     stop("Secret-filen finns inte: ", sokvag_filnamn, call. = FALSE)
