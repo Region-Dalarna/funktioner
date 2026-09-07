@@ -6245,12 +6245,14 @@ if (!requireNamespace("callr", quietly = TRUE)) {
   )
 }
 
+
 callr::r(
   func = function(project, packages) {
     
     # Tvinga https-CRAN så att renv.lock föds med en URL servern faktiskt når.
     # http://cloud.r-project.org är blockerat utgående på servern, och PPM:s
     # backend (rspm-sync) likaså — https://cloud.r-project.org fungerar.
+    Sys.setenv(RENV_CONFIG_REPOS_OVERRIDE = "https://cloud.r-project.org")
     options(repos = c(CRAN = "https://cloud.r-project.org"))
     
     renv::init(
