@@ -21,6 +21,27 @@ if (length(saknas) > 0) {
   if (is.null(x)) y else x
 }
 
+
+# Lokal minimalkontroll av ett tabell-id innan det stoppas in i en URL.
+# Kollar bara att det är en icke-tom textsträng med längd 1 utan blanksteg
+# eller '/' - alltså fångar medskickad vektor, NULL, NA eller en hel URL.
+# Ingen kontroll av namnkonvention ("TAB..."); om id:t faktiskt finns avgörs
+# av API:et via pxweb2_meta() (404 => finns inte på den base_url man kör mot).
+intern_pxweb2_kontrollera_tabell_id <- function(tabell_id) {
+  if (is.null(tabell_id) || length(tabell_id) != 1 || !is.character(tabell_id) ||
+      is.na(tabell_id) || !nzchar(trimws(tabell_id))) {
+    stop("tabell-id måste vara en icke-tom textsträng med längd 1.", call. = FALSE)
+  }
+  if (stringr::str_detect(tabell_id, "\\s|/")) {
+    stop(
+      "tabell-id '", tabell_id, "' innehåller blanksteg eller '/'. ",
+      "Skicka bara tabellens id, inte en URL eller sökväg.",
+      call. = FALSE
+    )
+  }
+  invisible(tabell_id)
+}
+
 pxweb2_hamta_data <- function(
     tabell = NULL, 
     query = NULL,               # skickas med som lista där varje variabel är namnet och värdet är de värden man vill ha med, kan vara vektorer
@@ -73,8 +94,8 @@ pxweb2_hamta_data <- function(
   }
   
   if (!is.list(tabell)) {
-    if (!stringr::str_detect(tabell, "^TAB\\d+$")) stop("tabell-id är inte giltigt, ska vara av typen 'TAB' följt av siffror.")
-    metadata <- pxweb2_meta(tabell)
+    intern_pxweb2_kontrollera_tabell_id(tabell)
+    metadata <- pxweb2_meta(tabell, base_url = base_url)
   } else {
     metadata <- tabell
     tabell <- metadata$extension$px$tableid
@@ -260,21 +281,22 @@ pxweb2_hamta_data <- function(
 
 # hämta när en tabell uppdaterades
 pxweb2_tabell_uppdaterades <- function(
-    tabell
+    tabell,
+    base_url = "https://statistikdatabasen.scb.se/api/v2/tables/"
 ) {
-  pxweb2_meta(tabell)$updated
+  pxweb2_meta(tabell, base_url = base_url)$updated
 }
 
 # funktion för att kontrollera om en tabell behöver uppdateras (vilket är fallet om datum_tid_txt är äldre än uppderingsdatum för scb-tabellen)
 pxweb2_tabell_behover_uppdateras <- function(
     tabell,
-    datum_tid_txt                  # datum + tid för en tabell man vill jämföra med, i samma format som SCB:s updated i metadata-tabellen,
-) {                                # nämligen: 2026-06-02T00:59:31Z
-  
-  if (is.null(tabell) || length(tabell) != 1) {
-    stop("tabell måste vara ett tabell-id med längd 1.", call. = FALSE)
-  }
-  
+    datum_tid_txt,                 # datum + tid för en tabell man vill jämföra med, i samma format som SCB:s updated i metadata-tabellen,
+                                   # nämligen: 2026-06-02T00:59:31Z
+    base_url = "https://statistikdatabasen.scb.se/api/v2/tables/"
+) {
+
+  intern_pxweb2_kontrollera_tabell_id(tabell)
+
   if (is.null(datum_tid_txt) || length(datum_tid_txt) != 1) {
     stop("datum_tid_txt måste vara ett textvärde med längd 1.", call. = FALSE)
   }
@@ -288,7 +310,7 @@ pxweb2_tabell_behover_uppdateras <- function(
     )
   }
   
-  scb_updated <- pxweb2_tabell_uppdaterades(tabell)
+  scb_updated <- pxweb2_tabell_uppdaterades(tabell, base_url = base_url)
   
   if (is.na(scb_updated)) {
     return(NA)
@@ -940,15 +962,13 @@ intern_pxweb2_hamta_flera_tabeller <- function(
     auto_limit = 30L
 ) {
   
-  if (!all(stringr::str_detect(tabeller, "^TAB\\d+$"))) {
-    stop(
-      "Alla tabell-id måste vara av typen 'TAB' följt av siffror.",
-      call. = FALSE
-    )
+  if (!is.character(tabeller) || length(tabeller) < 1) {
+    stop("tabeller måste vara en teckenvektor med minst ett tabell-id.", call. = FALSE)
   }
-  
+  purrr::walk(tabeller, intern_pxweb2_kontrollera_tabell_id)
+
   metadata_lista <- tabeller |>
-    purrr::map(pxweb2_meta)
+    purrr::map(\(t) pxweb2_meta(t, base_url = base_url))
   
   names(metadata_lista) <- tabeller
   
@@ -1843,16 +1863,42 @@ pxweb2_meta <- function(
     base_url = "https://statistikdatabasen.scb.se/api/v2/tables/"
 ){
   if (is.null(table_id)) stop("table_id måste anges")
-  
+  intern_pxweb2_kontrollera_tabell_id(table_id)
+
   meta_url <- paste0(base_url, table_id, "/metadata")
-  
+
   resp <- intern_pxweb2_GET(meta_url, httr::accept_json())
+
+  if (httr::status_code(resp) == 404) {
+    stop(
+      "Tabell-id '", table_id, "' hittades inte på ", base_url,
+      " (HTTP 404). Kontrollera tabell-id:t eller base_url.",
+      call. = FALSE
+    )
+  }
   httr::stop_for_status(resp)
-  
+
   meta <- httr::content(resp, as = "parsed", encoding = "UTF-8")
-  
+
   return(meta)
-} 
+}
+
+# Snabb koll om ett tabell-id finns på den angivna base_url:en.
+# Returnerar TRUE/FALSE. Andra fel än 404 (nätverk, 500 ...) kastas vidare
+# eftersom de inte betyder att tabellen saknas.
+pxweb2_tabell_finns <- function(
+    tabell_id,
+    base_url = "https://statistikdatabasen.scb.se/api/v2/tables/"
+) {
+  intern_pxweb2_kontrollera_tabell_id(tabell_id)
+
+  meta_url <- paste0(base_url, tabell_id, "/metadata")
+  resp <- intern_pxweb2_GET(meta_url, httr::accept_json())
+
+  if (httr::status_code(resp) == 404) return(FALSE)
+  httr::stop_for_status(resp)
+  TRUE
+}
 
 intern_pxweb2_is_pxweb_query_list <- function(x) {
   is.list(x) &&
@@ -1935,10 +1981,10 @@ pxweb2_variabler <- function(
   if (is.null(tabell)) stop("tabell måste anges, antingen som tabell-id eller som metadata-objekt.")
   
   if (!is.list(tabell)) {
-    if (!stringr::str_detect(tabell, "^TAB\\d+$")) stop("tabell-id är inte giltigt, ska vara av typen 'TAB' följt av siffror.")    
-    metadata <- pxweb2_meta(tabell)
+    intern_pxweb2_kontrollera_tabell_id(tabell)
+    metadata <- pxweb2_meta(tabell, base_url = base_url)
   } else metadata <- tabell
-  
+
   # här extraherar vi alla variabler med både kod och klartext samt hur många unika värden de har
   variabler <- tibble::tibble(
     code       = names(metadata$dimension),
@@ -1979,8 +2025,8 @@ pxweb2_varden <- function(
   
   if (is.null(tabell)) stop("tabell måste anges, antingen som tabell-id eller som metadata-objekt.")
   if (!is.list(tabell)) {
-    if (!stringr::str_detect(tabell, "^TAB\\d+$")) stop("tabell-id är inte giltigt, ska vara av typen 'TAB' följt av siffror.")
-    metadata <- pxweb2_meta(tabell)
+    intern_pxweb2_kontrollera_tabell_id(tabell)
+    metadata <- pxweb2_meta(tabell, base_url = base_url)
   } else metadata <- tabell
   
   # Alla variabler: kod + klartext
@@ -2278,10 +2324,11 @@ pxweb2_varden <- function(
 pxweb2_query_list_txt_create <- function(table_id,
                                          default_value = "*",
                                          overrides = list(),
-                                         object_name = "query_list"
+                                         object_name = "query_list",
+                                         base_url = "https://statistikdatabasen.scb.se/api/v2/tables/"
 ) {
   # create the text with a query list for a script based on the table sent to the function
-  var_df <- pxweb2_variabler(tabell = table_id)
+  var_df <- pxweb2_variabler(tabell = table_id, base_url = base_url)
   vars <- var_df$code
   
   vals <- purrr::map_chr(vars, function(var) {
@@ -2314,10 +2361,11 @@ pxweb2_query_list_txt_create <- function(table_id,
 pxweb2_get_data_script_create <- function(table_id,
                                           default_value = "*",
                                           overrides = list(),
-                                          to_clipboard = TRUE
+                                          to_clipboard = TRUE,
+                                          base_url = "https://statistikdatabasen.scb.se/api/v2/tables/"
 ) {
-  
-  meta <- pxweb2_meta(table_id)
+
+  meta <- pxweb2_meta(table_id, base_url = base_url)
   title_txt <- meta$label
   var_df <- pxweb2_variabler(meta)
   varden_df <- pxweb2_varden(meta)
