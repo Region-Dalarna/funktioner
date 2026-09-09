@@ -396,7 +396,46 @@ skapa_tabeller <- function(con, schema = schema_namn, gtfs_dataset = "regional")
   })
 }
 
+synka_historisk_kolumner <- function(con, schema, schema_historisk, tabell) {
+  # Ser till att den historiska tabellen har alla kolumner som källtabellen har.
+  # Saknade kolumner läggs till automatiskt med samma datatyp som källan.
 
+  kall_typer <- dbGetQuery(con, glue::glue(
+    "SELECT column_name, data_type
+     FROM information_schema.columns
+     WHERE table_schema = '{schema}' AND table_name = '{tabell}';"
+  ))
+
+  target_kolumner <- dbListFields(con, DBI::Id(schema = schema_historisk, table = tabell))
+
+  saknade <- kall_typer %>% dplyr::filter(!column_name %in% target_kolumner)
+
+  if (nrow(saknade) > 0) {
+    for (i in seq_len(nrow(saknade))) {
+      sats <- glue::glue("ALTER TABLE {schema_historisk}.{tabell} ADD COLUMN {saknade$column_name[i]} {saknade$data_type[i]};")
+      dbExecute(con, sats)
+      message(glue::glue("Lade till ny kolumn i {schema_historisk}.{tabell}: {saknade$column_name[i]} ({saknade$data_type[i]})"))
+    }
+  }
+
+  invisible(TRUE)
+}
+
+hamta_gemensamma_kolumner <- function(con, schema, schema_historisk, tabell) {
+  # funktion för att hämta de gemensamma kolumner som ska läggas till
+
+  kall_kolumner <- dbListFields(con, DBI::Id(schema = schema, table = tabell))
+  target_kolumner <- dbListFields(con, DBI::Id(schema = schema_historisk, table = tabell))
+
+  gemensamma <- intersect(kall_kolumner, target_kolumner)
+  gemensamma <- gemensamma[gemensamma != "version"]
+
+  if (length(gemensamma) == 0) {
+    stop(glue::glue("Inga gemensamma kolumner hittades för tabellen {tabell}"))
+  }
+
+  return(gemensamma)
+}
 
 versionshantering <- function(con, gtfs_data, schema = schema_namn, vy_operatorer = NA) {
   # vy_operatorer: vektor som styr vilka historiska vyer som byggs vid en
@@ -451,26 +490,23 @@ versionshantering <- function(con, gtfs_data, schema = schema_namn, vy_operatore
       if (!is.na(senaste_version)) {
         dbExecute(con, glue::glue("UPDATE {schema}_historisk.versions SET end_date = '{sista_datum_db}' WHERE version = {senaste_version};"))
 
-        kolumn_namn <- postgres_lista_kolumnnamn_i_schema(schema = schema)
+        schema_historisk <- paste0(schema, "_historisk")
+        tabeller <- c("agency", "routes", "calendar_dates", "shapes_line",
+                      "stops", "trips", "stop_times", "linjeklassificering")
 
-        agency_kolumner <- kolumn_namn %>% filter(table_name == "agency") %>% dplyr::pull(column_name) %>% paste0(collapse = ", ")
-        routes_kolumner <- kolumn_namn %>% filter(table_name == "routes") %>% dplyr::pull(column_name) %>% paste0(collapse = ", ")
-        calendar_dates_kolumner <- kolumn_namn %>% filter(table_name == "calendar_dates") %>% dplyr::pull(column_name) %>% paste0(collapse = ", ")
-        shapes_line_kolumner <- kolumn_namn %>% filter(table_name == "shapes_line") %>% dplyr::pull(column_name) %>% paste0(collapse = ", ")
-        stops_kolumner <- kolumn_namn %>% filter(table_name == "stops") %>% dplyr::pull(column_name) %>% paste0(collapse = ", ")
-        trips_kolumner <- kolumn_namn %>% filter(table_name == "trips") %>% dplyr::pull(column_name) %>% paste0(collapse = ", ")
-        stop_times_kolumner <- kolumn_namn %>% filter(table_name == "stop_times") %>% dplyr::pull(column_name) %>% paste0(collapse = ", ")
-        linjeklassificering_kolumner <- kolumn_namn %>% filter(table_name == "linjeklassificering") %>% dplyr::pull(column_name) %>% paste0(collapse = ", ")
+        for (tabell in tabeller) {
+          # Se till att historisk-tabellen har alla kolumner som källan har
+          synka_historisk_kolumner(con, schema, schema_historisk, tabell)
 
-        # Transfer data from schema schema to schema_historisk with version number
-        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.agency SELECT {agency_kolumner}, {senaste_version} FROM {schema}.agency;"))
-        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.routes SELECT {routes_kolumner}, {senaste_version} FROM {schema}.routes;"))
-        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.calendar_dates SELECT {calendar_dates_kolumner}, {senaste_version} FROM {schema}.calendar_dates;"))
-        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.shapes_line SELECT {shapes_line_kolumner}, {senaste_version} FROM {schema}.shapes_line;"))
-        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.stops SELECT {stops_kolumner}, {senaste_version} FROM {schema}.stops;"))
-        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.trips SELECT {trips_kolumner}, {senaste_version} FROM {schema}.trips;"))
-        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.stop_times SELECT {stop_times_kolumner}, {senaste_version} FROM {schema}.stop_times;"))
-        dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.linjeklassificering SELECT {linjeklassificering_kolumner}, {senaste_version} FROM {schema}.linjeklassificering;"))
+          # Bygg explicit, namn-matchad kolumnlista och kör INSERT
+          kolumner <- hamta_gemensamma_kolumner(con, schema, schema_historisk, tabell)
+          kolumn_lista <- paste0(kolumner, collapse = ", ")
+
+          dbExecute(con, glue::glue(
+            "INSERT INTO {schema_historisk}.{tabell} ({kolumn_lista}, version)
+             SELECT {kolumn_lista}, {senaste_version} FROM {schema}.{tabell};"
+          ))
+        }
 
         # Create views for historical data - en gång per operatör i vy_operatorer
         # (NA/NULL = vyer för samtliga operatörer, annars operatörsspecifika vyer)
@@ -497,6 +533,7 @@ versionshantering <- function(con, gtfs_data, schema = schema_namn, vy_operatore
     stop(glue::glue("Ett fel inträffade vid versionshanteringen: {e$message}"))
   })
 }
+
 
 radera_gamla_versioner <- function(con, antal_ar, schema = schema_namn) {
   tryCatch({
