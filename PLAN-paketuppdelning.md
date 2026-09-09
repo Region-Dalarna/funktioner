@@ -10,8 +10,8 @@ befolkningstabell. Supercross-funktioner: se avsnitt 3.
 
 ## Läge 2026-09-09
 
-**7 av 8 paket byggda och pushade** till `Region-Dalarna/rdpaket`, plus
-`pxweb2r` i `FaluPeppe/pxweb2r`:
+**Alla 8 paket + paraplyet byggda och pushade** till `Region-Dalarna/rdpaket`,
+plus `pxweb2r` i `FaluPeppe/pxweb2r`:
 
 | Paket | Status |
 |---|---|
@@ -21,10 +21,10 @@ befolkningstabell. Supercross-funktioner: se avsnitt 3.
 | `rdshinyappar` | klart |
 | `rdpostgres` | klart |
 | `rdgis` | klart |
+| `rdgeorouting` | klart – SQL-pipelines behöver verifieras mot riktig pgRouting-db |
 | `rddeploy` | klart |
 | `rdadminportal` | klart – **nytt paket**, se nedan |
-| `rd` (paraply) | klart (attach:ar analyspaketen) |
-| `rdgeorouting` | **kvar att bygga** – postgis/pgRouting/pendling ur `func_GIS.R` |
+| `rd` (paraply) | klart (attach:ar analyspaketen, ej rddeploy/rdadminportal) |
 
 **Nytt sedan planen skrevs:** `func_landningssida_adminportal.R` och
 `func_kor_cron_jobb.R` visade sig vara medvetet fristående filer som
@@ -32,8 +32,9 @@ befolkningstabell. Supercross-funktioner: se avsnitt 3.
 **`rdadminportal`** (adminportal + serverdrift), inte i `rddeploy`. De
 SSH-baserade `landningssida_*` i `func_API.R` utgick (DB-varianten ersätter dem).
 
-**Kvar efter rdgeorouting:** migrera `source(".../func_X.R")` → `library(rdX)`
-i övriga funktionsfiler och konsumerande skript, med shims kvar under övergången.
+**Nu återstår:** migrera `source(".../func_X.R")` → `library(rdX)` i övriga
+funktionsfiler och konsumerande skript, med shims kvar under övergången
+(se avsnitt 7 punkt 10).
 
 ---
 
@@ -364,11 +365,13 @@ Konkret:
    shinyapp-scaffolding med mallar i `inst/templates/`. Monoliterna uppdelade
    i `intern_scaffold_*`-steg + `shinyapp_config()`.
    ✅ **`rdadminportal`** – landningssida/ikoner/nedladdning/cron (se avsnitt Läge).
-8. ⬜ **`rdgeorouting`** – `postgis_*`/`pgrouting_*`/`pendling_*` (rad 3653–7864
-   i `func_GIS.R`, ~35 funktioner). Beror på `rdgis` + `rdpostgres`. Kända
-   buggar att fixa: `postgis_flytta_tabell` använder odefinierad `con_flytt`;
-   `<<-` i `postgis_kopiera_tabell_mellan_databaser`.
-9. ✅ **`rd`** – paraplypaketet (analyspaketen; `rdgeorouting` läggs till sen).
+8. ✅ **`rdgeorouting`** – `postgis_*`/`pgrouting_*`/`pendling_*` (rad 3653–7864
+   i `func_GIS.R`, ~25 aktiva funktioner). De dödmarkerade "äldre
+   pgrouting-funktionerna" utelämnade. Originalbuggar rättade (`con_flytt`,
+   `con_rutt`, `fread`/`fwrite`, inverterad kolumnkoll, kod efter `stop()`).
+   SQL bevarad ordagrant - **pipelinerna behöver köras skarpt mot
+   `ruttanalyser` för att verifieras.**
+9. ✅ **`rd`** – paraplypaketet (analyspaketen inkl. `rdgeorouting`).
 10. ⬜ **Migrera nedströms:** `source(".../func_X.R")` → `library(rdX)` i
     övriga funktionsfiler och konsumerande skript, shims kvar under övergången.
 11. Senare: `rdgtfs`, `rdotp`, `rdlupp`, `rdqgispendling`, `rdsvg`.
@@ -389,12 +392,15 @@ Konkret:
 
 ## 9. Nästa konkreta steg
 
-1. Bygg **`rdgeorouting`** (avsnitt 7 punkt 8). Samma upplägg som `rdpostgres`:
-   bevara SQL verbatim, `con="default"` → `intern_con()`, kvalificera
-   namespaces, fixa de kända buggarna. `postgis_isokroner_skapa()` (~280 rader
-   SQL) och pgRouting-grafbyggena kan inte verifieras utan en riktig
-   pgRouting-databas – porta försiktigt och flagga.
-2. Lägg `rdgeorouting` i `Depends` för `rd`.
-3. Migrera `source()` → `library()` nedströms, med shims.
-4. Besluta om `func_pxweb2.R` i `funktioner` ska bli en tunn shim mot `pxweb2r`
-   när nedströms-skripten är migrerade.
+1. **Verifiera `rdgeorouting`** mot `ruttanalyser`: kör
+   `pgrouting_skapa_ny_graf_nvdb_koppla_till_punkter()`,
+   `postgis_isokroner_*()` och `pendling_*()` skarpt och jämför med de gamla
+   func_GIS.R-funktionerna.
+2. **Migrera nedströms** (avsnitt 7 punkt 10): ett `func_X.R` i taget →
+   tunn shim (`library(rdX)` + ev. `gammalt_namn <- rdX::nytt_namn`), sedan
+   uppdatera konsumerande repon (`diagram`, `hamta_data`, webbrapporter,
+   shiny-appar, cron) till `library(rdX)` + `renv`.
+3. Besluta om `func_pxweb2.R`, `func_landningssida_adminportal.R` och
+   `func_kor_cron_jobb.R` ska bli tunna shims eller förbli fristående
+   (server-source():as fortfarande).
+4. Senare: `rdgtfs`, `rdotp`, `rdlupp`, `rdqgispendling`, `rdsvg`.
