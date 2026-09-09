@@ -451,7 +451,7 @@ versionshantering <- function(con, gtfs_data, schema = schema_namn, vy_operatore
       if (!is.na(senaste_version)) {
         dbExecute(con, glue::glue("UPDATE {schema}_historisk.versions SET end_date = '{sista_datum_db}' WHERE version = {senaste_version};"))
 
-        kolumn_namn <- postgres_lista_kolumnnamn_i_schema(schema = "dalatrafik")
+        kolumn_namn <- postgres_lista_kolumnnamn_i_schema(schema = schema)
 
         agency_kolumner <- kolumn_namn %>% filter(table_name == "agency") %>% dplyr::pull(column_name) %>% paste0(collapse = ", ")
         routes_kolumner <- kolumn_namn %>% filter(table_name == "routes") %>% dplyr::pull(column_name) %>% paste0(collapse = ", ")
