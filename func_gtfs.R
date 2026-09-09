@@ -35,7 +35,7 @@ gtfs_operatorer_sverige_nyckeltabell_hamta <- function(tabort_na = TRUE){
   # Hitta tabellen med data för operatörerna
   retur_df <- page %>%
     html_node("table") %>%  # Välj första tabellen
-    html_table() %>%
+    rvest::html_table() %>%
     select(operator = Operator, operatorkod = Abbreviation) %>%
     mutate(regionkod = case_when(
       operatorkod == "sl" ~ "01",
