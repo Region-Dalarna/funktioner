@@ -488,24 +488,46 @@ versionshantering <- function(con, gtfs_data, schema = schema_namn, vy_operatore
 
       # If a previous version exists, update its end_date and transfer data from schema to schema_historisk
       if (!is.na(senaste_version)) {
-        dbExecute(con, glue::glue("UPDATE {schema}_historisk.versions SET end_date = '{sista_datum_db}' WHERE version = {senaste_version};"))
 
         schema_historisk <- paste0(schema, "_historisk")
         tabeller <- c("agency", "routes", "calendar_dates", "shapes_line",
                       "stops", "trips", "stop_times", "linjeklassificering")
 
-        for (tabell in tabeller) {
-          # Se till att historisk-tabellen har alla kolumner som källan har
-          synka_historisk_kolumner(con, schema, schema_historisk, tabell)
+        # --- Idempotenskoll --------------------------------------------------
+        # Kontrollera om senaste_version redan finns arkiverad i agency-tabellen.
+        # Skyddar mot krasch (agency_pkey duplicerad nyckel) om ett tidigare
+        # körningsförsök redan hann arkivera datan innan skriptet av någon
+        # anledning avbröts, eller om versions-tabellen av misstag hamnat
+        # ur synk med de faktiska historik-tabellerna.
+        agency_finns <- dbGetQuery(con, glue::glue(
+          "SELECT EXISTS (
+             SELECT 1 FROM {schema_historisk}.agency WHERE version = {senaste_version}
+           );"
+        ))$exists[1]
 
-          # Bygg explicit, namn-matchad kolumnlista och kör INSERT
-          kolumner <- hamta_gemensamma_kolumner(con, schema, schema_historisk, tabell)
-          kolumn_lista <- paste0(kolumner, collapse = ", ")
-
-          dbExecute(con, glue::glue(
-            "INSERT INTO {schema_historisk}.{tabell} ({kolumn_lista}, version)
-             SELECT {kolumn_lista}, {senaste_version} FROM {schema}.{tabell};"
+        if (agency_finns) {
+          warning(glue::glue(
+            "Version {senaste_version} verkar redan vara arkiverad i {schema_historisk} ",
+            "(hittade rader i agency med version = {senaste_version}). ",
+            "Hoppar över arkiveringssteget men fortsätter skapa ny version {ny_version}."
           ))
+        } else {
+          dbExecute(con, glue::glue("UPDATE {schema_historisk}.versions SET end_date = '{sista_datum_db}' WHERE version = {senaste_version};"))
+
+          for (tabell in tabeller) {
+            # Se till att historisk-tabellen har alla kolumner som källan har
+            synka_historisk_kolumner(con, schema, schema_historisk, tabell)
+
+            # Bygg explicit, namn-matchad kolumnlista och kör INSERT
+            kolumner <- hamta_gemensamma_kolumner(con, schema, schema_historisk, tabell)
+            kolumn_lista <- paste0(kolumner, collapse = ", ")
+
+            dbExecute(con, glue::glue(
+              "INSERT INTO {schema_historisk}.{tabell} ({kolumn_lista}, version)
+               SELECT {kolumn_lista}, {senaste_version} FROM {schema}.{tabell}
+               ON CONFLICT DO NOTHING;"
+            ))
+          }
         }
 
         # Create views for historical data - en gång per operatör i vy_operatorer
@@ -527,13 +549,19 @@ versionshantering <- function(con, gtfs_data, schema = schema_namn, vy_operatore
       } else {
         start_datum_gtfs_data <- sista_datum_db + 1
       }
-      dbExecute(con, glue::glue("INSERT INTO {schema}_historisk.versions (version, start_date) VALUES ({ny_version}, '{start_datum_gtfs_data}');"))
+
+      # ON CONFLICT DO NOTHING skyddar även denna insert - om ny_version av
+      # någon anledning redan finns i versions-tabellen kraschar vi inte,
+      # utan fortsätter (raden finns redan = inget att göra här)
+      dbExecute(con, glue::glue(
+        "INSERT INTO {schema}_historisk.versions (version, start_date) VALUES ({ny_version}, '{start_datum_gtfs_data}')
+         ON CONFLICT (version) DO NOTHING;"
+      ))
     }
   }, error = function(e) {
     stop(glue::glue("Ett fel inträffade vid versionshanteringen: {e$message}"))
   })
 }
-
 
 radera_gamla_versioner <- function(con, antal_ar, schema = schema_namn) {
   tryCatch({
