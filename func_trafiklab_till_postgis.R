@@ -5,10 +5,10 @@ skapa_tabeller <- function(con, schema = schema_namn, gtfs_dataset = "regional")
   #
   # gtfs_dataset = "regional" (default) → grundstruktur med agency, routes, trips,
   #                                        stops, stop_times, shapes_line, shapes,
-  #                                        calendar_dates och linjeklassificering
+  #                                        calendar, calendar_dates och linjeklassificering
   # gtfs_dataset = "sweden_3"           → lägger till trips-kolumner (trip_short_name,
   #                                        samtrafiken_internal_trip_number) samt
-  #                                        tabellerna calendar, transfers, attributions
+  #                                        tabellerna transfers, attributions
   #                                        och feed_info
   #
   # Tabeller skapas med CREATE TABLE IF NOT EXISTS — funktionen är säker att köra
@@ -49,6 +49,20 @@ skapa_tabeller <- function(con, schema = schema_namn, gtfs_dataset = "regional")
                   );"))
     # routes - index
     dbExecute(con, glue::glue("CREATE INDEX IF NOT EXISTS idx_routes_route_short_name ON {schema}.routes (route_short_name);"))
+
+    # calendar — alltid med, oavsett gtfs_dataset
+    dbExecute(con, glue::glue("CREATE TABLE IF NOT EXISTS {schema}.calendar (
+                      service_id VARCHAR PRIMARY KEY,
+                      monday INTEGER,
+                      tuesday INTEGER,
+                      wednesday INTEGER,
+                      thursday INTEGER,
+                      friday INTEGER,
+                      saturday INTEGER,
+                      sunday INTEGER,
+                      start_date DATE,
+                      end_date DATE
+                  );"))
 
     # calendar_dates
     dbExecute(con, glue::glue("CREATE TABLE IF NOT EXISTS {schema}.calendar_dates (
@@ -153,22 +167,8 @@ skapa_tabeller <- function(con, schema = schema_namn, gtfs_dataset = "regional")
                     klassificering VARCHAR NOT NULL
                   );"))
 
-    # ── Endast sweden_3: calendar, transfers, attributions, feed_info ─────────
+    # ── Endast sweden_3: transfers, attributions, feed_info ─────────────────
     if (sweden_3) {
-
-      # calendar
-      dbExecute(con, glue::glue("CREATE TABLE IF NOT EXISTS {schema}.calendar (
-                        service_id VARCHAR PRIMARY KEY,
-                        monday INTEGER,
-                        tuesday INTEGER,
-                        wednesday INTEGER,
-                        thursday INTEGER,
-                        friday INTEGER,
-                        saturday INTEGER,
-                        sunday INTEGER,
-                        start_date DATE,
-                        end_date DATE
-                    );"))
 
       # transfers
       dbExecute(con, glue::glue("CREATE TABLE IF NOT EXISTS {schema}.transfers (
@@ -228,6 +228,22 @@ skapa_tabeller <- function(con, schema = schema_namn, gtfs_dataset = "regional")
                           version INTEGER,
                           PRIMARY KEY (route_id, version),
                           FOREIGN KEY (agency_id, version) REFERENCES {schema_namn}_historisk.agency(agency_id, version)
+                      );"))
+
+    # calendar — alltid med, oavsett gtfs_dataset
+    dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.calendar (
+                          service_id VARCHAR,
+                          monday INTEGER,
+                          tuesday INTEGER,
+                          wednesday INTEGER,
+                          thursday INTEGER,
+                          friday INTEGER,
+                          saturday INTEGER,
+                          sunday INTEGER,
+                          start_date DATE,
+                          end_date DATE,
+                          version INTEGER,
+                          PRIMARY KEY (service_id, version)
                       );"))
 
     # calendar_dates
@@ -339,24 +355,8 @@ skapa_tabeller <- function(con, schema = schema_namn, gtfs_dataset = "regional")
                           end_date DATE
                       );"))
 
-    # ── Endast sweden_3: historiska calendar, transfers, attributions, feed_info ──
+    # ── Endast sweden_3: historiska transfers, attributions, feed_info ────────
     if (sweden_3) {
-
-      # calendar
-      dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.calendar (
-                            service_id VARCHAR,
-                            monday INTEGER,
-                            tuesday INTEGER,
-                            wednesday INTEGER,
-                            thursday INTEGER,
-                            friday INTEGER,
-                            saturday INTEGER,
-                            sunday INTEGER,
-                            start_date DATE,
-                            end_date DATE,
-                            version INTEGER,
-                            PRIMARY KEY (service_id, version)
-                        );"))
 
       # transfers
       dbExecute(con, glue("CREATE TABLE IF NOT EXISTS {schema_namn}_historisk.transfers (
@@ -490,7 +490,7 @@ versionshantering <- function(con, gtfs_data, schema = schema_namn, vy_operatore
       if (!is.na(senaste_version)) {
 
         schema_historisk <- paste0(schema, "_historisk")
-        tabeller <- c("agency", "routes", "calendar_dates", "shapes_line",
+        tabeller <- c("agency", "routes", "calendar", "calendar_dates", "shapes_line",
                       "stops", "trips", "stop_times", "linjeklassificering")
 
         # --- Idempotenskoll --------------------------------------------------
@@ -601,8 +601,9 @@ ladda_upp_till_databas <- function(con, gtfs_data, schema = schema_namn, gtfs_da
   # datatabeller.
   #
   # gtfs_dataset = "regional" (default) → laddar upp grundtabellerna
+  #                                        (inklusive calendar)
   # gtfs_dataset = "sweden_3"           → laddar även upp shapes (punktformat),
-  #                                        calendar, transfers, attributions
+  #                                        transfers, attributions
   #                                        och feed_info
   if (!gtfs_dataset %in% c("regional", "sweden_3")) {
     stop("gtfs_dataset måste vara 'regional' eller 'sweden_3'")
@@ -613,10 +614,10 @@ ladda_upp_till_databas <- function(con, gtfs_data, schema = schema_namn, gtfs_da
 
     # ── Tabeller att truncate ──────────────────────────────────────────────
     tables_to_truncate <- c("stop_times", "trips", "routes", "agency",
-                            "stops", "shapes_line", "calendar_dates")
+                            "stops", "shapes_line", "calendar", "calendar_dates")
     if (sweden_3) {
       tables_to_truncate <- c(tables_to_truncate,
-                              "shapes", "calendar", "transfers", "attributions", "feed_info")
+                              "shapes", "transfers", "attributions", "feed_info")
     }
 
     lapply(tables_to_truncate, function(table) {
@@ -662,7 +663,7 @@ ladda_upp_till_databas <- function(con, gtfs_data, schema = schema_namn, gtfs_da
     }
 
     # ── Icke-spatiala tabeller (båda dataset) ──────────────────────────────
-    tabeller_bas <- c("agency", "routes", "calendar_dates", "trips", "stop_times")
+    tabeller_bas <- c("agency", "routes", "calendar", "calendar_dates", "trips", "stop_times")
     lapply(tabeller_bas, function(tabell) {
       if (!is.null(gtfs_data[[tabell]])) {
         dbWriteTable(con, Id(schema = schema, table = tabell),
@@ -675,7 +676,7 @@ ladda_upp_till_databas <- function(con, gtfs_data, schema = schema_namn, gtfs_da
 
     # ── Endast sweden_3 ────────────────────────────────────────────────────
     if (sweden_3) {
-      tabeller_sweden_3 <- c("shapes", "calendar", "transfers", "attributions", "feed_info")
+      tabeller_sweden_3 <- c("shapes", "transfers", "attributions", "feed_info")
       lapply(tabeller_sweden_3, function(tabell) {
         if (!is.null(gtfs_data[[tabell]])) {
           dbWriteTable(con, Id(schema = schema, table = tabell),
@@ -765,6 +766,12 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn, agency_id = NULL, ag
   #
   # vy_suffix styr namnet på vyerna, t.ex. "_dt" för Dalatrafik.
   # Om agency_id anges men vy_suffix inte anges, används agency_id som suffix.
+  #
+  # Kolumnen "operator" i resultatet är en riktig Postgres-array (text[])
+  # med samtliga operatörsnamn som trafikerar hållplatsen - en hållplats kan
+  # trafikeras av flera operatörer samtidigt. Samma kolumnnamn används i
+  # skapa_vyer_linjer(), där den istället är en enkel textkolumn (en linje
+  # tillhör alltid bara en operatör).
 
   if (!is.null(agency_namn)) {
     if (!is.null(agency_id)) {
@@ -799,13 +806,7 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn, agency_id = NULL, ag
     # Create materialized view for stops with departures, routes, and classifications
     sql_hallplatslage_avgangar = glue::glue("
       CREATE MATERIALIZED VIEW {schema}.{vy_hallplatslage} AS
-      WITH senaste_version AS ( -- Fetches start date for the latest version so that only traffic from this date is included
-          SELECT start_date
-          FROM {schema}_historisk.versions
-          ORDER BY start_date DESC
-          LIMIT 1
-      ),
-      dagliga_avgangar AS ( -- Calculate the number of departures/day and stop position, filtered per operator if agency_id is set
+      WITH dagliga_avgangar AS ( -- Calculate the number of departures/day and stop position, filtered per operator if agency_id is set
           SELECT
               st.stop_id,
               cd.date,
@@ -818,8 +819,6 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn, agency_id = NULL, ag
               {schema}.routes r ON t.route_id = r.route_id
           JOIN
               {schema}.calendar_dates cd ON t.service_id = cd.service_id
-          JOIN
-              senaste_version sv ON cd.date >= sv.start_date
           WHERE
               cd.exception_type = 1
               {agency_filter}
@@ -853,19 +852,22 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn, agency_id = NULL, ag
           ORDER BY
               stop_id, total_veckans_avgangar DESC
       ),
-      routes_per_stop AS ( -- Combines routes and their classifications that serve each stop, filtered per operator if agency_id is set
+      routes_per_stop AS ( -- Combines routes, their klassificering, och operatörer som trafikerar varje hållplats, filtered per operator if agency_id is set
           SELECT
               st.stop_id,
               STRING_AGG(DISTINCT r.route_short_name::TEXT, ',') AS linjer,
-              STRING_AGG(DISTINCT lc.klassificering, ',') AS linjetyper
+              STRING_AGG(DISTINCT lc.klassificering, ',') AS linjetyper,
+              ARRAY_AGG(DISTINCT ag.agency_name) AS operator
           FROM
               {schema}.stop_times st
           JOIN
               {schema}.trips t ON st.trip_id = t.trip_id
           JOIN
               {schema}.routes r ON t.route_id = r.route_id
-          JOIN
+          LEFT JOIN
               {schema}.linjeklassificering lc ON r.route_short_name = lc.route_short_name
+          LEFT JOIN
+              {schema}.agency ag ON r.agency_id = ag.agency_id
           WHERE
               1 = 1
               {agency_filter}
@@ -884,6 +886,7 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn, agency_id = NULL, ag
           ROUND(total_veckans_avgangar / 7.0, 2) AS genomsnitt_dagliga_avgangar,
           rs.linjer,
           rs.linjetyper,
+          rs.operator,
           st.geometry
       FROM
           normal_vecka nv
@@ -919,6 +922,10 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn, agency_id = NULL, ag
         ORDER BY unnest
       ), ', '
       ) AS linjetyper,
+      ARRAY( -- Platta ut och deduplicera operator-arrayerna från samtliga hållplatslägen som hör till stationen
+        SELECT DISTINCT unnest(ARRAY_AGG(nva.operator))
+        ORDER BY unnest
+      ) AS operator,
       COALESCE(h.geometry, nva.geometry) AS geometry
   FROM
       {schema}.{vy_hallplatslage} nva
@@ -937,7 +944,6 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn, agency_id = NULL, ag
     stop(paste("Ett fel inträffade vid skapandet av vyer för hållplats:", e$message))
   })
 }
-
 
 skapa_vyer_historisk_hallplats <- function(con, schema = schema_namn, agency_id = NULL, agency_namn = NULL, vy_suffix = NULL) {
   # Om agency_id (eller agency_namn) anges filtreras allt till den operatören,
@@ -1341,6 +1347,11 @@ skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agenc
   #
   # vy_suffix styr namnet på vyerna, t.ex. "_dt" för Dalatrafik.
   # Om agency_id anges men vy_suffix inte anges, används agency_id som suffix.
+  #
+  # Kolumnen "operator" i resultatet är operatörsnamnet för linjen. Till
+  # skillnad från hållplatser (som kan trafikeras av flera operatörer och
+  # därför har en array-kolumn "operatorer") tillhör en enskild linje/rutt
+  # alltid en (1) operatör, så här räcker en vanlig textkolumn.
 
   if (!is.null(agency_namn)) {
     if (!is.null(agency_id)) {
@@ -1374,13 +1385,7 @@ skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agenc
     # Create materialized view for all lines with routes, trips, and daily departures
     sql_alla_linjer_avgangar = glue::glue("
       CREATE MATERIALIZED VIEW {schema}.{vy_alla} AS
-      WITH senaste_version AS ( -- Fetches the start date for the latest version so that only traffic from this date is included
-          SELECT start_date
-          FROM {schema}_historisk.versions
-          ORDER BY start_date DESC
-          LIMIT 1
-      ),
-      dagliga_avgangar AS ( -- Calculate the number of daily departures per line (shapes_line), filtered per operator if agency_id is set
+      WITH dagliga_avgangar AS ( -- Calculate the number of daily departures per line (shapes_line), filtered per operator if agency_id is set
           SELECT
               t.shape_id,
               t.route_id,
@@ -1392,8 +1397,6 @@ skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agenc
               {schema}.routes r ON t.route_id = r.route_id
           JOIN
               {schema}.calendar_dates cd ON t.service_id = cd.service_id
-          JOIN
-              senaste_version sv ON cd.date >= sv.start_date
           WHERE
               cd.exception_type = 1
               {agency_filter}
@@ -1429,7 +1432,7 @@ skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agenc
           ORDER BY
               shape_id, route_id, total_veckans_avgangar DESC
       ),
-      shapes_info AS ( -- Join shapes_line and routes with their classifications via trips, filtered per operator if agency_id is set
+      shapes_info AS ( -- Join shapes_line and routes with their classifications och operatörsnamn via trips, filtered per operator if agency_id is set
           SELECT
               sl.shape_id,
               sl.antal_punkter,
@@ -1438,7 +1441,8 @@ skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agenc
               r.route_id,
               r.route_short_name,
               r.route_long_name,
-              lc.klassificering
+              lc.klassificering,
+              ag.agency_name AS operator
           FROM
               {schema}.shapes_line sl
           JOIN
@@ -1447,6 +1451,8 @@ skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agenc
               {schema}.routes r ON t.route_id = r.route_id
           LEFT JOIN
               {schema}.linjeklassificering lc ON r.route_short_name = lc.route_short_name
+          LEFT JOIN
+              {schema}.agency ag ON r.agency_id = ag.agency_id
           WHERE
               1 = 1
               {agency_filter}
@@ -1456,6 +1462,7 @@ skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agenc
           si.route_short_name AS linjenummer,
           si.route_long_name,
           si.klassificering,
+          si.operator,
           si.antal_punkter,
           si.max_dist AS max_avstand_punkter,
           si.geometry,
@@ -1473,7 +1480,7 @@ skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agenc
       WHERE
           nv.rank = 1
       GROUP BY
-          si.shape_id, si.route_short_name, si.route_long_name, si.klassificering, si.antal_punkter, si.max_dist, si.geometry, nv.total_veckodag_avgangar, nv.total_lordag_avgangar, nv.total_sondag_avgangar, nv.total_veckans_avgangar;
+          si.shape_id, si.route_short_name, si.route_long_name, si.klassificering, si.operator, si.antal_punkter, si.max_dist, si.geometry, nv.total_veckodag_avgangar, nv.total_lordag_avgangar, nv.total_sondag_avgangar, nv.total_veckans_avgangar;
     ")
     dbExecute(con, sql_alla_linjer_avgangar)
 
@@ -1484,6 +1491,7 @@ skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agenc
           SELECT
               linjenummer,
               klassificering,
+              operator,
               shape_id,
               antal_turer,
               genomsnitt_veckodag_avgangar,
@@ -1500,6 +1508,7 @@ skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agenc
       SELECT
           linjenummer,
           klassificering,
+          operator,
           shape_id,
           antal_turer,
           genomsnitt_veckodag_avgangar,
