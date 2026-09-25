@@ -767,11 +767,11 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn, agency_id = NULL, ag
   # vy_suffix styr namnet på vyerna, t.ex. "_dt" för Dalatrafik.
   # Om agency_id anges men vy_suffix inte anges, används agency_id som suffix.
   #
-  # Kolumnen "operator" i resultatet är en riktig Postgres-array (text[])
-  # med samtliga operatörsnamn som trafikerar hållplatsen - en hållplats kan
-  # trafikeras av flera operatörer samtidigt. Samma kolumnnamn används i
-  # skapa_vyer_linjer(), där den istället är en enkel textkolumn (en linje
-  # tillhör alltid bara en operatör).
+  # Kolumnen "operator" i resultatet är en kommaseparerad textsträng (samma
+  # mönster som "linjer" och "linjetyper") med samtliga operatörsnamn som
+  # trafikerar hållplatsen - en hållplats kan trafikeras av flera operatörer
+  # samtidigt. Textformat valdes framför en array eftersom det är enklare att
+  # filtrera på i t.ex. QGIS (LIKE-filter) och stöds vid export till shapefile.
 
   if (!is.null(agency_namn)) {
     if (!is.null(agency_id)) {
@@ -857,7 +857,7 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn, agency_id = NULL, ag
               st.stop_id,
               STRING_AGG(DISTINCT r.route_short_name::TEXT, ',') AS linjer,
               STRING_AGG(DISTINCT lc.klassificering, ',') AS linjetyper,
-              ARRAY_AGG(DISTINCT ag.agency_name) AS operator
+              STRING_AGG(DISTINCT ag.agency_name, ',') AS operator
           FROM
               {schema}.stop_times st
           JOIN
@@ -922,9 +922,11 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn, agency_id = NULL, ag
         ORDER BY unnest
       ), ', '
       ) AS linjetyper,
-      ARRAY( -- Platta ut och deduplicera operator-arrayerna från samtliga hållplatslägen som hör till stationen
-        SELECT DISTINCT unnest(ARRAY_AGG(nva.operator))
+      ARRAY_TO_STRING(
+        ARRAY(
+          SELECT DISTINCT unnest(string_to_array(STRING_AGG(DISTINCT nva.operator, ',' ORDER BY nva.operator), ','))
         ORDER BY unnest
+      ), ', '
       ) AS operator,
       COALESCE(h.geometry, nva.geometry) AS geometry
   FROM
@@ -1348,10 +1350,7 @@ skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agenc
   # vy_suffix styr namnet på vyerna, t.ex. "_dt" för Dalatrafik.
   # Om agency_id anges men vy_suffix inte anges, används agency_id som suffix.
   #
-  # Kolumnen "operator" i resultatet är operatörsnamnet för linjen. Till
-  # skillnad från hållplatser (som kan trafikeras av flera operatörer och
-  # därför har en array-kolumn "operatorer") tillhör en enskild linje/rutt
-  # alltid en (1) operatör, så här räcker en vanlig textkolumn.
+  # Kolumnen "operator" i resultatet är operatörsnamnet för linjen.
 
   if (!is.null(agency_namn)) {
     if (!is.null(agency_id)) {
