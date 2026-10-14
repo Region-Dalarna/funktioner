@@ -1,460 +1,420 @@
+# =============================================================================
+# func_gtfs.R  (paketversion)
+# =============================================================================
+# Förutsättningar för paketet:
+#   - R >= 4.1 (använder den inbyggda pipen |>)
+#   - Imports: httr, data.table, dplyr, tidyr, sf, rvest, DBI, glue, keyring,
+#              gtfstools, jsonlite
+#   - Suggests: mapview
+#   - Inga library()/pacman/source() i funktionerna - allt ska ligga i
+#     DESCRIPTION/NAMESPACE. Observera att gtfs_operatorer_sverige_nyckeltabell_hamta()
+#     med med_regionnamn = TRUE kräver hamtaregtab() och skapa_kortnamn_lan()
+#     (tidigare inlästa via source() av func_API.R) - de måste finnas i paketet.
+# =============================================================================
+
+.gtfs_veckodagar <- c("monday", "tuesday", "wednesday", "thursday",
+                      "friday", "saturday", "sunday")
+# index 1 = söndag, motsvarar format(datum, "%w") + 1 (språkoberoende)
+.gtfs_veckodagar_w <- c("sunday", "monday", "tuesday", "wednesday",
+                        "thursday", "friday", "saturday")
 
 
-if (!require("pacman")) install.packages("pacman")
-pacman::p_load(httr,
-               dplyr,
-               data.table,
-               purrr,
-               zip,
-               tidyverse,
-               mapview,
-               sf,
-               rvest,
-               RPostgres,
-               glue,
-               httr,
-               keyring) # finns zip i tidyverse?
+# ================================ hjälpfunktioner ============================
 
-gtfs_operatorer_sverige_nyckeltabell_hamta <- function(tabort_na = TRUE){
+# Kontrollerar gtfs_dataset och returnerar TRUE om det är sweden_3
+gtfs_kontrollera_dataset <- function(gtfs_dataset) {
+  if (length(gtfs_dataset) != 1 || !gtfs_dataset %in% c("regional", "sweden_3")) {
+    stop("gtfs_dataset måste vara 'regional' eller 'sweden_3'", call. = FALSE)
+  }
+  gtfs_dataset == "sweden_3"
+}
 
-  # hämta nyckeltabell för regioner och operatörer så att man kan hämta en operatör med
-  # regionkod
+# GTFS-datum ("YYYYMMDD" som text) -> Date. Date-objekt returneras oförändrade.
+gtfs_text_till_datum <- function(x) {
+  if (inherits(x, "Date")) return(x)
+  as.Date(as.character(x), format = "%Y%m%d")
+}
 
-  if (!require("pacman")) install.packages("pacman")
-  p_load(tidyverse,
-         rvest)
+# Date -> "YYYYMMDD" (så som GTFS-standarden kräver vid skrivning till zip).
+# Text returneras oförändrad.
+gtfs_datum_till_text <- function(x) {
+  if (inherits(x, "Date")) format(x, "%Y%m%d") else as.character(x)
+}
 
-  source("https://raw.githubusercontent.com/Region-Dalarna/funktioner/main/func_API.R", encoding = "utf-8")
+# Konverterar de kolumner som finns till heltal/decimaltal (saknade hoppas över)
+gtfs_konvertera <- function(df, heltal = character(), decimal = character()) {
+  for (k in intersect(heltal, names(df))) df[[k]] <- suppressWarnings(as.integer(df[[k]]))
+  for (k in intersect(decimal, names(df))) df[[k]] <- suppressWarnings(as.numeric(df[[k]]))
+  df
+}
 
-  # URL till sidan
+# Tomma strängar -> NA i alla textkolumner (ersätter dplyr::na_if över across)
+gtfs_tom_till_na <- function(df) {
+  for (k in names(df)[vapply(df, is.character, logical(1))]) {
+    df[[k]][which(df[[k]] == "")] <- NA_character_
+  }
+  df
+}
+
+# Läser en GTFS-textfil med fread (snabbare än read.csv2 och hanterar BOM).
+# Alla kolumner läses som text och typkonverteras sedan explicit.
+gtfs_las_fil <- function(mapp, filnamn, obligatorisk = FALSE) {
+  sokvag <- file.path(mapp, filnamn)
+  if (!file.exists(sokvag)) {
+    if (obligatorisk) stop("Filen ", filnamn, " saknas i GTFS-datasetet.", call. = FALSE)
+    return(NULL)
+  }
+  data.table::fread(sokvag, sep = ",", colClasses = "character",
+                    encoding = "UTF-8", data.table = FALSE, showProgress = FALSE)
+}
+
+# Bygger linjegeometrier (en per shape_id) från shapes-punkter.
+# Punkterna sorteras på shape_pt_sequence (annars blir linjerna fel om filen
+# inte är sorterad) och shapes med färre än två punkter utelämnas.
+# Returnerar ett sf-objekt med shape_id, antal_punkter, max_dist och geometry.
+gtfs_shapes_till_linjer <- function(shapes, crs = 4326) {
+  df <- data.frame(
+    shape_id = as.character(shapes$shape_id),
+    lon      = as.numeric(shapes$shape_pt_lon),
+    lat      = as.numeric(shapes$shape_pt_lat),
+    sekv     = as.integer(shapes$shape_pt_sequence),
+    dist     = if ("shape_dist_traveled" %in% names(shapes)) as.numeric(shapes$shape_dist_traveled) else NA_real_,
+    stringsAsFactors = FALSE
+  )
+  df <- df[stats::complete.cases(df[, c("shape_id", "lon", "lat")]), ]
+  df <- df[order(df$shape_id, df$sekv, method = "radix"), ]
+
+  idx <- split(seq_len(nrow(df)), df$shape_id)
+  idx <- idx[lengths(idx) >= 2]
+  if (length(idx) == 0) stop("Inga shapes med minst två punkter hittades.", call. = FALSE)
+
+  linjer <- lapply(idx, function(i) sf::st_linestring(cbind(df$lon[i], df$lat[i])))
+  max_dist <- vapply(idx, function(i) {
+    d <- df$dist[i]
+    if (all(is.na(d))) NA_real_ else max(c(0, diff(d)), na.rm = TRUE)
+  }, numeric(1))
+
+  sf::st_sf(shape_id      = names(idx),
+            antal_punkter = as.integer(lengths(idx)),
+            max_dist      = unname(max_dist),
+            geometry      = sf::st_sfc(unname(linjer), crs = crs))
+}
+
+
+# ================== nyckeltabell operatörer (Trafiklab) ======================
+
+gtfs_operatorer_sverige_nyckeltabell_hamta <- function(tabort_na = TRUE,
+                                                       med_regionnamn = TRUE) {
+  # Hämtar tabellen med regionala operatörer från Trafiklab så att en operatör
+  # kan hämtas med länskod. Trafiklab har tagit bort länsnamnen ur tabellen,
+  # därför kopplas länskoden på manuellt via operatörskoden.
+  #
+  # med_regionnamn = FALSE hoppar över uppslaget av länsnamn (som kräver
+  # hamtaregtab()) - det behövs inte för att bara översätta länskod -> operatörskod.
+
+  operatorkod_till_regionkod <- c(
+    sl = "01", ul = "03", sormland = "04", otraf = "05", jlt = "06",
+    krono = "07", klt = "08", gotland = "09", blekinge = "10", skane = "12",
+    halland = "13", vt = "14", varm = "17", orebro = "18", vastmanland = "19",
+    dt = "20", xt = "21", dintur = "22", jamtland = "23", vasterbotten = "24",
+    norrbotten = "25"
+  )
+
   url_trafiklab <- "https://www.trafiklab.se/sv/api/gtfs-datasets/gtfs-regional/"
 
-  # Läs in HTML-innehållet från sidan
-  page <- read_html(url_trafiklab)
+  retur_df <- rvest::read_html(url_trafiklab) |>
+    rvest::html_element("table") |>
+    rvest::html_table() |>
+    dplyr::select(operator = Operator, operatorkod = Abbreviation) |>
+    dplyr::mutate(regionkod = unname(operatorkod_till_regionkod[operatorkod]))
 
-  # Hitta tabellen med data för operatörerna
-  retur_df <- page %>%
-    html_node("table") %>%  # Välj första tabellen
-    rvest::html_table() %>%
-    select(operator = Operator, operatorkod = Abbreviation) %>%
-    mutate(regionkod = case_when(
-      operatorkod == "sl" ~ "01",
-      operatorkod == "ul" ~ "03",
-      operatorkod == "sormland" ~ "04",
-      operatorkod == "otraf" ~ "05",
-      operatorkod == "jlt" ~ "06",
-      operatorkod == "krono" ~ "07",
-      operatorkod == "klt" ~ "08",
-      operatorkod == "gotland" ~ "09",
-      operatorkod == "blekinge" ~ "10",
-      operatorkod == "skane" ~ "12",
-      operatorkod == "halland" ~ "13",
-      operatorkod == "vt" ~ "14",
-      operatorkod == "varm" ~ "17",
-      operatorkod == "orebro" ~ "18",
-      operatorkod == "vastmanland" ~ "19",
-      operatorkod == "dt" ~ "20",
-      operatorkod == "xt" ~ "21",
-      operatorkod == "dintur" ~ "22",
-      operatorkod == "jamtland" ~ "23",
-      operatorkod == "vasterbotten" ~ "24",
-      operatorkod == "norrbotten" ~ "25",
-      TRUE ~ NA_character_
-    )) %>%
-    filter(!is.na(regionkod))
-
-  # gammal som vi tagit bort för att Trafiklab ändrat tabellen och länsnamnen inte är med i tabellen längre. Vi måste därför koppla på
-  # länskoder manuellt
-  # %>%
-  #   mutate(region = str_extract(operator, "\\(([^)]+)\\)"),  # Extrahera regionen
-  #          operator = str_remove(operator, "\\s*\\([^)]*\\)"),
-  #          region = str_replace_all(region, "[()]", ""),
-  #          region = ifelse(is.na(region) & str_detect(operator, "Länstrafiken "), operator %>% str_remove("Länstrafiken "), region),
-  #          region = region %>% skapa_kortnamn_lan() %>% str_to_title()) %>%
-  #   filter(!is.na(region),
-  #          operatorkod != "sjostadstrafiken")
-
-  regionnyckel <- hamtaregtab() %>%
-    filter(nchar(regionkod) == 2 & regionkod != "00") %>%
-    mutate(region = region %>% skapa_kortnamn_lan())
-
-  retur_df <- retur_df %>%
-    left_join(regionnyckel, by = "regionkod")
-
-  if (tabort_na) retur_df <- retur_df %>% filter(!is.na(regionkod))
-
-  # Visa tabellen
-  return(retur_df)
-} # slut funktion
-
-
-# ================================ gtfs calendar ====================================
-
-gtfs_fyll_calendar_dagar <- function(calendar_dates_df){
-
-  retur_df <- calendar_dates_df %>%
-    mutate(datum = if (!inherits(date, "Date")) {
-      as.Date(paste0(str_sub(date, 1, 4), "-",
-                     str_sub(date, 5, 6), "-",
-                     str_sub(date, 7, 8)))
-    } else {
-      date
-    },
-    veckodag = weekdays(datum),
-    weekday = c("Sunday", "Monday", "Tuesday",     # Convert dates to weekdays
-                "Wednesday", "Thursday", "Friday",
-                "Saturday")[as.numeric(format(datum, "%w")) + 1]) %>%
-    pivot_wider(names_from = weekday, values_from = exception_type) %>%
-    mutate(across(c("Sunday", "Monday", "Tuesday",     # Convert dates to weekdays
-                    "Wednesday", "Thursday", "Friday",
-                    "Saturday"), as.numeric)) %>%
-    replace(is.na(.), 0) %>%
-    group_by(service_id) %>%
-    summarise(monday = max(Monday),
-              tuesday = max(Tuesday),
-              wednesday = max(Wednesday),
-              thursday = max(Thursday),
-              friday = max(Friday),
-              saturday = max(Saturday),
-              sunday = max(Sunday),
-              start_date = min(date),
-              end_date = max(date)) %>%
-    ungroup()
-
-  return(retur_df)
-}
-
-
-gtfs_fyll_calendar_dates_fran_calendar <- function(calendar_df,
-                                                   skickade_service_id = NA,
-                                                   exception_kol = "1"){
-
-  # om man skickar med service_id så kör vi bara på dem, annars hela datasetet
-  if (!is.na(skickade_service_id)) {
-    filtrerad_df <- calendar_df %>% filter(service_id %in% skickade_service_id)
-  } else {
-    filtrerad_df <- calendar_df
+  if (med_regionnamn) {
+    regionnyckel <- hamtaregtab() |>
+      dplyr::filter(nchar(regionkod) == 2, regionkod != "00") |>
+      dplyr::mutate(region = skapa_kortnamn_lan(region))
+    retur_df <- dplyr::left_join(retur_df, regionnyckel, by = "regionkod")
   }
 
-  # vi skapar ett longdataset utifrån calendar_df med alla möjliga datum
-  retur_brutto_df <- filtrerad_df %>%
-    mutate(start_date = as.Date(paste0(str_sub(start_date, 1,4), "-",
-                                       str_sub(start_date, 5,6), "-",
-                                       str_sub(start_date, 7,8))),
-           end_date = as.Date(paste0(str_sub(end_date, 1,4), "-",
-                                     str_sub(end_date, 5,6), "-",
-                                     str_sub(end_date, 7,8)))) %>%
-    group_by(service_id) %>%
-    summarise(date = list(seq.Date(from = min(start_date), to = max(end_date), by = "day"))) %>%
-    unnest(cols = c(date)) %>%
-    mutate(veckodag = c("Sunday", "Monday", "Tuesday",     # Convert dates to weekdays
-                        "Wednesday", "Thursday", "Friday",
-                        "Saturday")[as.numeric(format(date, "%w"))+1] %>% tolower())
+  if (tabort_na) retur_df <- dplyr::filter(retur_df, !is.na(regionkod))
 
-
-  # vi skapar ett dataset där varje service_id har en vektor med de veckodagar
-  # som ska vara kvar
-  service_veckodagar_df <- filtrerad_df %>%
-    pivot_longer(cols = monday:sunday, names_to = "weekday", values_to = "value") %>%
-    filter(value == 1) %>%
-    group_by(service_id) %>%
-    summarise(weekday_vector = list(weekday), .groups = "drop")
-
-  # vi lägger ihop dessa två dataset och filtrerar på de veckodagar som finns i
-  # den vektor vi skapade i service_veckodagar_df ovan
-  retur_df <- retur_brutto_df %>%
-    inner_join(service_veckodagar_df, by = "service_id") %>%
-    rowwise() %>%
-    filter(veckodag %in% weekday_vector) %>%
-    ungroup() %>%
-    mutate(exception_type = exception_kol,
-           date = date %>% as.character() %>% str_remove_all("-")) %>%
-    select(service_id, date, exception_type)
-
-  return(retur_df)
-
+  retur_df
 }
 
-# =================== Hämtar GTFS-dataset ===================
+
+# ================================ gtfs calendar ==============================
+
+# Skapar calendar-tabell utifrån calendar_dates.
+# En veckodag flaggas bara om det finns minst ett datum med exception_type == 1
+# (tillagd trafik) på den veckodagen. Tidigare användes exception_type-värdet
+# direkt, vilket gav värdet 2 (= inställd trafik) i veckodagskolumnerna.
+gtfs_fyll_calendar_dagar <- function(calendar_dates_df) {
+
+  calendar_dates_df |>
+    dplyr::mutate(datum    = gtfs_text_till_datum(date),
+                  veckodag = .gtfs_veckodagar_w[as.integer(format(datum, "%w")) + 1L]) |>
+    dplyr::group_by(service_id) |>
+    dplyr::summarise(
+      monday     = as.integer(any(veckodag == "monday"    & exception_type == 1L)),
+      tuesday    = as.integer(any(veckodag == "tuesday"   & exception_type == 1L)),
+      wednesday  = as.integer(any(veckodag == "wednesday" & exception_type == 1L)),
+      thursday   = as.integer(any(veckodag == "thursday"  & exception_type == 1L)),
+      friday     = as.integer(any(veckodag == "friday"    & exception_type == 1L)),
+      saturday   = as.integer(any(veckodag == "saturday"  & exception_type == 1L)),
+      sunday     = as.integer(any(veckodag == "sunday"    & exception_type == 1L)),
+      start_date = min(datum),
+      end_date   = max(datum),
+      .groups = "drop"
+    )
+}
+
+# Skapar calendar_dates utifrån calendar (ett datum per service_id och aktiv dag).
+# Returnerar date som Date och exception_type som heltal, i samma format som
+# hamta_gtfs_data() returnerar.
+gtfs_fyll_calendar_dates_fran_calendar <- function(calendar_df,
+                                                   skickade_service_id = NULL,
+                                                   exception_kol = 1L) {
+
+  # om man skickar med service_id så kör vi bara på dem, annars hela datasetet
+  if (!is.null(skickade_service_id) && !all(is.na(skickade_service_id))) {
+    calendar_df <- dplyr::filter(calendar_df, service_id %in% skickade_service_id)
+  }
+
+  # vilka veckodagar är aktiva för varje service_id
+  aktiva_df <- calendar_df |>
+    dplyr::select(service_id, dplyr::all_of(.gtfs_veckodagar)) |>
+    tidyr::pivot_longer(-service_id, names_to = "veckodag", values_to = "aktiv") |>
+    dplyr::filter(as.integer(aktiv) == 1L) |>
+    dplyr::select(-aktiv)
+
+  # alla datum mellan start och slut per service_id, behåll bara aktiva veckodagar
+  # (vektoriserad join istället för rowwise-filter)
+  calendar_df |>
+    dplyr::transmute(service_id,
+                     start = gtfs_text_till_datum(start_date),
+                     slut  = gtfs_text_till_datum(end_date)) |>
+    dplyr::mutate(date = Map(function(a, b) seq.Date(a, b, by = "day"), start, slut)) |>
+    tidyr::unnest(date) |>
+    dplyr::mutate(veckodag = .gtfs_veckodagar[(as.integer(format(date, "%w")) + 6L) %% 7L + 1L]) |>
+    dplyr::inner_join(aktiva_df, by = c("service_id", "veckodag")) |>
+    dplyr::transmute(service_id, date, exception_type = as.integer(exception_kol))
+}
+
+
+# =================== Hämtar GTFS-dataset =====================================
 
 # Huvudfunktion för nedladdning och bearbetning av GTFS-data
 #
-# För att köra skriptet krävs att man har installerat paketet keyring() och där sparat en
-# service som heter "API_trafiklab_token", där användarnamn är "GTFS_Regional", "GTFS_Sverige_2"
-# eller "GTFS_Sweden_3" beroende på vilket dataset man vill hämta. Själva token läggs som
-# lösenord. Man måste skapa en användare hos Trafiklab för att få tokens som man använder för
-# att ladda ned data. Detta skapar man här: https://developer.trafiklab.se/login och det är
-# kostnadsfritt.
+# För att köra funktionen krävs paketet keyring med en sparad service som heter
+# "API_trafiklab_token", där användarnamn är "GTFS_Regional", "GTFS_Sverige_2"
+# eller "GTFS_Sweden_3" beroende på vilket dataset man vill hämta. Själva token
+# läggs som lösenord. Man skapar token (kostnadsfritt) hos Trafiklab:
+# https://developer.trafiklab.se/login
 #
-# Parametrar i funktionen:
-#   - gtfs_dataset: Specificerar dataset att ladda ner. Kan vara en RKM-kod (ex. "skane") eller "sverige_2" eller "sweden_3".
-#   - spara_filmap: Sökväg för att spara filerna. Om ingen sökväg anges, sparas filerna temporärt.
-#   - test_mode: Om TRUE, testas endast URL-åtkomst, ingen nedladdning sker (default = FALSE).
+# Parametrar:
+#   - gtfs_dataset: länskod (t.ex. "20" eller 20), operatörskod (t.ex. "skane"),
+#                   "sverige_2" eller "sweden_3".
+#   - spara_filmap: mapp att spara zip och uppackade filer i. NA = temporärt
+#                   (städas bort automatiskt när funktionen är klar).
+#   - test_mode:    TRUE = testa bara att URL:en svarar, ingen nedladdning.
 #
-# Beskrivning:
-# Funktionen hämtar GTFS-data baserat på angivet dataset och sparar filerna i en angiven katalog (om specificerad).
-# Om test_mode är satt till TRUE, utförs en kontroll av URL:ens tillgänglighet utan att data hämtas.
-# Filen packas upp och innehållet bearbetas för att generera en lista av dataframes med GTFS-information.
-#
-# Retur:
-# Returnerar en lista med dataframes (routes, stops, stop_times, trips, calendar_dates, shapes, agency, feed_info).
-# shapes är NULL om shapes.txt saknas i datasetet.
-#
-# Felhantering:
-# Hanterar fel under nedladdning och bearbetning, och ger ett felmeddelande vid problem.
-#
-# Förbättringspotential:
-#   - använda länskod för att hämta regionala dataset, funkar backar därför till en tidigare version!
-#   - funktionalitet för att ladda ner länsversioner av sweden_3 eller sverige_2? Så att man får med all trafik i länet och inte bara den regionala operatören
-
-hamta_gtfs_data <- function(gtfs_dataset = "20",   #
+# Retur: lista med dataframes (routes, stops, stop_times, trips, calendar_dates,
+# calendar, samt shapes, agency, feed_info, attributions, transfers om de finns).
+# Datum är Date-objekt och numeriska fält har riktiga typer.
+hamta_gtfs_data <- function(gtfs_dataset = "20",
                             spara_filmap = NA,
                             test_mode = FALSE) {
 
-  # kontrollera att gtfs_dataset bara är ett värde
-  if (length(gtfs_dataset) > 1) stop("Parametern gtfs_dataset kan för närvarande bara ha ett värde. Korrigera parametern och försök igen.")
+  if (length(gtfs_dataset) != 1) {
+    stop("Parametern gtfs_dataset kan för närvarande bara ha ett värde. Korrigera parametern och försök igen.")
+  }
+  gtfs_dataset <- as.character(gtfs_dataset)
+  dataset_lc   <- tolower(gtfs_dataset)
 
   tryCatch({
-    datum <- str_remove_all(Sys.Date(), "-")
+    datum <- format(Sys.Date(), "%Y%m%d")
 
-    # Retrieve API key from keyring based on dataset
-    if (tolower(gtfs_dataset) == "sweden_3" | tolower(gtfs_dataset) == "sweden3") {
-      api_key <- key_get("API_trafiklab_token", "GTFS_Sweden_3")
-      url <- paste0("https://opendata.samtrafiken.se/gtfs-sweden/sweden.zip?key=", api_key)
-    } else if (tolower(gtfs_dataset) == "sverige_2" | tolower(gtfs_dataset) == "sverige2") {
-      api_key <- key_get("API_trafiklab_token", "GTFS_Sverige_2")
-      url <- paste0("https://api.resrobot.se/gtfs/sweden.zip?key=", api_key)
+    if (dataset_lc %in% c("sweden_3", "sweden3")) {
+      api_key  <- keyring::key_get("API_trafiklab_token", "GTFS_Sweden_3")
+      url      <- paste0("https://opendata.samtrafiken.se/gtfs-sweden/sweden.zip?key=", api_key)
+      kan_head <- TRUE
+    } else if (dataset_lc %in% c("sverige_2", "sverige2")) {
+      api_key  <- keyring::key_get("API_trafiklab_token", "GTFS_Sverige_2")
+      url      <- paste0("https://api.resrobot.se/gtfs/sweden.zip?key=", api_key)
+      kan_head <- FALSE   # sverige_2 stödjer inte HEAD-anrop
     } else {
-      # hämta en nyckel som översätter länskoder till operatörskoder (som finns hos Trafiklab)
-      regionnyckel <- gtfs_operatorer_sverige_nyckeltabell_hamta()
-      # om gtfs-dataset
-      rkm <- if (gtfs_dataset %in% regionnyckel$operatorkod) gtfs_dataset else regionnyckel$operatorkod[gtfs_dataset == regionnyckel$regionkod]
+      # länskoder ska vara tvåsiffriga ("03" och inte "3")
+      if (grepl("^[0-9]+$", gtfs_dataset)) gtfs_dataset <- sprintf("%02d", as.integer(gtfs_dataset))
 
-      api_key <- key_get("API_trafiklab_token", "GTFS_Regional")
-      url <- paste0("https://opendata.samtrafiken.se/gtfs/", rkm, "/", rkm, ".zip?key=", api_key)
+      # översätt länskod -> operatörskod (som Trafiklab använder i URL:en)
+      regionnyckel <- gtfs_operatorer_sverige_nyckeltabell_hamta(med_regionnamn = FALSE)
+      rkm <- if (dataset_lc %in% regionnyckel$operatorkod) dataset_lc else
+        regionnyckel$operatorkod[regionnyckel$regionkod == gtfs_dataset]
+      if (length(rkm) != 1) {
+        stop("Hittade inte exakt en regional operatör för '", gtfs_dataset,
+             "'. Ange en giltig länskod eller operatörskod.")
+      }
+
+      api_key  <- keyring::key_get("API_trafiklab_token", "GTFS_Regional")
+      url      <- paste0("https://opendata.samtrafiken.se/gtfs/", rkm, "/", rkm, ".zip?key=", api_key)
+      kan_head <- TRUE
     }
 
-    # Test mode: only check if the URL is accessible
+    # Testläge: kontrollera bara att URL:en fungerar
     if (test_mode) {
-      if (gtfs_dataset == "sverige_2") {
-        # Use GET request for sverige_2 as it does not support HEAD requests
-        response <- GET(url)
-      } else {
-        # Use HEAD request for others
-        response <- HEAD(url)
+      svar <- if (kan_head) httr::HEAD(url) else
+        httr::GET(url, httr::add_headers(Range = "bytes=0-0"))
+      if (!httr::status_code(svar) %in% c(200L, 206L)) {
+        stop("URL:en fungerar inte, felkod: ", httr::status_code(svar))
       }
-
-      if (response$status_code == 200) {
-        message("Test framgångsrikt: URL:en finns och fungerar.")
-      } else {
-        stop("URL:en fungerar inte, felkod: ", response$status_code)
-      }
-      return(invisible())  # Exits function without further execution
+      message("Test framgångsrikt: URL:en finns och fungerar.")
+      return(invisible(TRUE))
     }
 
-    # Filnamn och sökväg för nedladdning om en sökväg anges
-    if (!is.na(spara_filmap)) {
-      if (!dir.exists(spara_filmap)) {
-        dir.create(spara_filmap, recursive = TRUE)
-      }
-      gtfs_fil <- paste0(spara_filmap, "/trafiklab_", gtfs_dataset, "_", datum, ".zip")
+    # Filnamn/sökvägar. Temporära filer städas bort när funktionen avslutas.
+    spara <- !is.null(spara_filmap) && !is.na(spara_filmap)
+    if (spara) {
+      if (!dir.exists(spara_filmap)) dir.create(spara_filmap, recursive = TRUE)
+      gtfs_fil  <- file.path(spara_filmap, paste0("trafiklab_", gtfs_dataset, "_", datum, ".zip"))
+      unzip_dir <- file.path(spara_filmap, paste0(gtfs_dataset, "_", datum))
     } else {
-      gtfs_fil <- tempfile(fileext = ".zip")
+      gtfs_fil  <- tempfile(fileext = ".zip")
+      unzip_dir <- tempfile("gtfs_")
+      on.exit(unlink(c(gtfs_fil, unzip_dir), recursive = TRUE), add = TRUE)
     }
 
-    GET(url, write_disk(gtfs_fil, overwrite = TRUE))
-    unzip_dir <- if (!is.na(spara_filmap)) paste0(spara_filmap, "/", gtfs_dataset, "_", datum) else tempfile()
-    unzip(gtfs_fil, exdir = unzip_dir)
+    svar <- httr::GET(url, httr::write_disk(gtfs_fil, overwrite = TRUE))
+    # utan denna kontroll sparas ett felmeddelande (t.ex. 403 vid fel token) som "zip"
+    httr::stop_for_status(svar, task = "ladda ned GTFS-datasetet")
+    utils::unzip(gtfs_fil, exdir = unzip_dir)
 
-    # Lista alla filer i zip-arkivet
-    zip_innehall <- zip_list(gtfs_fil)$filename
+    las <- function(fil, obligatorisk = FALSE) gtfs_las_fil(unzip_dir, fil, obligatorisk)
 
-    # skapa tom lista som vi fyller på med information nedan
     gtfs_lista <- list()
 
-    # Läs in och bearbeta gtfs-filerna
-
     # routes
-    routes <- read.csv2(file.path(unzip_dir, "routes.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
-      mutate(route_type = as.integer(route_type))
-    gtfs_lista <- c(gtfs_lista, list(routes = routes))     # fyll på gtfs_lista med detta dataset
+    gtfs_lista$routes <- las("routes.txt", TRUE) |>
+      gtfs_konvertera(heltal = "route_type")
 
     # stops
-    stops <- read.csv2(file.path(unzip_dir, "stops.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
-      mutate(
-        hpl_id = substr(stop_id, 8, 13),
-        stop_lat = as.numeric(stop_lat),
-        stop_lon = as.numeric(stop_lon),
-        location_type = as.integer(location_type)
-      )
-    gtfs_lista <- c(gtfs_lista, list(stops = stops))      # fyll på gtfs_lista med detta dataset
+    stops <- las("stops.txt", TRUE) |>
+      gtfs_konvertera(heltal = "location_type", decimal = c("stop_lat", "stop_lon"))
+    stops$hpl_id <- substr(stops$stop_id, 8, 13)
+    gtfs_lista$stops <- stops
 
     # stop_times
-    stop_times <- read.csv2(file.path(unzip_dir, "stop_times.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
-      mutate(
-        stop_sequence = as.integer(stop_sequence),
-        pickup_type = as.integer(pickup_type),
-        drop_off_type = as.integer(drop_off_type),
-        shape_dist_traveled = if ("shape_dist_traveled" %in% names(.)) suppressWarnings(as.numeric(shape_dist_traveled)) else NA_real_,
-        timepoint = if ("timepoint" %in% names(.)) suppressWarnings(as.integer(timepoint)) else NA_integer_
-      )
-    gtfs_lista <- c(gtfs_lista, list(stop_times = stop_times))     # fyll på gtfs_lista med detta dataset
+    stop_times <- las("stop_times.txt", TRUE) |>
+      gtfs_konvertera(heltal  = c("stop_sequence", "pickup_type", "drop_off_type", "timepoint"),
+                      decimal = "shape_dist_traveled")
+    if (!"shape_dist_traveled" %in% names(stop_times)) stop_times$shape_dist_traveled <- NA_real_
+    if (!"timepoint" %in% names(stop_times))           stop_times$timepoint <- NA_integer_
+    gtfs_lista$stop_times <- stop_times
 
     # trips
-    trips <- read.csv2(file.path(unzip_dir, "trips.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
-      mutate(
-        direction_id = if ("direction_id" %in% names(.)) suppressWarnings(as.integer(direction_id)) else NA_integer_
-      )
-    gtfs_lista <- c(gtfs_lista, list(trips = trips))     # fyll på gtfs_lista med detta dataset
+    gtfs_lista$trips <- las("trips.txt", TRUE) |>
+      gtfs_konvertera(heltal = "direction_id")
+    if (!"direction_id" %in% names(gtfs_lista$trips)) gtfs_lista$trips$direction_id <- NA_integer_
 
-    # caledar_dates
-    calendar_dates <- read.csv2(file.path(unzip_dir, "calendar_dates.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
-      mutate(
-        date = as.Date(date, format = "%Y%m%d"),
-        exception_type = as.integer(exception_type)
-      )
-    gtfs_lista <- c(gtfs_lista, list(calendar_dates = calendar_dates))     # fyll på gtfs_lista med detta dataset
+    # calendar_dates och calendar. Vissa dataset saknar den ena eller har en
+    # calendar som bara innehåller nollor - då fylls den från den andra.
+    calendar_dates <- las("calendar_dates.txt")
+    calendar       <- las("calendar.txt")
 
-    # calendar
-    if (file.exists(file.path(unzip_dir, "calendar.txt"))) {
-      calendar <- read.csv2(file.path(unzip_dir, "calendar.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
-
-      veckodagar <- c("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
-
-      total_aktiva <- calendar %>%
-        summarise(across(all_of(veckodagar), ~ sum(as.integer(.)))) %>%  # Kollar om filen är fylls med bara nollor -> måste fylla på från calednar_dates
-        rowSums()
-
-      if (total_aktiva == 0) {
-        calendar <- gtfs_fyll_calendar_dagar(calendar_dates)
-      }
-    } else {
-      calendar <- gtfs_fyll_calendar_dagar(calendar_dates)  # Om filen calendar inte existerar
+    if (!is.null(calendar_dates)) {
+      calendar_dates <- calendar_dates |>
+        dplyr::mutate(date = gtfs_text_till_datum(date),
+                      exception_type = as.integer(exception_type))
     }
-    gtfs_lista <- c(gtfs_lista, list(calendar = calendar))
-
-    # Lägg bara till om shapes finns i datasetet
-    if (file.exists(file.path(unzip_dir, "shapes.txt"))) {
-      shapes <- read.csv2(file.path(unzip_dir, "shapes.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character') %>%
-        mutate(
-          shape_pt_sequence = if ("shape_pt_sequence" %in% names(.)) as.integer(shape_pt_sequence) else NA_integer_,
-          shape_dist_traveled = if ("shape_dist_traveled" %in% names(.)) suppressWarnings(as.numeric(shape_dist_traveled)) else NA_real_
-        )
-      gtfs_lista <- c(gtfs_lista, list(shapes = shapes))     # fyll på gtfs_lista med detta dataset
+    if (!is.null(calendar)) {
+      calendar <- calendar |>
+        gtfs_konvertera(heltal = .gtfs_veckodagar) |>
+        dplyr::mutate(start_date = gtfs_text_till_datum(start_date),
+                      end_date   = gtfs_text_till_datum(end_date))
+      if (sum(unlist(calendar[.gtfs_veckodagar]), na.rm = TRUE) == 0) calendar <- NULL
     }
+    if (is.null(calendar_dates) && !is.null(calendar)) {
+      calendar_dates <- gtfs_fyll_calendar_dates_fran_calendar(calendar)
+    }
+    if (is.null(calendar_dates)) {
+      stop("Datasetet saknar både användbar calendar.txt och calendar_dates.txt.")
+    }
+    if (is.null(calendar)) calendar <- gtfs_fyll_calendar_dagar(calendar_dates)
 
-    # agency - om det finns
-    if (file.exists(file.path(unzip_dir, "agency.txt"))) {
-      agency <- read.csv2(file.path(unzip_dir, "agency.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
-      gtfs_lista <- c(gtfs_lista, list(agency = agency))     # fyll på gtfs_lista med detta dataset
+    gtfs_lista$calendar_dates <- calendar_dates
+    gtfs_lista$calendar       <- calendar
 
+    # shapes - bara om de finns. Koordinaterna konverteras till tal här så att
+    # alla efterföljande steg (databas, kartor) kan lita på typerna.
+    shapes <- las("shapes.txt")
+    if (!is.null(shapes)) {
+      shapes <- gtfs_konvertera(shapes,
+                                heltal  = "shape_pt_sequence",
+                                decimal = c("shape_pt_lat", "shape_pt_lon", "shape_dist_traveled"))
+      if (!"shape_dist_traveled" %in% names(shapes)) shapes$shape_dist_traveled <- NA_real_
+      gtfs_lista$shapes <- shapes
     }
 
-    # feed_info - om det finns
-    if (file.exists(file.path(unzip_dir, "feed_info.txt"))) {
-      feed_info <- read.csv2(file.path(unzip_dir, "feed_info.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
-      gtfs_lista <- c(gtfs_lista, list(feed_info = feed_info))     # fyll på gtfs_lista med detta dataset
+    # övriga filer - om de finns
+    for (fil in c("agency", "feed_info", "attributions", "transfers")) {
+      x <- las(paste0(fil, ".txt"))
+      if (!is.null(x)) gtfs_lista[[fil]] <- x
     }
 
-    # attributions - om det finns
-    if (file.exists(file.path(unzip_dir, "attributions.txt"))) {
-      attributions <- read.csv2(file.path(unzip_dir, "attributions.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
-      gtfs_lista <- c(gtfs_lista, list(attributions = attributions))     # fyll på gtfs_lista med detta dataset
-    }
-
-    # transfers - om det finns
-    if (file.exists(file.path(unzip_dir, "transfers.txt"))) {
-      transfers <- read.csv2(file.path(unzip_dir, "transfers.txt"), sep = ",", encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = 'character')
-      gtfs_lista <- c(gtfs_lista, list(transfers = transfers))     # fyll på gtfs_lista med detta dataset
-    }
-
-    # Return as a list of data frames
-    return(gtfs_lista)
+    gtfs_lista
 
   }, error = function(e) {
-    stop(paste("Följande fel har uppstått under nedladdning och bearbetning av gtfs-datasetet: ", e$message))
+    stop(paste("Följande fel har uppstått under nedladdning och bearbetning av gtfs-datasetet: ", conditionMessage(e)),
+         call. = FALSE)
   })
 }
 
-# Example usage
+# Exempel:
 # sweden_3 <- hamta_gtfs_data("sweden_3", test_mode = TRUE)
-#
-# sverige_2 <- hamta_gtfs_data("sverige_2", test_mode = TRUE)
-#
-# dt <- hamta_gtfs_data("dt", test_mode = TRUE)
-#
-# skane <- hamta_gtfs_data("skane")
+# dt       <- hamta_gtfs_data("dt", test_mode = TRUE)
+# skane    <- hamta_gtfs_data("skane")
+
 
 # ========== Plotta GTFS-data ==========
 
-# Hjälpfunktion för att visualisera "shapes" från ett GTFS-dataset som linjer på en karta
-# Argument:
-#   - gtfs_data: Ett objekt returnerat av funktionen för att hämta GTFS-data. Innehåller GTFS-data som bearbetats till dataframes.
-#
-# Beskrivning:
-# Funktionen skapar en karta med linjer baserade på shapes-data från ett GTFS-dataset. Shapes-data
-# konverteras till ett sf-objekt (spatial format) och kombineras per shape_id till linjesegment.
-# Om GTFS-datasetet saknar shapes-information (exempelvis "gtfs_sverige_2"), avbryts funktionen med ett felmeddelande.
-#
-# Retur:
-# En interaktiv karta (via mapview) som visar linjer för varje shape_id i shapes-data.
-# Färgerna för linjerna representeras unikt per shape_id och en legend inkluderas.
-#
-# Felhantering:
-# Kontrollerar om shapes-data finns. Om inte, stoppas funktionen med ett meddelande till användaren.
-
-
+# Visualiserar "shapes" från ett GTFS-dataset som linjer på en karta (mapview).
+# Datasetet måste innehålla shapes (sverige_2 saknar shapes.txt).
 mapview_gtfs <- function(gtfs_data) {
 
-  # Check if shapes data exists
-  if (is.null(gtfs_data$shapes)) {
-    stop("The GTFS data does not contain shapes information. Unable to create map.") # gtfs_sverige_2 does not have shapes.txt
+  if (!requireNamespace("mapview", quietly = TRUE)) {
+    stop("Paketet 'mapview' krävs för mapview_gtfs() men är inte installerat.", call. = FALSE)
   }
-  shapes <- gtfs_data$shapes
+  if (is.null(gtfs_data$shapes)) {
+    stop("GTFS-datat innehåller ingen shapes-information. Kan inte skapa karta.", call. = FALSE)
+  }
 
-  shapes <- shapes %>%
-    mutate(
-      shape_pt_lat = as.numeric(shape_pt_lat),
-      shape_pt_lon = as.numeric(shape_pt_lon)
-    )
+  shapes_lines <- gtfs_shapes_till_linjer(gtfs_data$shapes, crs = 4326)
 
-  shapes_sf <- st_as_sf(shapes, coords = c("shape_pt_lon", "shape_pt_lat"), crs = 4326)
-
-  shapes_lines <- shapes_sf %>%
-    group_by(shape_id) %>%
-    summarize(
-      geometry = st_cast(st_combine(geometry), "LINESTRING"),
-      .groups = 'drop'
-    )
-
-  mapview(shapes_lines, zcol = "shape_id", legend = TRUE)
+  mapview::mapview(shapes_lines, zcol = "shape_id", legend = TRUE)
 }
-
-# Example usage
 
 # mapview_gtfs(skane)
 
 
-# ========== r5r hjälpfunktioner för att läsa in gtfs data till databasen samt hämta korrekt data för r5r ruttning ==========
-# Validera GTFS-data med Google GTFS-validator
+# ========== r5r hjälpfunktioner =============================================
+
+# Validera GTFS-data med Google GTFS-validator och skriv ut alla fel och
+# varningar. Kräver att gtfs-validator.jar finns (och Java).
 #
-# Kör Google GTFS-validator på ett GTFS-objekt och skriver ut alla fel
-# och varningar i konsolen. Kräver att gtfs-validator.jar finns installerad.
-#
-#  gtfs GTFS-objekt eller sökväg till zip-fil
-#  output_path Mapp där valideringsrapporten (report.json) sparas
-#  validator_path Sökväg till gtfs-validator.jar
-#  return Valideringsrapporten som lista (invisibly)
+#  gtfs            GTFS-objekt (lista eller dt_gtfs) eller sökväg till zip-fil
+#  output_path     Mapp där valideringsrapporten (report.json) sparas
+#  validator_path  Sökväg till gtfs-validator.jar
+#  return          Valideringsrapporten som lista (invisibly)
 gtfs_validera <- function(gtfs,
                           output_path    = "validering",
-                          validator_path = paste0(getwd(), "/gtfstools/gtfs-validator-v6.0.0.jar")) {
+                          validator_path = file.path(getwd(), "gtfstools", "gtfs-validator-v6.0.0.jar")) {
 
-  validate_gtfs(gtfs, output_path = output_path, validator_path = validator_path)
+  if (is.list(gtfs) && !inherits(gtfs, "dt_gtfs")) gtfs <- gtfstools::as_dt_gtfs(gtfs)
+
+  gtfstools::validate_gtfs(gtfs, output_path = output_path, validator_path = validator_path)
 
   rapport <- jsonlite::read_json(file.path(output_path, "report.json"))
   for (notice in rapport$notices) {
     if (notice$severity %in% c("ERROR", "WARNING")) {
-      cat(notice$severity, "-", notice$code, "-", notice$totalNotices, "fel\n")
+      message(notice$severity, " - ", notice$code, " - ", notice$totalNotices, " fel")
     }
   }
   invisible(rapport)
@@ -466,139 +426,145 @@ gtfs_validera <- function(gtfs,
 # Fixar endast genuina datafel som hindrar uppladdning:
 # - Säkerställer numeriska koordinater
 # - Konverterar tomma strängar till NA i heltalkolumner (sweden_3)
-# - Normaliserar stop_sequence så den börjar på 1
+# - Normaliserar stop_sequence så den börjar på 1 per tur
 #
-# Koordinatfiltrering och analytisk rensning (parent stations,
-# anropsstyrd trafik osv.) sker istället i gtfs_rensa_for_r5r()
+# Koordinatfiltrering och analytisk rensning sker istället i gtfs_rensa_for_r5r()
 # inför analys, så att databasen speglar källdatan så nära som möjligt.
 gtfs_rensa_for_db <- function(gtfs, gtfs_dataset = "regional") {
 
-  sweden_3 <- gtfs_dataset == "sweden_3"
+  sweden_3 <- gtfs_kontrollera_dataset(gtfs_dataset)
 
-  # ── Stops ──────────────────────────────────────────────────────────────
-  # Säkerställ numeriska koordinater (ofta character från källan)
-  gtfs$stops <- gtfs$stops %>%
-    mutate(stop_lat = as.numeric(stop_lat),
-           stop_lon = as.numeric(stop_lon))
+  gtfs$stops <- gtfs_konvertera(gtfs$stops, decimal = c("stop_lat", "stop_lon"))
 
-  # Normalisera stop_sequence
-  gtfs$stop_times <- gtfs$stop_times %>%
-    group_by(trip_id) %>%
-    arrange(stop_sequence) %>%
-    mutate(stop_sequence = row_number()) %>%
-    ungroup()
+  # Normalisera stop_sequence till 1..n per tur. Sortera på tur och sekvens och
+  # numrera med rle() - betydligt snabbare än group_by/row_number på stora tabeller.
+  st <- gtfs$stop_times
+  st <- st[order(st$trip_id, st$stop_sequence, method = "radix"), ]
+  st$stop_sequence <- sequence(rle(st$trip_id)$lengths)
+  gtfs$stop_times <- st
 
-  # ── Endast sweden_3 ────────────────────────────────────────────────────
+  # Endast sweden_3: tomma strängar -> NA och rätt typer
   if (sweden_3) {
-
-    # transfers — tomma strängar → NA, heltal-kolumner konverteras
     if (!is.null(gtfs$transfers)) {
-      gtfs$transfers <- gtfs$transfers %>%
-        mutate(across(where(is.character), ~ na_if(., ""))) %>%
-        mutate(
-          transfer_type     = suppressWarnings(as.integer(transfer_type)),
-          min_transfer_time = suppressWarnings(as.integer(min_transfer_time))
-        )
+      gtfs$transfers <- gtfs$transfers |>
+        gtfs_tom_till_na() |>
+        gtfs_konvertera(heltal = c("transfer_type", "min_transfer_time"))
     }
-
-    # attributions — tomma strängar → NA, is_operator konverteras
     if (!is.null(gtfs$attributions)) {
-      gtfs$attributions <- gtfs$attributions %>%
-        mutate(across(where(is.character), ~ na_if(., ""))) %>%
-        mutate(is_operator = suppressWarnings(as.integer(is_operator)))
+      gtfs$attributions <- gtfs$attributions |>
+        gtfs_tom_till_na() |>
+        gtfs_konvertera(heltal = "is_operator")
     }
-
-    # calendar — tomma strängar → NA, dagkolumner konverteras
     if (!is.null(gtfs$calendar)) {
-      gtfs$calendar <- gtfs$calendar %>%
-        mutate(across(where(is.character), ~ na_if(., ""))) %>%
-        mutate(
-          across(c(monday, tuesday, wednesday, thursday,
-                   friday, saturday, sunday), ~ suppressWarnings(as.integer(.)))
-        )
+      gtfs$calendar <- gtfs$calendar |>
+        gtfs_tom_till_na() |>
+        gtfs_konvertera(heltal = .gtfs_veckodagar)
     }
-
-    # feed_info — tomma strängar → NA
     if (!is.null(gtfs$feed_info)) {
-      gtfs$feed_info <- gtfs$feed_info %>%
-        mutate(across(where(is.character), ~ na_if(., "")))
+      gtfs$feed_info <- gtfs_tom_till_na(gtfs$feed_info)
     }
   }
 
   gtfs
 }
+
 
 # Rensa GTFS för r5r.
 #
-# Tar bort anropsstyrd trafik (1501), konverterar tågkoder, kaskadfiltrerar,
-# tar bort parent stations och stops med ogiltiga koordinater,
-# attributions och transfers, samt sätter feed_info-datum dynamiskt.
-# Kan anropas separat på vilket GTFS-objekt som helst eller via
-# gtfs_hamta_for_r5r().
+# Tar bort anropsstyrd trafik (1501), konverterar tågkoder, tar bort parent
+# stations och stops med ogiltiga koordinater, attributions och transfers, samt
+# sätter feed_info-datum dynamiskt. Alla beroende tabeller kaskadfiltreras så
+# att inga föräldralösa routes, shapes, services eller agencies blir kvar.
 gtfs_rensa_for_r5r <- function(gtfs) {
 
-  # Ta bort anropsstyrd trafik (1501) och konvertera tågkoder till standard
-  gtfs$routes <- gtfs$routes %>%
-    filter(route_type != 1501) %>%
-    mutate(route_type = if_else(route_type %in% c(100, 103, 106), 2L, as.integer(route_type)))
-
-  # Kaskadfiltrering efter borttagna routes
-  gtfs$trips          <- gtfs$trips %>% filter(route_id %in% gtfs$routes$route_id)
-  gtfs$stop_times     <- gtfs$stop_times %>% filter(trip_id %in% gtfs$trips$trip_id)
-  kvarv_service       <- unique(gtfs$trips$service_id)
-  if (!is.null(gtfs$calendar))
-    gtfs$calendar     <- gtfs$calendar %>% filter(service_id %in% kvarv_service)
-  gtfs$calendar_dates <- gtfs$calendar_dates %>% filter(service_id %in% kvarv_service)
+  # Ta bort anropsstyrd trafik (1501) och konvertera tågkoder till standardkoden 2
+  gtfs$routes <- gtfs$routes |>
+    dplyr::filter(route_type != 1501L) |>
+    dplyr::mutate(route_type = dplyr::if_else(route_type %in% c(100L, 103L, 106L),
+                                              2L, as.integer(route_type)))
+  gtfs$trips <- dplyr::filter(gtfs$trips, route_id %in% gtfs$routes$route_id)
 
   # Ta bort parent stations + stops med ogiltiga koordinater
-  gtfs$stops <- gtfs$stops %>%
-    filter(is.na(location_type) | location_type == 0) %>%
-    filter(between(stop_lat, 55, 70), between(stop_lon, 10, 25)) %>%
-    select(-any_of(c("location_type", "parent_station", "platform_code", "hpl_id")))
-  gtfs$stop_times <- gtfs$stop_times %>% filter(stop_id %in% gtfs$stops$stop_id)
+  gtfs$stops <- gtfs$stops |>
+    dplyr::filter(is.na(location_type) | location_type == 0,
+                  dplyr::between(stop_lat, 55, 70),
+                  dplyr::between(stop_lon, 10, 25)) |>
+    dplyr::select(-dplyr::any_of(c("location_type", "parent_station", "platform_code", "hpl_id")))
 
-  # Ta bort shape_dist_traveled (orsakar valideringsfel i r5r)
-  gtfs$stop_times <- gtfs$stop_times %>% select(-any_of("shape_dist_traveled"))
-  if (!is.null(gtfs$shapes))
-    gtfs$shapes <- gtfs$shapes %>% select(-any_of("shape_dist_traveled"))
+  # stop_times: bara kvarvarande stops/trips. shape_dist_traveled tas bort
+  # (orsakar valideringsfel i r5r)
+  gtfs$stop_times <- gtfs$stop_times |>
+    dplyr::filter(stop_id %in% gtfs$stops$stop_id, trip_id %in% gtfs$trips$trip_id) |>
+    dplyr::select(-dplyr::any_of("shape_dist_traveled"))
+  if (!is.null(gtfs$shapes)) {
+    gtfs$shapes <- dplyr::select(gtfs$shapes, -dplyr::any_of("shape_dist_traveled"))
+  }
 
-  # Ta bort oanvändbara tabeller och trips utan stop_times
+  # Oanvändbara tabeller
   gtfs$attributions <- NULL
   gtfs$transfers    <- NULL
-  gtfs$trips <- gtfs$trips %>% filter(trip_id %in% unique(gtfs$stop_times$trip_id))
 
-  # Sätt feed_info-datum dynamiskt från datan
-  if (!is.null(gtfs$feed_info)) {
-    gtfs$feed_info$feed_start_date <- min(gtfs$calendar_dates$date, na.rm = TRUE)
-    gtfs$feed_info$feed_end_date   <- max(gtfs$calendar_dates$date, na.rm = TRUE)
+  # Trips utan stop_times bort, därefter kaskad till övriga tabeller
+  gtfs$trips <- dplyr::filter(gtfs$trips, trip_id %in% gtfs$stop_times$trip_id)
+  gtfs$routes <- dplyr::filter(gtfs$routes, route_id %in% gtfs$trips$route_id)
+
+  kvarv_service <- unique(gtfs$trips$service_id)
+  if (!is.null(gtfs$calendar)) {
+    gtfs$calendar <- dplyr::filter(gtfs$calendar, service_id %in% kvarv_service)
+  }
+  gtfs$calendar_dates <- dplyr::filter(gtfs$calendar_dates, service_id %in% kvarv_service)
+
+  if (!is.null(gtfs$shapes)) {
+    gtfs$shapes <- dplyr::filter(gtfs$shapes, shape_id %in% gtfs$trips$shape_id)
+  }
+  if (!is.null(gtfs$agency) && "agency_id" %in% names(gtfs$routes) &&
+      any(!is.na(gtfs$routes$agency_id))) {
+    gtfs$agency <- dplyr::filter(gtfs$agency, agency_id %in% gtfs$routes$agency_id)
+  }
+
+  # Sätt feed_info-datum dynamiskt från datan (GTFS-format YYYYMMDD)
+  if (!is.null(gtfs$feed_info) && nrow(gtfs$feed_info) > 0 && nrow(gtfs$calendar_dates) > 0) {
+    gtfs$feed_info$feed_start_date <- gtfs_datum_till_text(min(gtfs$calendar_dates$date, na.rm = TRUE))
+    gtfs$feed_info$feed_end_date   <- gtfs_datum_till_text(max(gtfs$calendar_dates$date, na.rm = TRUE))
   }
 
   gtfs
 }
 
+
 # Hämta GTFS från databas, förbered för r5r och spara körklar zip
 #
-# Läser GTFS-tabellerna från databasen, kör gtfs_rensa_for_r5r() och
-# skriver en körklar GTFS-zip som kan användas direkt med setup_r5().
+# Läser GTFS-tabellerna från databasen, kör gtfs_rensa_for_r5r() och skriver en
+# körklar GTFS-zip som kan användas direkt med r5r::setup_r5().
 #
-#  con Databasanslutning (DBI)
-#  schema Schema att läsa från
-#  output_zip Sökväg till zip-fil som skapas. NULL = ingen zip skrivs, bara GTFS-objektet returneras.
-#  datum Valfritt datum (Date eller "YYYY-MM-DD") att filtrera trafiken till. NULL = ingen datumfiltrering (r5r väljer ändå rätt turer vid körning).
-#  return Rensat GTFS-objekt (invisibly om zip skrivs)
+#  con         Databasanslutning (DBI)
+#  schema      Schema att läsa från
+#  output_zip  Sökväg till zip-fil som skapas. NULL = ingen zip skrivs, bara
+#              GTFS-objektet returneras.
+#  datum       Valfritt datum (Date eller "YYYY-MM-DD"). Behåller bara turer vars
+#              service_id är aktivt på detta datum ELLER SENARE (exception_type 1).
+#              NULL = ingen datumfiltrering (r5r väljer rätt turer vid körning).
+#  return      Rensat GTFS-objekt (invisibly om zip skrivs)
 gtfs_hamta_for_r5r <- function(con,
                                schema     = "gtfs",
                                output_zip = NULL,
                                datum      = NULL) {
 
   las <- function(tabell) {
-    if (!DBI::dbExistsTable(con, Id(schema = schema, table = tabell))) return(NULL)
-    dbReadTable(con, Id(schema = schema, table = tabell))
+    id <- DBI::Id(schema = schema, table = tabell)
+    if (!DBI::dbExistsTable(con, id)) return(NULL)
+    DBI::dbReadTable(con, id)
   }
 
-  las_sf <- function(tabell) {
-    if (!DBI::dbExistsTable(con, Id(schema = schema, table = tabell))) return(NULL)
-    sf::st_read(con, Id(schema = schema, table = tabell), quiet = TRUE)
+  # stops: hämta alla kolumner utom geometrin. stop_lat/stop_lon finns redan i
+  # tabellen, så det behövs ingen (förlustbringande) omräkning från SWEREF99.
+  las_stops <- function() {
+    id <- DBI::Id(schema = schema, table = "stops")
+    if (!DBI::dbExistsTable(con, id)) return(NULL)
+    kol <- setdiff(DBI::dbListFields(con, id), "geometry")
+    DBI::dbGetQuery(con, paste0(
+      "SELECT ", paste(DBI::dbQuoteIdentifier(con, kol), collapse = ", "),
+      " FROM ", DBI::dbQuoteIdentifier(con, id)))
   }
 
   # ── Läs in tabeller ─────────────────────────────────────────────────────────
@@ -606,7 +572,7 @@ gtfs_hamta_for_r5r <- function(con,
     routes         = las("routes"),
     trips          = las("trips"),
     stop_times     = las("stop_times"),
-    stops          = las_sf("stops"),
+    stops          = las_stops(),
     calendar       = las("calendar"),
     calendar_dates = las("calendar_dates"),
     shapes         = las("shapes"),
@@ -615,24 +581,24 @@ gtfs_hamta_for_r5r <- function(con,
     transfers      = las("transfers"),
     attributions   = las("attributions")
   )
-  gtfs <- gtfs[!sapply(gtfs, is.null)]
+  gtfs <- gtfs[!vapply(gtfs, is.null, logical(1))]
 
-  # ── stops: konvertera från sf/SWEREF99 tillbaka till lon/lat-kolumner ───────
-  if (inherits(gtfs$stops, "sf")) {
-    koord <- sf::st_coordinates(sf::st_transform(gtfs$stops, 4326))
-    gtfs$stops <- sf::st_drop_geometry(gtfs$stops) %>%
-      mutate(stop_lon = koord[, 1],
-             stop_lat = koord[, 2])
+  # regional-datasetet laddar bara upp shapes_line, så shapes-tabellen är tom.
+  # En tom shapes.txt (och trips som pekar på obefintliga shape_id) vill vi inte ha.
+  if (!is.null(gtfs$shapes) && nrow(gtfs$shapes) == 0) {
+    gtfs$shapes <- NULL
+    gtfs$trips$shape_id <- NULL
+    message("Tabellen shapes är tom - shapes utelämnas och shape_id tas bort från trips.")
   }
 
   # ── Valfri datumfiltrering ───────────────────────────────────────────────────
   if (!is.null(datum)) {
     datum  <- as.Date(datum)
-    aktiva <- gtfs$calendar_dates %>%
-      filter(as.Date(date) >= datum, exception_type == 1) %>%
-      pull(service_id) %>%
+    aktiva <- gtfs$calendar_dates |>
+      dplyr::filter(as.Date(date) >= datum, exception_type == 1L) |>
+      dplyr::pull(service_id) |>
       unique()
-    gtfs$trips <- gtfs$trips %>% filter(service_id %in% aktiva)
+    gtfs$trips <- dplyr::filter(gtfs$trips, service_id %in% aktiva)
   }
 
   # ── Rensa för r5r ────────────────────────────────────────────────────────────
@@ -640,7 +606,15 @@ gtfs_hamta_for_r5r <- function(con,
 
   # ── Spara körklar zip ────────────────────────────────────────────────────────
   if (!is.null(output_zip)) {
-    gtfs_dt <- gtfstools::as_dt_gtfs(gtfs)
+    # GTFS kräver datum som YYYYMMDD - Date-kolumner skulle annars skrivas som YYYY-MM-DD
+    skriv <- gtfs
+    if (!is.null(skriv$calendar)) {
+      skriv$calendar <- dplyr::mutate(skriv$calendar,
+                                      dplyr::across(dplyr::any_of(c("start_date", "end_date")), gtfs_datum_till_text))
+    }
+    skriv$calendar_dates <- dplyr::mutate(skriv$calendar_dates, date = gtfs_datum_till_text(date))
+
+    gtfs_dt <- gtfstools::as_dt_gtfs(skriv)
     gtfstools::write_gtfs(gtfs_dt, output_zip)
     message("Körklar GTFS-zip skriven: ", output_zip)
     return(invisible(gtfs))
@@ -650,85 +624,95 @@ gtfs_hamta_for_r5r <- function(con,
 }
 
 
-gtfs_filtrera_geografiskt <- function(gtfs_data, polygon, buffert_km = 0, gtfs_dataset = "regional",
+# Filtrera ett GTFS-dataset geografiskt (alla turer som berör polygonen tas med
+# i sin helhet).
+#
+#  gtfs_data               GTFS-objekt (lista eller dt_gtfs)
+#  polygon                 sf/sfc-objekt med CRS
+#  buffert_km              buffert runt polygonen i km
+#  gtfs_dataset            "regional" eller "sweden_3" (påverkar bara validering)
+#  fullstandiga_operatorer vektor med operatörsnamn (delsträng, case-okänsligt)
+#                          vars linjer ALLTID tas med i sin helhet, oavsett om de
+#                          ligger inom polygonen. NULL = ren geografisk filtrering.
+gtfs_filtrera_geografiskt <- function(gtfs_data, polygon, buffert_km = 0,
+                                      gtfs_dataset = "regional",
                                       fullstandiga_operatorer = NULL) {
-  # fullstandiga_operatorer: vektor med operatörsnamn (delsträng, case-okänsligt)
-  # vars linjer ALLTID tas med i sin helhet, oavsett om de ligger inom
-  # polygonen eller ej. Sätt till NULL eller character(0) för att stänga av
-  # och filtrera rent geografiskt för alla operatörer (som tidigare).
 
-  # Validering
-  if (!gtfs_dataset %in% c("regional", "sweden_3")) {
-    stop("gtfs_dataset måste vara 'regional' eller 'sweden_3'")
-  }
-  sweden_3 <- gtfs_dataset == "sweden_3"
+  gtfs_kontrollera_dataset(gtfs_dataset)
   if (!inherits(polygon, "sf") && !inherits(polygon, "sfc")) {
-    stop("polygon måste vara ett sf- eller sfc-objekt")
+    stop("polygon måste vara ett sf- eller sfc-objekt", call. = FALSE)
+  }
+  if (is.na(sf::st_crs(polygon))) {
+    stop("polygon saknar CRS - sätt det med sf::st_set_crs() först", call. = FALSE)
   }
   if (!inherits(gtfs_data, "dt_gtfs")) {
     message("gtfs_data är inte av typen dt_gtfs — konverterar med as_dt_gtfs()")
     gtfs_data <- gtfstools::as_dt_gtfs(gtfs_data)
   }
-  # Buffra polygon om buffert_km > 0
+
+  # Radurval med logisk vektor fungerar både för data.frame och data.table
+  # (och kräver inte att paketet är data.table-aware)
+  rader <- function(df, lgl) df[lgl, ]
+
+  # Buffra polygon om buffert_km > 0 (i SWEREF99 TM så att meter stämmer)
   if (buffert_km > 0) {
-    polygon <- polygon %>%
-      sf::st_transform(3006) %>%
-      sf::st_buffer(dist = buffert_km * 1000) %>%
-      sf::st_transform(4326)
+    polygon <- polygon |>
+      sf::st_transform(3006) |>
+      sf::st_buffer(dist = buffert_km * 1000)
     message(glue::glue("Polygon buffrad med {buffert_km} km"))
   }
   polygon_union <- sf::st_union(sf::st_transform(polygon, 4326))
 
   # 1. Stops inom polygon
-  stops_sf <- sf::st_as_sf(
-    gtfs_data$stops,
-    coords = c("stop_lon", "stop_lat"),
-    crs = 4326
-  )
-  inom_polygon <- sf::st_intersects(stops_sf, polygon_union, sparse = FALSE)[, 1]
-  stops_ids_geografi <- gtfs_data$stops$stop_id[inom_polygon]
+  stops <- as.data.frame(gtfs_data$stops)
+  stops_sf <- sf::st_as_sf(stops[, c("stop_id", "stop_lon", "stop_lat")],
+                           coords = c("stop_lon", "stop_lat"), crs = 4326,
+                           na.fail = FALSE)
+  inom_polygon <- lengths(sf::st_intersects(stops_sf, polygon_union)) > 0
+  stops_ids_geografi <- stops$stop_id[inom_polygon]
   if (length(stops_ids_geografi) == 0) {
-    stop("Inga stops hittades inom angiven polygon — kontrollera CRS och polygonens utbredning")
+    stop("Inga stops hittades inom angiven polygon — kontrollera CRS och polygonens utbredning", call. = FALSE)
   }
   message(glue::glue("{length(stops_ids_geografi)} stops hittades inom polygon"))
 
   # 2. Filtrera nerifrån och upp, geografiskt
-  stop_times_geografi <- gtfs_data$stop_times[stop_id %in% stops_ids_geografi]
-  trips_ids_geografi  <- unique(stop_times_geografi$trip_id)
-  trips_geografi      <- gtfs_data$trips[trip_id %in% trips_ids_geografi]
-  route_ids_geografi  <- unique(trips_geografi$route_id)
+  stop_times <- gtfs_data$stop_times
+  trips      <- gtfs_data$trips
+  routes     <- gtfs_data$routes
+
+  trips_ids_geografi <- unique(stop_times$trip_id[stop_times$stop_id %in% stops_ids_geografi])
+  route_ids_geografi <- unique(trips$route_id[trips$trip_id %in% trips_ids_geografi])
 
   # 2b. Hitta operatörer som ska tas med i sin helhet, oavsett geografi
-  route_ids_fullstandiga <- integer(0)
+  route_ids_fullstandiga <- character(0)
   if (length(fullstandiga_operatorer) > 0) {
+    op_txt <- paste(fullstandiga_operatorer, collapse = ", ")
 
     if (is.null(gtfs_data$agency)) {
       warning(glue::glue(
-        "gtfs_data$agency saknas (NULL) — kan inte matcha operatörerna ",
-        "'{paste(fullstandiga_operatorer, collapse = ', ')}'. Inget undantag tillämpas, ",
-        "endast geografisk filtrering körs."
+        "gtfs_data$agency saknas (NULL) — kan inte matcha operatörerna '{op_txt}'. ",
+        "Inget undantag tillämpas, endast geografisk filtrering körs."
       ))
     } else {
-      monster <- paste(fullstandiga_operatorer, collapse = "|")
-      agency_ids_fullstandiga <- as.character(gtfs_data$agency$agency_id[
-        grepl(monster, gtfs_data$agency$agency_name, ignore.case = TRUE)
-      ])
+      agency <- as.data.frame(gtfs_data$agency)
+      # delsträngsmatch utan regex (operatörsnamn kan innehålla specialtecken)
+      namn_lc <- tolower(agency$agency_name)
+      traff <- Reduce(`|`, lapply(tolower(fullstandiga_operatorer),
+                                  function(n) grepl(n, namn_lc, fixed = TRUE)))
+      agency_ids_fullstandiga <- as.character(agency$agency_id[traff])
 
       if (length(agency_ids_fullstandiga) == 0) {
         warning(glue::glue(
-          "Ingen operatör matchande '{paste(fullstandiga_operatorer, collapse = ', ')}' ",
-          "hittades i gtfs_data$agency (tillgängliga namn: ",
-          "{paste(unique(gtfs_data$agency$agency_name), collapse = ', ')}) — inget undantag tillämpas."
+          "Ingen operatör matchande '{op_txt}' hittades i gtfs_data$agency (tillgängliga namn: ",
+          "{paste(unique(agency$agency_name), collapse = ', ')}) — inget undantag tillämpas."
         ))
       } else {
         # Jämför som character för att undvika typmismatch (t.ex. '01' vs 1)
-        route_ids_fullstandiga <- gtfs_data$routes[
-          as.character(agency_id) %in% agency_ids_fullstandiga
-        ]$route_id
+        route_ids_fullstandiga <- routes$route_id[as.character(routes$agency_id) %in% agency_ids_fullstandiga]
 
         if (length(route_ids_fullstandiga) == 0) {
           warning(glue::glue(
-            "Operatör(er) '{paste(fullstandiga_operatorer, collapse = ', ')}' hittades i agency-tabellen ",
+            "Operatör(er) '{op_txt}' hittades i agency-tabellen ",
             "(agency_id: {paste(agency_ids_fullstandiga, collapse = ', ')}) men INGA routes matchade ",
             "i gtfs_data$routes$agency_id. Kontrollera att agency_id-typerna stämmer överens ",
             "mellan agency- och routes-tabellerna."
@@ -736,7 +720,7 @@ gtfs_filtrera_geografiskt <- function(gtfs_data, polygon, buffert_km = 0, gtfs_d
         } else {
           message(glue::glue(
             "{length(route_ids_fullstandiga)} routes tas med i sin helhet för: ",
-            "{paste(unique(gtfs_data$agency$agency_name[as.character(gtfs_data$agency$agency_id) %in% agency_ids_fullstandiga]), collapse = ', ')}"
+            "{paste(unique(agency$agency_name[traff]), collapse = ', ')}"
           ))
         }
       }
@@ -745,15 +729,15 @@ gtfs_filtrera_geografiskt <- function(gtfs_data, polygon, buffert_km = 0, gtfs_d
 
   # 3. Slå ihop geografisk filtrering med de fullständiga operatörernas hela nät
   route_ids <- union(route_ids_geografi, route_ids_fullstandiga)
-  trips_filtrerade <- gtfs_data$trips[route_id %in% route_ids]
+  trips_filtrerade <- rader(trips, trips$route_id %in% route_ids)
   trips_ids        <- unique(trips_filtrerade$trip_id)
 
-  stop_times_filtrerade <- gtfs_data$stop_times[trip_id %in% trips_ids]
+  stop_times_filtrerade <- rader(stop_times, stop_times$trip_id %in% trips_ids)
   stops_ids <- union(stops_ids_geografi, unique(stop_times_filtrerade$stop_id))
 
   service_ids <- unique(trips_filtrerade$service_id)
   shape_ids   <- unique(trips_filtrerade$shape_id)
-  agency_ids  <- unique(gtfs_data$routes[route_id %in% route_ids]$agency_id)
+  agency_ids  <- unique(routes$agency_id[routes$route_id %in% route_ids])
 
   message(glue::glue(
     "{length(trips_ids)} trips | {length(route_ids)} routes | ",
@@ -763,38 +747,38 @@ gtfs_filtrera_geografiskt <- function(gtfs_data, polygon, buffert_km = 0, gtfs_d
 
   # 4. Bygg filtrerat gtfs-objekt
   gtfs_filtrerat <- gtfs_data
-  gtfs_filtrerat$stops      <- gtfs_data$stops[stop_id %in% stops_ids]
+  gtfs_filtrerat$stops      <- rader(gtfs_data$stops, gtfs_data$stops$stop_id %in% stops_ids)
   gtfs_filtrerat$stop_times <- stop_times_filtrerade
   gtfs_filtrerat$trips      <- trips_filtrerade
-  gtfs_filtrerat$routes     <- gtfs_data$routes[route_id %in% route_ids]
-  gtfs_filtrerat$agency     <- gtfs_data$agency[agency_id %in% agency_ids]
+  gtfs_filtrerat$routes     <- rader(routes, routes$route_id %in% route_ids)
 
-  # calendar_dates finns i båda formaten
+  if (!is.null(gtfs_data$agency)) {
+    gtfs_filtrerat$agency <- rader(gtfs_data$agency, gtfs_data$agency$agency_id %in% agency_ids)
+  }
   if (!is.null(gtfs_data$calendar_dates)) {
-    gtfs_filtrerat$calendar_dates <- gtfs_data$calendar_dates[service_id %in% service_ids]
+    gtfs_filtrerat$calendar_dates <- rader(gtfs_data$calendar_dates,
+                                           gtfs_data$calendar_dates$service_id %in% service_ids)
   }
-  # shapes finns i båda men kan vara NULL efter as_dt_gtfs()
+  # calendar filtreras för båda dataset (tidigare bara för sweden_3, vilket lämnade
+  # kvar service_id utan turer i regional)
+  if (!is.null(gtfs_data$calendar)) {
+    gtfs_filtrerat$calendar <- rader(gtfs_data$calendar, gtfs_data$calendar$service_id %in% service_ids)
+  }
   if (!is.null(gtfs_data$shapes)) {
-    gtfs_filtrerat$shapes <- gtfs_data$shapes[shape_id %in% shape_ids]
+    gtfs_filtrerat$shapes <- rader(gtfs_data$shapes, gtfs_data$shapes$shape_id %in% shape_ids)
   }
-
-  # ── Endast sweden_3 ────────────────────────────────────────────────────
-  if (sweden_3) {
-    if (!is.null(gtfs_data$calendar)) {
-      gtfs_filtrerat$calendar <- gtfs_data$calendar[service_id %in% service_ids]
-    }
-    if (!is.null(gtfs_data$transfers)) {
-      gtfs_filtrerat$transfers <- gtfs_data$transfers[
-        from_stop_id %in% stops_ids | to_stop_id %in% stops_ids
-      ]
-    }
-    if (!is.null(gtfs_data$attributions)) {
-      gtfs_filtrerat$attributions <- gtfs_data$attributions[trip_id %in% trips_ids]
-    }
-    if (!is.null(gtfs_data$feed_info)) {
-      gtfs_filtrerat$feed_info <- gtfs_data$feed_info  # ingen filtrering, gäller hela feeden
-    }
+  # En transfer måste ha BÅDA stoppen kvar (tidigare "eller", vilket ger trasig
+  # referensintegritet)
+  if (!is.null(gtfs_data$transfers)) {
+    gtfs_filtrerat$transfers <- rader(gtfs_data$transfers,
+                                      gtfs_data$transfers$from_stop_id %in% stops_ids & gtfs_data$transfers$to_stop_id %in% stops_ids)
   }
+  # attributions utan trip_id gäller hela feeden och behålls
+  if (!is.null(gtfs_data$attributions)) {
+    gtfs_filtrerat$attributions <- rader(gtfs_data$attributions,
+                                         gtfs_data$attributions$trip_id %in% c(trips_ids, "", NA))
+  }
+  # feed_info gäller hela feeden och filtreras inte
 
-  return(gtfs_filtrerat)
+  gtfs_filtrerat
 }
