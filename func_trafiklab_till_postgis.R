@@ -767,11 +767,11 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn, agency_id = NULL, ag
   # vy_suffix styr namnet på vyerna, t.ex. "_dt" för Dalatrafik.
   # Om agency_id anges men vy_suffix inte anges, används agency_id som suffix.
   #
-  # Kolumnen "operator" i resultatet är en kommaseparerad textsträng (samma
-  # mönster som "linjer" och "linjetyper") med samtliga operatörsnamn som
-  # trafikerar hållplatsen - en hållplats kan trafikeras av flera operatörer
-  # samtidigt. Textformat valdes framför en array eftersom det är enklare att
-  # filtrera på i t.ex. QGIS (LIKE-filter) och stöds vid export till shapefile.
+  # Kolumnerna "operator", "fordonstyp" och "route_type" (råa GTFS-koder,
+  # t.ex. "106, 700") är kommaseparerade textsträngar
+  # (samma mönster som "linjer" och "linjetyper") eftersom en hållplats kan
+  # trafikeras av flera operatörer och fordonstyper samtidigt. Textformat är
+  # enkelt att filtrera på i QGIS (LIKE) och stöds vid shapefile-export.
 
   if (!is.null(agency_namn)) {
     if (!is.null(agency_id)) {
@@ -796,6 +796,22 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn, agency_id = NULL, ag
   } else {
     ""
   }
+
+  # Översätter GTFS route_type till en läsbar fordonstyp. Trafiklabs feeds
+  # använder utökade (HVT-)koder där typerna ligger i intervall (100-serien =
+  # tåg, 700-serien = buss osv.). Standardkoderna 0-4 tas med som reserv.
+  # OBS: koderna följer Samtrafikens dokumentation (1501 = förbeställningstrafik,
+  # 401 = tunnelbana, 714 = tågersättningsbuss som räknas som Buss). Kontrollera vid behov med:
+  # SELECT route_type, COUNT(*) FROM gtfs.routes GROUP BY route_type;
+  fordonstyp_sql <- "CASE
+          WHEN r.route_type BETWEEN 100 AND 199 OR r.route_type = 2 THEN 'Tåg'
+          WHEN r.route_type BETWEEN 400 AND 499 OR r.route_type = 1 THEN 'Tunnelbana'
+          WHEN r.route_type BETWEEN 200 AND 299 OR r.route_type BETWEEN 700 AND 799 OR r.route_type = 3 THEN 'Buss'
+          WHEN r.route_type BETWEEN 900 AND 999 OR r.route_type = 0 THEN 'Spårvagn'
+          WHEN r.route_type BETWEEN 1000 AND 1099 OR r.route_type = 4 THEN 'Färja'
+          WHEN r.route_type BETWEEN 1500 AND 1599 THEN 'Förbeställningstrafik'
+          ELSE 'Övrigt'
+        END"
 
   # Error handling
   tryCatch({
@@ -852,12 +868,14 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn, agency_id = NULL, ag
           ORDER BY
               stop_id, total_veckans_avgangar DESC
       ),
-      routes_per_stop AS ( -- Combines routes, their klassificering, och operatörer som trafikerar varje hållplats, filtered per operator if agency_id is set
+      routes_per_stop AS ( -- Combines routes, klassificering, operatörer och fordonstyper som trafikerar varje hållplats, filtered per operator if agency_id is set
           SELECT
               st.stop_id,
               STRING_AGG(DISTINCT r.route_short_name::TEXT, ',') AS linjer,
               STRING_AGG(DISTINCT lc.klassificering, ',') AS linjetyper,
-              STRING_AGG(DISTINCT ag.agency_name, ',') AS operator
+              STRING_AGG(DISTINCT ag.agency_name, ',') AS operator,
+              STRING_AGG(DISTINCT {fordonstyp_sql}, ',') AS fordonstyp,
+              STRING_AGG(DISTINCT r.route_type::TEXT, ',') AS route_type
           FROM
               {schema}.stop_times st
           JOIN
@@ -887,6 +905,8 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn, agency_id = NULL, ag
           rs.linjer,
           rs.linjetyper,
           rs.operator,
+          rs.fordonstyp,
+          rs.route_type,
           st.geometry
       FROM
           normal_vecka nv
@@ -928,6 +948,18 @@ skapa_vyer_hallplats <- function(con, schema = schema_namn, agency_id = NULL, ag
         ORDER BY unnest
       ), ', '
       ) AS operator,
+      ARRAY_TO_STRING(
+        ARRAY(
+          SELECT DISTINCT unnest(string_to_array(STRING_AGG(DISTINCT nva.fordonstyp, ',' ORDER BY nva.fordonstyp), ','))
+        ORDER BY unnest
+      ), ', '
+      ) AS fordonstyp,
+      ARRAY_TO_STRING(
+        ARRAY(
+          SELECT DISTINCT unnest(string_to_array(STRING_AGG(DISTINCT nva.route_type, ',' ORDER BY nva.route_type), ','))
+        ORDER BY unnest
+      ), ', '
+      ) AS route_type,
       COALESCE(h.geometry, nva.geometry) AS geometry
   FROM
       {schema}.{vy_hallplatslage} nva
@@ -956,6 +988,11 @@ skapa_vyer_historisk_hallplats <- function(con, schema = schema_namn, agency_id 
   # över versioner.
   #
   # vy_suffix styr namnet på vyerna, t.ex. "_dt" för Dalatrafik.
+  #
+  # Kolumnerna "operator", "fordonstyp" och "route_type" (råa GTFS-koder,
+  # t.ex. "106, 700") är kommaseparerade textsträngar, precis som i den
+  # aktuella funktionen skapa_vyer_hallplats(), eftersom en hållplats kan
+  # trafikeras av flera operatörer och fordonstyper samtidigt.
 
   if (!is.null(agency_namn)) {
     if (!is.null(agency_id)) {
@@ -980,6 +1017,20 @@ skapa_vyer_historisk_hallplats <- function(con, schema = schema_namn, agency_id 
   } else {
     ""
   }
+
+  # Översätter GTFS route_type till en läsbar fordonstyp (samma som i de
+  # aktuella funktionerna). Trafiklabs feeds använder utökade (HVT-)koder:
+  # 100-serien = tåg, 401 = tunnelbana, 700-serien = buss (inkl. 714
+  # tågersättningsbuss), 900 = spårvagn, 1000 = färja, 1501 = förbeställningstrafik.
+  fordonstyp_sql <- "CASE
+              WHEN r.route_type BETWEEN 100 AND 199 OR r.route_type = 2 THEN 'Tåg'
+              WHEN r.route_type BETWEEN 400 AND 499 OR r.route_type = 1 THEN 'Tunnelbana'
+              WHEN r.route_type BETWEEN 200 AND 299 OR r.route_type BETWEEN 700 AND 799 OR r.route_type = 3 THEN 'Buss'
+              WHEN r.route_type BETWEEN 900 AND 999 OR r.route_type = 0 THEN 'Spårvagn'
+              WHEN r.route_type BETWEEN 1000 AND 1099 OR r.route_type = 4 THEN 'Färja'
+              WHEN r.route_type BETWEEN 1500 AND 1599 THEN 'Förbeställningstrafik'
+              ELSE 'Övrigt'
+            END"
 
   tryCatch({
     schema <- glue::glue("{schema}_historisk")
@@ -1044,7 +1095,10 @@ skapa_vyer_historisk_hallplats <- function(con, schema = schema_namn, agency_id 
               st.stop_id,
               v.version,
               STRING_AGG(DISTINCT r.route_short_name::TEXT, ', ') AS linjer,
-              STRING_AGG(DISTINCT lc.klassificering, ', ') AS linjetyper
+              STRING_AGG(DISTINCT lc.klassificering, ', ') AS linjetyper,
+              STRING_AGG(DISTINCT ag.agency_name, ', ') AS operator,
+              STRING_AGG(DISTINCT {fordonstyp_sql}, ', ') AS fordonstyp,
+              STRING_AGG(DISTINCT r.route_type::TEXT, ', ') AS route_type
           FROM
               {schema}.stop_times st
           JOIN
@@ -1053,6 +1107,8 @@ skapa_vyer_historisk_hallplats <- function(con, schema = schema_namn, agency_id 
               {schema}.routes r ON t.route_id = r.route_id AND t.version = r.version
           LEFT JOIN
               {schema}.linjeklassificering lc ON r.route_short_name = lc.route_short_name AND r.version = lc.version
+          LEFT JOIN
+              {schema}.agency ag ON r.agency_id = ag.agency_id AND r.version = ag.version
           JOIN
               {schema}.versions v ON t.version = v.version
           WHERE
@@ -1075,6 +1131,9 @@ skapa_vyer_historisk_hallplats <- function(con, schema = schema_namn, agency_id 
           ROUND(nv.total_veckans_avgangar / 7.0, 2) AS genomsnitt_dagliga_avgangar,
           rs.linjer,
           rs.linjetyper,
+          rs.operator,
+          rs.fordonstyp,
+          rs.route_type,
           ST_SetSRID(st.geometry, 3006) AS geometry, -- Ensure the SRID is correct
           v.start_date AS startdatum,
           v.end_date AS slutdatum,
@@ -1119,6 +1178,24 @@ skapa_vyer_historisk_hallplats <- function(con, schema = schema_namn, agency_id 
             ORDER BY unnest
           ), ', '
           ) AS linjetyper,
+          ARRAY_TO_STRING(
+            ARRAY(
+              SELECT DISTINCT unnest(string_to_array(STRING_AGG(DISTINCT nva.operator, ', ' ORDER BY nva.operator), ', '))
+            ORDER BY unnest
+          ), ', '
+          ) AS operator,
+          ARRAY_TO_STRING(
+            ARRAY(
+              SELECT DISTINCT unnest(string_to_array(STRING_AGG(DISTINCT nva.fordonstyp, ', ' ORDER BY nva.fordonstyp), ', '))
+            ORDER BY unnest
+          ), ', '
+          ) AS fordonstyp,
+          ARRAY_TO_STRING(
+            ARRAY(
+              SELECT DISTINCT unnest(string_to_array(STRING_AGG(DISTINCT nva.route_type, ', ' ORDER BY nva.route_type), ', '))
+            ORDER BY unnest
+          ), ', '
+          ) AS route_type,
           COALESCE(ST_SetSRID(h.geometry, 3006), nva.geometry) AS geometry -- Ensure the SRID is correct
       FROM
           {schema}.{vy_hallplatslage} nva
@@ -1148,6 +1225,10 @@ skapa_vyer_historisk_linjer <- function(con, schema = schema_namn, agency_id = N
   # agency_namn slås upp mot agency-tabellen i grundschemat (INTE _historisk).
   #
   # vy_suffix styr namnet på vyerna, t.ex. "_dt" för Dalatrafik.
+  #
+  # Kolumnen "operator" är operatörsnamnet för linjen. "route_type" är den
+  # råa GTFS-koden och "fordonstyp" en läsbar grupp (Tåg, Buss osv.) härledd
+  # från den, precis som i den aktuella funktionen skapa_vyer_linjer().
 
   if (!is.null(agency_namn)) {
     if (!is.null(agency_id)) {
@@ -1172,6 +1253,20 @@ skapa_vyer_historisk_linjer <- function(con, schema = schema_namn, agency_id = N
   } else {
     ""
   }
+
+  # Översätter GTFS route_type till en läsbar fordonstyp (samma som i de
+  # aktuella funktionerna). Trafiklabs feeds använder utökade (HVT-)koder:
+  # 100-serien = tåg, 401 = tunnelbana, 700-serien = buss (inkl. 714
+  # tågersättningsbuss), 900 = spårvagn, 1000 = färja, 1501 = förbeställningstrafik.
+  fordonstyp_sql <- "CASE
+                  WHEN r.route_type BETWEEN 100 AND 199 OR r.route_type = 2 THEN 'Tåg'
+                  WHEN r.route_type BETWEEN 400 AND 499 OR r.route_type = 1 THEN 'Tunnelbana'
+                  WHEN r.route_type BETWEEN 200 AND 299 OR r.route_type BETWEEN 700 AND 799 OR r.route_type = 3 THEN 'Buss'
+                  WHEN r.route_type BETWEEN 900 AND 999 OR r.route_type = 0 THEN 'Spårvagn'
+                  WHEN r.route_type BETWEEN 1000 AND 1099 OR r.route_type = 4 THEN 'Färja'
+                  WHEN r.route_type BETWEEN 1500 AND 1599 THEN 'Förbeställningstrafik'
+                  ELSE 'Övrigt'
+                END"
 
   tryCatch({
     schema <- glue::glue("{schema}_historisk")
@@ -1239,7 +1334,10 @@ skapa_vyer_historisk_linjer <- function(con, schema = schema_namn, agency_id = N
               r.route_id,
               r.route_short_name,
               r.route_long_name,
+              r.route_type,
+              {fordonstyp_sql} AS fordonstyp,
               lc.klassificering,
+              ag.agency_name AS operator,
               r.version
           FROM
               {schema}.shapes_line sl
@@ -1249,6 +1347,8 @@ skapa_vyer_historisk_linjer <- function(con, schema = schema_namn, agency_id = N
               {schema}.routes r ON t.route_id = r.route_id AND t.version = r.version
           LEFT JOIN
               {schema}.linjeklassificering lc ON r.route_short_name = lc.route_short_name AND r.version = lc.version
+          LEFT JOIN
+              {schema}.agency ag ON r.agency_id = ag.agency_id AND r.version = ag.version
           WHERE
               1 = 1
               {agency_filter}
@@ -1259,6 +1359,9 @@ skapa_vyer_historisk_linjer <- function(con, schema = schema_namn, agency_id = N
           si.route_short_name AS linjenummer,
           si.route_long_name,
           si.klassificering,
+          si.operator,
+          si.route_type,
+          si.fordonstyp,
           si.antal_punkter,
           si.max_dist AS max_avstand_punkter,
           si.geometry,
@@ -1281,7 +1384,7 @@ skapa_vyer_historisk_linjer <- function(con, schema = schema_namn, agency_id = N
       WHERE
           nv.rank = 1
       GROUP BY
-          si.shape_id, si.route_short_name, si.route_long_name, si.klassificering, si.antal_punkter, si.max_dist, si.geometry, si.version, v.start_date, v.end_date, nv.total_veckodag_avgangar, nv.total_lordag_avgangar, nv.total_sondag_avgangar, nv.total_veckans_avgangar;
+          si.shape_id, si.route_short_name, si.route_long_name, si.klassificering, si.operator, si.route_type, si.fordonstyp, si.antal_punkter, si.max_dist, si.geometry, si.version, v.start_date, v.end_date, nv.total_veckodag_avgangar, nv.total_lordag_avgangar, nv.total_sondag_avgangar, nv.total_veckans_avgangar;
     ")
     dbExecute(con, sql_alla_linjer_avgangar)
 
@@ -1293,6 +1396,9 @@ skapa_vyer_historisk_linjer <- function(con, schema = schema_namn, agency_id = N
               unique_id,
               linjenummer,
               klassificering,
+              operator,
+              route_type,
+              fordonstyp,
               shape_id,
               antal_turer,
               genomsnitt_veckodag_avgangar,
@@ -1313,6 +1419,9 @@ skapa_vyer_historisk_linjer <- function(con, schema = schema_namn, agency_id = N
           unique_id,
           linjenummer,
           klassificering,
+          operator,
+          route_type,
+          fordonstyp,
           shape_id,
           antal_turer,
           genomsnitt_veckodag_avgangar,
@@ -1350,7 +1459,9 @@ skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agenc
   # vy_suffix styr namnet på vyerna, t.ex. "_dt" för Dalatrafik.
   # Om agency_id anges men vy_suffix inte anges, används agency_id som suffix.
   #
-  # Kolumnen "operator" i resultatet är operatörsnamnet för linjen.
+  # Kolumnen "operator" är operatörsnamnet för linjen. "route_type" är den
+  # råa GTFS-koden och "fordonstyp" en läsbar grupp (Tåg, Buss osv.) härledd
+  # från den. En linje har alltid en operatör och en fordonstyp.
 
   if (!is.null(agency_namn)) {
     if (!is.null(agency_id)) {
@@ -1375,6 +1486,22 @@ skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agenc
   } else {
     ""
   }
+
+  # Översätter GTFS route_type till en läsbar fordonstyp. Trafiklabs feeds
+  # använder utökade (HVT-)koder där typerna ligger i intervall (100-serien =
+  # tåg, 700-serien = buss osv.). Standardkoderna 0-4 tas med som reserv.
+  # OBS: koderna följer Samtrafikens dokumentation (1501 = förbeställningstrafik,
+  # 401 = tunnelbana, 714 = tågersättningsbuss som räknas som Buss). Kontrollera vid behov med:
+  # SELECT route_type, COUNT(*) FROM gtfs.routes GROUP BY route_type;
+  fordonstyp_sql <- "CASE
+              WHEN r.route_type BETWEEN 100 AND 199 OR r.route_type = 2 THEN 'Tåg'
+              WHEN r.route_type BETWEEN 400 AND 499 OR r.route_type = 1 THEN 'Tunnelbana'
+              WHEN r.route_type BETWEEN 200 AND 299 OR r.route_type BETWEEN 700 AND 799 OR r.route_type = 3 THEN 'Buss'
+              WHEN r.route_type BETWEEN 900 AND 999 OR r.route_type = 0 THEN 'Spårvagn'
+              WHEN r.route_type BETWEEN 1000 AND 1099 OR r.route_type = 4 THEN 'Färja'
+              WHEN r.route_type BETWEEN 1500 AND 1599 THEN 'Förbeställningstrafik'
+              ELSE 'Övrigt'
+            END"
 
   tryCatch({
     # Drop the materialized view if it exists
@@ -1431,7 +1558,7 @@ skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agenc
           ORDER BY
               shape_id, route_id, total_veckans_avgangar DESC
       ),
-      shapes_info AS ( -- Join shapes_line and routes with their classifications och operatörsnamn via trips, filtered per operator if agency_id is set
+      shapes_info AS ( -- Join shapes_line and routes with their classifications, operatörsnamn och fordonstyp via trips, filtered per operator if agency_id is set
           SELECT
               sl.shape_id,
               sl.antal_punkter,
@@ -1440,6 +1567,8 @@ skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agenc
               r.route_id,
               r.route_short_name,
               r.route_long_name,
+              r.route_type,
+              {fordonstyp_sql} AS fordonstyp,
               lc.klassificering,
               ag.agency_name AS operator
           FROM
@@ -1462,6 +1591,8 @@ skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agenc
           si.route_long_name,
           si.klassificering,
           si.operator,
+          si.route_type,
+          si.fordonstyp,
           si.antal_punkter,
           si.max_dist AS max_avstand_punkter,
           si.geometry,
@@ -1479,7 +1610,7 @@ skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agenc
       WHERE
           nv.rank = 1
       GROUP BY
-          si.shape_id, si.route_short_name, si.route_long_name, si.klassificering, si.operator, si.antal_punkter, si.max_dist, si.geometry, nv.total_veckodag_avgangar, nv.total_lordag_avgangar, nv.total_sondag_avgangar, nv.total_veckans_avgangar;
+          si.shape_id, si.route_short_name, si.route_long_name, si.klassificering, si.operator, si.route_type, si.fordonstyp, si.antal_punkter, si.max_dist, si.geometry, nv.total_veckodag_avgangar, nv.total_lordag_avgangar, nv.total_sondag_avgangar, nv.total_veckans_avgangar;
     ")
     dbExecute(con, sql_alla_linjer_avgangar)
 
@@ -1491,6 +1622,8 @@ skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agenc
               linjenummer,
               klassificering,
               operator,
+              route_type,
+              fordonstyp,
               shape_id,
               antal_turer,
               genomsnitt_veckodag_avgangar,
@@ -1508,6 +1641,8 @@ skapa_vyer_linjer <- function(con, schema = schema_namn, agency_id = NULL, agenc
           linjenummer,
           klassificering,
           operator,
+          route_type,
+          fordonstyp,
           shape_id,
           antal_turer,
           genomsnitt_veckodag_avgangar,
