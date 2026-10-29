@@ -403,9 +403,16 @@ telemetri_ui <- function(telemetry) {
 #' Hamtar exkluderingsmonster fran databasen (med hardkodad fallback om
 #' den inte gar att na), sa alla appar kan uppdateras centralt utan
 #' kodandring/redeploy.
+#'
+#' Vi matter bara sessioner, inte unika anvandare - track_anonymous_user
+#' satts darfor till FALSE. Annars satter shiny.telemetry en cookie med en
+#' anonym men personlig identifierare (365 dagars livslangd) i webblasaren
+#' for att kanna igen aterkommande besokare - mattet gick anda inte att
+#' lita pa (sessioner och "unika anvandare" lag nastan exakt lika i
+#' adminportalens statistik for alla appar), sa battre att slippa cookien.
 telemetri_server <- function(telemetry, navigation_id, forsta_flik = NULL) {
   if (is.null(telemetry)) return(invisible(NULL))
-  
+
   regex <- tryCatch({
     con <- shiny_uppkoppling_las(db_name = "sekretess", db_user = "shiny_las_sekretess")
     on.exit(DBI::dbDisconnect(con), add = TRUE)
@@ -414,12 +421,13 @@ telemetri_server <- function(telemetry, navigation_id, forsta_flik = NULL) {
     ")
     if (nrow(r) > 0) r$varde[1] else NA_character_
   }, error = function(e) NA_character_)
-  
+
   if (is.na(regex)) {
     regex <- "(_hovered$|_zoom$|_center$|_bounds$|_mouseover$|_mouseout$|_selected$|_set$)"
   }
-  
-  telemetry$start_session(track_inputs = FALSE, navigation_input_id = navigation_id)
+
+  telemetry$start_session(track_inputs = FALSE, navigation_input_id = navigation_id,
+                          track_anonymous_user = FALSE)
   telemetry$log_all_inputs(excluded_inputs_regex = regex, excluded_inputs = navigation_id)
   
   if (!is.null(forsta_flik)) {
@@ -469,27 +477,16 @@ hamta_telemetri_data <- function(app_namn, target = c("publik", "intern"), fran 
   if (nrow(rader) == 0) {
     return(list(
       antal_sessioner       = 0,
-      antal_unika_anvandare = 0,
       flikbesok             = tom_tabell(c("flik", "antal")),
       per_veckodag          = tom_tabell(c("veckodag", "antal")),
       per_timme             = tom_tabell(c("timme", "antal")),
       per_veckodag_timme    = tom_tabell(c("veckodag", "timme", "antal"))
     ))
   }
-  
+
   # ---- Antal sessioner ----
   antal_sessioner <- length(unique(rader$session))
-  
-  # ---- Unika anvandare (via login-eventens anon_user_-id) ----
-  login_rader <- rader[rader$type == "login", ]
-  anvandar_id <- if (nrow(login_rader) > 0) {
-    vapply(login_rader$details, function(d) {
-      parsed <- jsonlite::fromJSON(d)
-      if (!is.null(parsed$username)) parsed$username[1] else NA_character_
-    }, character(1))
-  } else character(0)
-  antal_unika_anvandare <- length(unique(anvandar_id[!is.na(anvandar_id)]))
-  
+
   # ---- Flikbesok (navigation-events) ----
   nav_rader <- rader[rader$type == "navigation", ]
   flikar_valid <- character(0)
@@ -533,7 +530,6 @@ hamta_telemetri_data <- function(app_namn, target = c("publik", "intern"), fran 
   
   list(
     antal_sessioner       = antal_sessioner,
-    antal_unika_anvandare = antal_unika_anvandare,
     flikbesok             = flikbesok,
     per_veckodag          = per_veckodag,
     per_timme             = per_timme,
@@ -547,7 +543,7 @@ hamta_telemetri_appar <- function() {
   con <- shiny_uppkoppling_las(db_name = "sekretess", db_user = "shiny_las_sekretess")
   if (is.null(con)) stop("Kunde inte ansluta till databasen.", call. = FALSE)
   on.exit(DBI::dbDisconnect(con), add = TRUE)
-  
+
   df <- DBI::dbGetQuery(con, "
     SELECT app_name,
            count(DISTINCT session) AS antal_sessioner,
@@ -557,30 +553,15 @@ hamta_telemetri_appar <- function() {
     GROUP BY app_name
     ORDER BY app_name
   ")
-  
+
   if (nrow(df) == 0) return(df)
-  
+
   # app_namn slutar alltid pa _intern eller _publik (satt av skapa_telemetry())
   df$server <- ifelse(grepl("_intern$", df$app_name), "intern",
                       ifelse(grepl("_publik$", df$app_name), "publik", NA_character_))
   df$app <- sub("_(intern|publik)$", "", df$app_name)
-  
-  # Unika anvandare per app maste raknas separat (kraver JSON-parsning av login-events)
-  unika <- vapply(df$app_name, function(namn) {
-    login_rader <- DBI::dbGetQuery(con, "
-      SELECT details FROM shiny_telemetry.event_log
-      WHERE app_name = $1 AND type = 'login'
-    ", params = list(namn))
-    if (nrow(login_rader) == 0) return(0L)
-    id <- vapply(login_rader$details, function(d) {
-      p <- jsonlite::fromJSON(d)
-      if (!is.null(p$username)) p$username[1] else NA_character_
-    }, character(1))
-    length(unique(id[!is.na(id)]))
-  }, integer(1))
-  df$antal_unika_anvandare <- unika
-  
-  df[, c("app", "server", "antal_sessioner", "antal_unika_anvandare",
+
+  df[, c("app", "server", "antal_sessioner",
          "forsta_aktivitet", "senaste_aktivitet")]
 }
 
