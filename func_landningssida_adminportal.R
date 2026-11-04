@@ -311,7 +311,7 @@ landningssida_ikoner_koppla <- function(target = c("publik", "intern"), namn, ik
 landningssida_ikoner_ta_bort_koppling <- function(target = c("publik", "intern"), namn) {
   target <- .landningssida_validera_target(target)
   .landningssida_validera_namn(namn)
-
+  
   con <- shiny_uppkoppling_skriv(db_name = "sekretess", db_user = "shiny_skriv_sekretess")
   on.exit(DBI::dbDisconnect(con), add = TRUE)
   borttagna <- 0
@@ -321,7 +321,7 @@ landningssida_ikoner_ta_bort_koppling <- function(target = c("publik", "intern")
       WHERE server = $1 AND namn = $2
     ", params = list(target, n))
   }
-
+  
   if (target == "intern") {
     resultat <- system2("/usr/local/bin/generera_landningssida.sh", stdout = TRUE, stderr = TRUE)
     status <- attr(resultat, "status")
@@ -331,89 +331,6 @@ landningssida_ikoner_ta_bort_koppling <- function(target = c("publik", "intern")
     message(borttagna, " ikonkoppling(ar) borttagna (intern). Landningssidan ar regenererad.")
   } else {
     message(borttagna, " ikonkoppling(ar) borttagna (publik). ",
-            "Andringen synkas automatiskt inom nagra sekunder.")
-  }
-  invisible(TRUE)
-}
-
-# ==============================================================================
-# Beskrivningar
-#
-# Samma monster som ikoner: en rad i adminshiny.landningssida_beskrivning
-# vinner alltid over en eventuell APP_BESKRIVNING i appens egen kod (se
-# extrahera_appbeskrivning() i generera_landningssida.R). Anvands bl.a. for
-# appar som ar importerade fran externa repon (t.ex. via git subtree, som
-# ncdsim) dar det inte gar att - eller ar olampligt att - andra kallkoden.
-#
-# Till skillnad fran landningssida_ikoner_lista() finns ingen separat
-# lista()-funktion med lokalt sudo-anrop for intern har - den delade
-# oversikten (landningssida_app_oversikt()) fragar redan databasen direkt
-# for bade publik och intern, sa den racker for adminportalens UI.
-# ==============================================================================
-
-#' Satt eller andra en beskrivning for en app eller rapport
-#' @param target "publik" eller "intern"
-#' @param namn mappnamnet
-#' @param beskrivning fri text, visas istallet for APP_BESKRIVNING/kodens
-#'   beskrivning pa landningssidans kort
-#' @param andrad_av valfri identifierare (bara publik, loggas i DB)
-landningssida_beskrivning_koppla <- function(target = c("publik", "intern"), namn, beskrivning, andrad_av = NA_character_) {
-  target <- .landningssida_validera_target(target)
-  stopifnot(is.character(namn), length(namn) == 1, nzchar(namn))
-  stopifnot(is.character(beskrivning), length(beskrivning) == 1)
-  beskrivning <- trimws(beskrivning)
-  if (!nzchar(beskrivning)) {
-    stop("Beskrivningen kan inte vara tom - anvand landningssida_beskrivning_ta_bort_koppling() for att ta bort overriden.", call. = FALSE)
-  }
-
-  con <- shiny_uppkoppling_skriv(db_name = "sekretess", db_user = "shiny_skriv_sekretess")
-  on.exit(DBI::dbDisconnect(con), add = TRUE)
-  DBI::dbExecute(con, "
-    INSERT INTO adminshiny.landningssida_beskrivning (server, namn, beskrivning, satt_av)
-    VALUES ($1, $2, $3, $4)
-    ON CONFLICT (server, namn) DO UPDATE SET beskrivning = EXCLUDED.beskrivning, satt_tid = now()
-  ", params = list(target, namn, beskrivning, andrad_av))
-
-  if (target == "intern") {
-    resultat <- system2("/usr/local/bin/generera_landningssida.sh", stdout = TRUE, stderr = TRUE)
-    status <- attr(resultat, "status")
-    if (!is.null(status) && status != 0) {
-      stop("generera_landningssida.sh misslyckades: ", paste(resultat, collapse = "\n"), call. = FALSE)
-    }
-    message("Beskrivning kopplad (intern): ", namn, ". Landningssidan ar regenererad.")
-  } else {
-    message("Beskrivning kopplad (publik): ", namn,
-            ". Andringen synkas automatiskt inom nagra sekunder.")
-  }
-  invisible(TRUE)
-}
-
-#' Ta bort en manuell beskrivningskoppling (atergar till APP_BESKRIVNING/kodens egen, om nagon finns)
-#' @param target "publik" eller "intern"
-#' @param namn mappnamnet vars koppling ska tas bort
-landningssida_beskrivning_ta_bort_koppling <- function(target = c("publik", "intern"), namn) {
-  target <- .landningssida_validera_target(target)
-  .landningssida_validera_namn(namn)
-
-  con <- shiny_uppkoppling_skriv(db_name = "sekretess", db_user = "shiny_skriv_sekretess")
-  on.exit(DBI::dbDisconnect(con), add = TRUE)
-  borttagna <- 0
-  for (n in namn) {
-    borttagna <- borttagna + DBI::dbExecute(con, "
-      DELETE FROM adminshiny.landningssida_beskrivning
-      WHERE server = $1 AND namn = $2
-    ", params = list(target, n))
-  }
-
-  if (target == "intern") {
-    resultat <- system2("/usr/local/bin/generera_landningssida.sh", stdout = TRUE, stderr = TRUE)
-    status <- attr(resultat, "status")
-    if (!is.null(status) && status != 0) {
-      stop("generera_landningssida.sh misslyckades: ", paste(resultat, collapse = "\n"), call. = FALSE)
-    }
-    message(borttagna, " beskrivningskoppling(ar) borttagna (intern). Landningssidan ar regenererad.")
-  } else {
-    message(borttagna, " beskrivningskoppling(ar) borttagna (publik). ",
             "Andringen synkas automatiskt inom nagra sekunder.")
   }
   invisible(TRUE)
@@ -521,15 +438,12 @@ landningssida_app_oversikt <- function(target = c("publik", "intern"), visa_bort
       a.status,
       a.senast_sedd,
       (e.namn IS NOT NULL) AS exkluderad,
-      i.ikon,
-      b.beskrivning
+      i.ikon
     FROM adminshiny.landningssida_app a
     LEFT JOIN adminshiny.landningssida_exkludering e
       ON e.server = a.server AND e.namn = a.namn
     LEFT JOIN adminshiny.landningssida_ikon i
       ON i.server = a.server AND i.namn = a.namn
-    LEFT JOIN adminshiny.landningssida_beskrivning b
-      ON b.server = a.server AND b.namn = a.namn
     WHERE a.server = $1 %s
     ORDER BY a.typ, a.namn
   ", status_villkor), params = list(target))
